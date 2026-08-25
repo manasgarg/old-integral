@@ -164,6 +164,9 @@ export class Coordinator {
   >();
   private token = "";
   private refreshTimer: unknown;
+  private refreshWork: Promise<void> | undefined;
+  private refreshCoalesced = 0;
+  private outboxFlush: Promise<void> | undefined;
   private catalogRefresh: unknown;
   private workChain: Promise<unknown> = Promise.resolve();
   private connectionGeneration: number | undefined;
@@ -215,7 +218,7 @@ export class Coordinator {
       ),
     );
     this.refreshTimer = this.dependencies.intervals.setInterval(
-      () => void this.refresh(),
+      () => void this.refresh().catch(() => undefined),
       500,
     );
     this.catalogRefresh = this.dependencies.defer(() => {
@@ -483,6 +486,12 @@ export class Coordinator {
           origin,
         });
       await ingress.record(message.id);
+      this.logger?.event(
+        "info",
+        "discord.message_accepted",
+        "accepted Discord conversation message",
+        { message_id: item.id, conversation_id: scope.id },
+      );
       await scope.discord?.listener.typing(true).catch(() => undefined);
       if (!scope.modelSelection.get()) {
         await this.deliverDiscord(
@@ -519,12 +528,49 @@ export class Coordinator {
     });
   }
   private async refresh(): Promise<void> {
-    await Promise.all([
-      this.adoptGeneration(),
-      this.adoptExternalModelSelection(),
-      this.flushTaskOutbox(),
-      this.expireApprovals(),
-    ]);
+    if (this.refreshWork) {
+      this.refreshCoalesced++;
+      return this.refreshWork;
+    }
+    const started = this.dependencies.now(),
+      work = Promise.all([
+        this.adoptGeneration(),
+        this.adoptExternalModelSelection(),
+        this.flushTaskOutbox(),
+        this.expireApprovals(),
+      ]).then(() => undefined);
+    this.refreshWork = work;
+    let failed = false;
+    try {
+      await work;
+    } catch (error) {
+      failed = true;
+      this.logger?.event(
+        "warn",
+        "coordinator.refresh_failed",
+        error instanceof Error ? error.message : String(error),
+        {
+          elapsed_ms: this.dependencies.now() - started,
+          coalesced_intervals: this.refreshCoalesced,
+        },
+      );
+      throw error;
+    } finally {
+      this.refreshWork = undefined;
+      const coalesced = this.refreshCoalesced;
+      this.refreshCoalesced = 0;
+      if (coalesced && !failed) {
+        this.logger?.event(
+          "warn",
+          "coordinator.refresh_coalesced",
+          "coordinator maintenance exceeded its interval",
+          {
+            elapsed_ms: this.dependencies.now() - started,
+            coalesced_intervals: coalesced,
+          },
+        );
+      }
+    }
   }
   private async adoptExternalModelSelection(): Promise<void> {
     const previous = this.modelSelection.get();
@@ -539,11 +585,22 @@ export class Coordinator {
   }
 
   async flushTaskOutbox(): Promise<void> {
+    if (this.outboxFlush) return this.outboxFlush;
+    const work = this.flushTaskOutboxOnce();
+    this.outboxFlush = work;
+    try {
+      await work;
+    } finally {
+      this.outboxFlush = undefined;
+    }
+  }
+
+  private async flushTaskOutboxOnce(): Promise<void> {
     const outbox = this.tasks.outbox();
     if (!outbox.length) return;
     const secrets = await credentialSecretValues(this.paths);
     for (const entry of outbox) {
-      if (entry.origin) {
+      if (entry.origin && !entry.notificationDeliveredAt) {
         const scope = this.scopes.get(entry.origin.conversationId);
         if (scope?.discord) {
           const detail = entry.result
@@ -554,6 +611,18 @@ export class Coordinator {
           const text = `Task ${entry.taskId ?? entry.executionId} ${entry.outcome}${detail}. Inspect the complete task record with /tasks show.`;
           if (!(await this.deliverDiscord(scope, text))) continue;
           await scope.conversation.append({ type: "notification", text });
+          await this.tasks.markOutboxNotificationDelivered(entry.executionId);
+          this.logger?.event(
+            "info",
+            "task.notification_delivered",
+            "delivered task outcome notification",
+            {
+              execution_id: entry.executionId,
+              schedule_id: entry.scheduleId,
+              conversation_id: scope.id,
+              outcome: entry.outcome,
+            },
+          );
         }
       }
       const response = await this.dependencies
@@ -565,7 +634,30 @@ export class Coordinator {
           { method: "POST", body: JSON.stringify(entry) },
         )
         .catch(() => undefined);
-      if (response?.ok) await this.tasks.acknowledgeOutbox(entry.executionId);
+      if (response?.ok) {
+        await this.tasks.acknowledgeOutbox(entry.executionId);
+        this.logger?.event(
+          "debug",
+          "task.outbox_acknowledged",
+          "scheduler acknowledged task outcome",
+          {
+            execution_id: entry.executionId,
+            schedule_id: entry.scheduleId,
+            outcome: entry.outcome,
+          },
+        );
+      } else
+        this.logger?.event(
+          "warn",
+          "task.outbox_ack_failed",
+          "scheduler did not acknowledge task outcome",
+          {
+            execution_id: entry.executionId,
+            schedule_id: entry.scheduleId,
+            outcome: entry.outcome,
+            status: response?.status ?? "unavailable",
+          },
+        );
     }
   }
   private async adoptGeneration(): Promise<void> {
@@ -1490,6 +1582,17 @@ export class Coordinator {
           const scope = this.scopes.get("terminal")!;
           return { item: undefined, selection: undefined, scope };
         });
+        if (result.item)
+          this.logger?.event(
+            "info",
+            "queue.message_claimed",
+            "runner claimed conversation message",
+            {
+              message_id: result.item.id,
+              conversation_id: result.scope.id,
+              attempt: result.item.attempts,
+            },
+          );
         json(res, 200, {
           message: result.item,
           selection: result.selection ?? null,
@@ -1579,6 +1682,16 @@ export class Coordinator {
             : [];
           for (const steeredId of steered)
             await scope.queue.complete(steeredId);
+          this.logger?.event(
+            "info",
+            "queue.message_completed",
+            "completed conversation message",
+            {
+              message_id: id!,
+              conversation_id: scope.id,
+              steered_message_count: steered.length,
+            },
+          );
           if (scope.id === "terminal")
             this.broadcast("conversation.assistant", event);
           else await this.deliverDiscord(scope, event.text ?? "");
@@ -1593,6 +1706,16 @@ export class Coordinator {
               )
             : [];
           for (const steeredId of steered) await scope.queue.release(steeredId);
+          this.logger?.event(
+            "warn",
+            "queue.message_released",
+            "returned interrupted conversation message to the queue",
+            {
+              message_id: id!,
+              conversation_id: scope.id,
+              steered_message_count: steered.length,
+            },
+          );
           const event = await scope.conversation.append({
             type: "error",
             messageId: id!,

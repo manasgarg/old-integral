@@ -94,6 +94,67 @@ class ManualClock implements RunnerClock {
   }
 }
 
+/* @covers LOG-D079FCFE
+Given the runner claims a conversation message that requires a new Pi session
+	When it prepares resources, records the run, registers the gateway session, starts sidecars, starts Pi, and begins the prompt
+		Then it emits stable start, completion, slow-stage, and failure events at the appropriate log levels
+			And includes the applicable message, conversation, session, and run IDs
+			And includes elapsed time and a non-secret stage name
+			And does not include conversation text, credentials, or raw protocol payloads
+*/
+test("[LOG-D079FCFE] runner reports slow provisioning stages with correlated safe context", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    clock = new ManualClock(),
+    lines: string[] = [];
+  let now = 0,
+    release!: () => void;
+  const runner = new Runner(
+    paths,
+    config,
+    new Logger({
+      component: "runner",
+      deploymentId: "test",
+      level: "trace",
+      format: "json",
+      sink: (line) => lines.push(line),
+    }),
+    { clock, now: () => now },
+  );
+  (runner as any).currentMessageId = "message-1";
+  (runner as any).currentConversationId = "discord:channel-1";
+  const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    observed = (runner as any).observeStage(
+      "prepare-resources",
+      () => pending,
+      { session_id: "session-1", run_id: "run-1" },
+    ) as Promise<void>;
+  now = 31_000;
+  await clock.fire(30_000);
+  release();
+  await observed;
+
+  const events = lines.map((line) => JSON.parse(line));
+  assert.deepEqual(
+    events.map((event) => event.event),
+    ["runner.stage_started", "runner.stage_slow", "runner.stage_completed"],
+  );
+  assert.ok(
+    events.every(
+      (event) =>
+        event.message_id === "message-1" &&
+        event.conversation_id === "discord:channel-1" &&
+        event.session_id === "session-1" &&
+        event.run_id === "run-1" &&
+        event.stage === "prepare-resources",
+    ),
+  );
+  assert.equal(events[1].elapsed_ms, 31_000);
+  assert.doesNotMatch(lines.join(""), /conversation text|credential/i);
+});
+
 /* @covers FAILURE-3780301D
 Given the runner has not claimed its next message
 	When gateway state is missing or not ready

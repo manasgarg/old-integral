@@ -15,6 +15,11 @@ import {
 } from "../src/queue.ts";
 import { join } from "node:path";
 import { ApprovalStore } from "../src/approval-store.ts";
+import {
+  componentIdentity,
+  deploymentId,
+  internalHeaders,
+} from "../src/state.ts";
 
 async function until(check: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -73,7 +78,119 @@ async function coordinatorGet(
   return { status, body: text ? (JSON.parse(text) as unknown) : undefined };
 }
 
-test("Discord host commands use shared model, queue, task, and approval state", async (t) => {
+async function coordinatorPost(
+  coordinator: Coordinator,
+  path: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: unknown }> {
+  const request = Readable.from([
+    JSON.stringify(body),
+  ]) as unknown as IncomingMessage;
+  request.url = path;
+  request.method = "POST";
+  request.headers = { "content-type": "application/json", ...headers };
+  let status = 200,
+    text = "";
+  const response = {
+    setHeader() {},
+    writeHead(value: number) {
+      status = value;
+      return response;
+    },
+    end(value?: string) {
+      text = value ?? "";
+      return response;
+    },
+  } as unknown as ServerResponse;
+  await (
+    coordinator as unknown as {
+      route(req: IncomingMessage, res: ServerResponse): Promise<void>;
+    }
+  ).route(request, response);
+  return { status, body: text ? (JSON.parse(text) as unknown) : undefined };
+}
+
+/* @covers LOG-D079FCFE
+Given the coordinator accepts, claims, completes, or releases conversation work
+	When it emits diagnostics for that transition
+		Then it includes the conversation and message IDs without conversation text
+*/
+test("[LOG-D079FCFE] coordinator logs queue transitions without conversation text", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    coordinator = new Coordinator(
+      paths,
+      config,
+      {},
+      new Logger({
+        component: "coordinator",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  await Promise.all([
+    coordinator.queue.load(),
+    coordinator.conversation.load(),
+    coordinator.modelSelection.load(),
+  ]);
+  const token = await componentIdentity(paths);
+  (coordinator as unknown as { token: string }).token = token;
+  await coordinator.modelSelection.set({
+    connection: "shared",
+    provider: "anthropic",
+    model: "claude",
+    piVersion: "1",
+    piImage: "image",
+  });
+  const secretText = "private conversation text",
+    first = await coordinator.queue.enqueue(secretText),
+    headers = internalHeaders("runner", token, deploymentId(paths));
+
+  const claimed = await coordinatorPost(
+    coordinator,
+    "/integral/internal/claim",
+    {},
+    headers,
+  );
+  assert.equal(claimed.status, 200);
+  await coordinatorPost(
+    coordinator,
+    `/integral/internal/work/${first.id}/complete`,
+    { text: "private assistant text" },
+    headers,
+  );
+  const second = await coordinator.queue.enqueue("another private message");
+  await coordinatorPost(coordinator, "/integral/internal/claim", {}, headers);
+  await coordinatorPost(
+    coordinator,
+    `/integral/internal/work/${second.id}/release`,
+    { reason: "private failure reason" },
+    headers,
+  );
+
+  const events = lines.map(
+    (line) => JSON.parse(line) as Record<string, unknown>,
+  );
+  for (const [eventName, messageId] of [
+    ["queue.message_claimed", first.id],
+    ["queue.message_completed", first.id],
+    ["queue.message_released", second.id],
+  ]) {
+    const event = events.find((candidate) => candidate.event === eventName);
+    assert.equal(event?.message_id, messageId);
+    assert.equal(event?.conversation_id, "terminal");
+  }
+  assert.doesNotMatch(lines.join(""), /private conversation text/);
+  assert.doesNotMatch(lines.join(""), /private assistant text/);
+  assert.doesNotMatch(lines.join(""), /another private message/);
+  assert.doesNotMatch(lines.join(""), /private failure reason/);
+});
+
+test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, and approval state", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     coordinator = new Coordinator(paths, config),
@@ -216,6 +333,21 @@ test("Discord host commands use shared model, queue, task, and approval state", 
   );
   assert.match(failureNotice ?? "", /\/tasks show/);
   assert.doesNotMatch(failureNotice ?? "", /\/status/);
+  const delivered = discordReplies.filter((text) =>
+    text.includes("execution-failed"),
+  ).length;
+  assert.equal(delivered, 1);
+  assert.ok(
+    coordinator.tasks
+      .outbox()
+      .find((entry) => entry.executionId === "execution-failed")
+      ?.notificationDeliveredAt,
+  );
+  await coordinator.flushTaskOutbox();
+  assert.equal(
+    discordReplies.filter((text) => text.includes("execution-failed")).length,
+    delivered,
+  );
 
   const selection = {
     connection: "shared",
@@ -1036,6 +1168,83 @@ test("[SERVER-8A31D6C4] coordinator lifecycle can run against controlled listene
     "clear",
     "close",
   ]);
+});
+
+/* @covers SERVER-CBD35885
+Given a coordinator refresh or gateway connection reload is still running
+	When another periodic interval becomes due
+		Then Integral does not start overlapping maintenance for that component
+			And records how many intervals were coalesced when the active maintenance finishes
+			And a failed maintenance pass is reported without stopping later passes
+*/
+/* @covers LOG-D079FCFE
+Given periodic coordinator or gateway maintenance cannot keep up with its configured interval
+	When one or more interval invocations are coalesced or a pass fails
+		Then Integral emits one diagnostic for the completed or failed pass
+			And includes its elapsed time and coalesced interval count
+*/
+test("[SERVER-CBD35885] [LOG-D079FCFE] coordinator refresh is single-flight and reports coalesced intervals", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    coordinator = new Coordinator(
+      paths,
+      config,
+      {},
+      new Logger({
+        component: "coordinator",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  let release!: () => void,
+    generationRuns = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (coordinator as any).adoptGeneration = async () => {
+    generationRuns++;
+    await pending;
+  };
+  (coordinator as any).adoptExternalModelSelection = async () => undefined;
+  (coordinator as any).flushTaskOutbox = async () => undefined;
+  (coordinator as any).expireApprovals = async () => undefined;
+
+  const first = (coordinator as any).refresh() as Promise<void>;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = (coordinator as any).refresh() as Promise<void>;
+  assert.equal(generationRuns, 1);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(generationRuns, 1);
+  const event = lines
+    .map((line) => JSON.parse(line))
+    .find((candidate) => candidate.event === "coordinator.refresh_coalesced");
+  assert.equal(event.coalesced_intervals, 1);
+  assert.equal(typeof event.elapsed_ms, "number");
+
+  let laterRuns = 0;
+  (coordinator as any).adoptGeneration = async () => {
+    laterRuns++;
+    if (laterRuns === 1) throw new Error("maintenance failed");
+  };
+  await assert.rejects(
+    (coordinator as any).refresh() as Promise<void>,
+    /maintenance failed/,
+  );
+  await ((coordinator as any).refresh() as Promise<void>);
+  assert.equal(laterRuns, 2);
+  assert.ok(
+    lines
+      .map((line) => JSON.parse(line))
+      .some(
+        (candidate) =>
+          candidate.event === "coordinator.refresh_failed" &&
+          candidate.coalesced_intervals === 0,
+      ),
+  );
 });
 
 /* @covers SERVER-EC7ACFFC

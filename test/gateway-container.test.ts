@@ -90,6 +90,61 @@ test("[GATEWAY-3F299566] gateway health identifies deployment and publishes the 
   });
 });
 
+/* @covers SERVER-CBD35885
+Given a coordinator refresh or gateway connection reload is still running
+	When another periodic interval becomes due
+		Then Integral does not start overlapping maintenance for that component
+			And records how many intervals were coalesced when the active maintenance finishes
+			And a failed maintenance pass is reported without stopping later passes
+Given periodic component maintenance is healthy
+	When the active pass completes and a later interval becomes due
+		Then Integral starts one later maintenance pass normally
+			And does not retain a duplicate invocation from a coalesced interval
+*/
+test("[SERVER-CBD35885] [LOG-D079FCFE] gateway reload is single-flight and reports coalesced intervals", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    gateway = new Gateway(
+      paths,
+      config,
+      new Logger({
+        component: "gateway",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  let release!: () => void,
+    reloadRuns = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (gateway as any).performReload = async () => {
+    reloadRuns++;
+    await pending;
+  };
+
+  const first = gateway.reload(false);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = gateway.reload(false);
+  assert.equal(reloadRuns, 1);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(reloadRuns, 1);
+  const event = lines
+    .map((line) => JSON.parse(line))
+    .find((candidate) => candidate.event === "gateway.reload_coalesced");
+  assert.equal(event.coalesced_intervals, 1);
+  assert.equal(typeof event.elapsed_ms, "number");
+  (gateway as any).performReload = async () => {
+    reloadRuns++;
+  };
+  await gateway.reload(false);
+  assert.equal(reloadRuns, 2);
+});
+
 test("[SERVER-8A31D6C4] gateway lifecycle can run against controlled CA, listener, and interval boundaries", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),

@@ -176,6 +176,7 @@ Given the coordinator has durably completed a task or terminally failed a recurr
 	When scheduler acknowledgement is unavailable or its response is lost
 		Then the coordinator retains the acknowledgement in a durable outbox
 			And retries the same execution ID and outcome after component restart
+			And does not redeliver a Discord notification already recorded as delivered
 			And the scheduler applies repeated identical acknowledgements without changing the recorded outcome
 			And neither component causes the task to execute again because acknowledgement was repeated
 ```

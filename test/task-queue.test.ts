@@ -193,6 +193,7 @@ Given the coordinator has durably completed a task or terminally failed a recurr
 	When scheduler acknowledgement is unavailable or its response is lost
 		Then the coordinator retains the acknowledgement in a durable outbox
 			And retries the same execution ID and outcome after component restart
+			And does not redeliver a Discord notification already recorded as delivered
 			And the scheduler applies repeated identical acknowledgements without changing the recorded outcome
 			And neither component causes the task to execute again because acknowledgement was repeated
 */
@@ -234,8 +235,13 @@ test("[SCHEDULE-42E63F16] successful outbox acknowledgement is durable and idemp
     "done",
   );
   assert.equal(queue.outbox().length, 1);
-  await queue.acknowledgeOutbox("execution");
-  await queue.acknowledgeOutbox("execution");
+  await queue.markOutboxNotificationDelivered("execution");
+  await queue.markOutboxNotificationDelivered("execution");
+  const marked = new DurableTaskQueue(paths);
+  await marked.load();
+  assert.ok(marked.outbox()[0]?.notificationDeliveredAt);
+  await marked.acknowledgeOutbox("execution");
+  await marked.acknowledgeOutbox("execution");
   const restored = new DurableTaskQueue(paths);
   await restored.load();
   assert.deepEqual(restored.outbox(), []);

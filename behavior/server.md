@@ -133,6 +133,20 @@ Given integral is running all components in one process
 			And each component remains independently health-checkable on its own port
 ```
 
+## SERVER-CBD35885 — Bound periodic component maintenance
+
+```text
+Given a coordinator refresh or gateway connection reload is still running
+	When another periodic interval becomes due
+		Then Integral does not start overlapping maintenance for that component
+			And records how many intervals were coalesced when the active maintenance finishes
+			And a failed maintenance pass is reported without stopping later passes
+Given periodic component maintenance is healthy
+	When the active pass completes and a later interval becomes due
+		Then Integral starts one later maintenance pass normally
+			And does not retain a duplicate invocation from a coalesced interval
+```
+
 ## SERVER-51C9A3E8 — Discover sibling components through deployment state
 
 ```text

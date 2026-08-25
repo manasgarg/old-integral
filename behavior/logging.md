@@ -202,3 +202,21 @@ Given the same effective logging configuration
 			And combined mode does not merge distinct component events into one event
 			And separate mode does not require different parsing rules
 ```
+
+## LOG-D079FCFE — Explain queued work and provisioning progress
+
+```text
+Given the coordinator accepts, claims, completes, or releases conversation work
+	When it emits diagnostics for that transition
+		Then it includes the conversation and message IDs without conversation text
+Given the runner claims a conversation message that requires a new Pi session
+	When it prepares resources, records the run, registers the gateway session, starts sidecars, starts Pi, and begins the prompt
+		Then it emits stable start, completion, slow-stage, and failure events at the appropriate log levels
+			And includes the applicable message, conversation, session, and run IDs
+			And includes elapsed time and a non-secret stage name
+			And does not include conversation text, credentials, or raw protocol payloads
+Given periodic coordinator or gateway maintenance cannot keep up with its configured interval
+	When one or more interval invocations are coalesced or a pass fails
+		Then Integral emits one diagnostic for the completed or failed pass
+			And includes its elapsed time and coalesced interval count
+```

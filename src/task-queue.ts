@@ -62,6 +62,7 @@ export interface TaskOutboxEntry {
   scheduleId?: string;
   result?: string;
   origin?: ConversationOriginRoute;
+  notificationDeliveredAt?: string;
 }
 
 interface TaskFile {
@@ -436,6 +437,17 @@ export class DurableTaskQueue {
       );
       if (index < 0) return;
       this.data.outbox.splice(index, 1);
+      await this.persist();
+    });
+  }
+
+  async markOutboxNotificationDelivered(executionId: string): Promise<void> {
+    return this.operations.run(async () => {
+      const item = this.data.outbox.find(
+        (candidate) => candidate.executionId === executionId,
+      );
+      if (!item || item.notificationDeliveredAt) return;
+      item.notificationDeliveredAt = new Date(this.now()).toISOString();
       await this.persist();
     });
   }

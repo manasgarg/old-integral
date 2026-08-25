@@ -106,6 +106,8 @@ export class Gateway {
   private token = "";
   private candidates: CredentialedConnection[] = [];
   private refreshTimer: unknown;
+  private reloadWork: Promise<void> | undefined;
+  private reloadCoalesced = 0;
   private lastConnectionHash: string | undefined;
   private lastGeneration = 0;
   private sawInvalidConnections = false;
@@ -139,7 +141,7 @@ export class Gateway {
       "127.0.0.1",
     );
     this.refreshTimer = this.dependencies.intervals.setInterval(
-      () => void this.reload(false),
+      () => void this.reload(false).catch(() => undefined),
       500,
     );
     return server;
@@ -153,6 +155,47 @@ export class Gateway {
     return server;
   }
   async reload(strict = false): Promise<void> {
+    if (this.reloadWork) {
+      this.reloadCoalesced++;
+      return this.reloadWork;
+    }
+    const started = this.dependencies.now(),
+      work = this.performReload(strict);
+    this.reloadWork = work;
+    let failed = false;
+    try {
+      await work;
+    } catch (error) {
+      failed = true;
+      this.logger.event(
+        "warn",
+        "gateway.reload_failed",
+        error instanceof Error ? error.message : String(error),
+        {
+          elapsed_ms: this.dependencies.now() - started,
+          coalesced_intervals: this.reloadCoalesced,
+        },
+      );
+      throw error;
+    } finally {
+      this.reloadWork = undefined;
+      const coalesced = this.reloadCoalesced;
+      this.reloadCoalesced = 0;
+      if (coalesced && !failed) {
+        this.logger.event(
+          "warn",
+          "gateway.reload_coalesced",
+          "gateway connection reload exceeded its interval",
+          {
+            elapsed_ms: this.dependencies.now() - started,
+            coalesced_intervals: coalesced,
+          },
+        );
+      }
+    }
+  }
+
+  private async performReload(strict: boolean): Promise<void> {
     const loaded = await loadConnections(this.paths);
     if (strict && loaded.errors.length)
       throw new IntegralError(loaded.errors.join("\n"));
@@ -1259,6 +1302,7 @@ export interface GatewayDependencies {
     response: (message: http.IncomingMessage) => void,
   ): http.ClientRequest;
   internalFetch: typeof internalFetch;
+  now(): number;
 }
 
 const productionDependencies: GatewayDependencies = {
@@ -1270,6 +1314,7 @@ const productionDependencies: GatewayDependencies = {
   executeEmail,
   callRemoteMcp,
   internalFetch,
+  now: Date.now,
   request(target, options, response) {
     return (target.protocol === "https:" ? https : http).request(
       target,
