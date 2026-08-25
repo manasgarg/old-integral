@@ -59,7 +59,7 @@ function createProductionRuntime(
       : component === "gateway"
         ? new Gateway(paths, config, logger)
         : component === "scheduler"
-          ? new Scheduler(paths, config)
+          ? new Scheduler(paths, config, {}, logger)
           : new Runner(paths, config, logger);
   return {
     async start() {

@@ -23,11 +23,13 @@ import type {
 } from "./schedule-types.ts";
 import { componentIdentity, deploymentId, verifyInternal } from "./state.ts";
 import { readJsonObject, writeJson } from "./http-server.ts";
+import type { Logger } from "./logging.ts";
 
 export interface SchedulerDependencies {
   servers: HttpServerRuntime;
   intervals: IntervalRuntime;
   internalFetch: typeof internalFetch;
+  nextCronInstant: typeof nextCronInstant;
   now(): number;
 }
 
@@ -35,8 +37,15 @@ const productionDependencies: SchedulerDependencies = {
   servers: nodeHttpServerRuntime,
   intervals: nodeIntervalRuntime,
   internalFetch,
+  nextCronInstant,
   now: Date.now,
 };
+
+interface NextInstantCache {
+  revision: number;
+  cursor: number;
+  next: number;
+}
 
 export class Scheduler {
   readonly schedules: ScheduleStore;
@@ -46,11 +55,14 @@ export class Scheduler {
   private timer: unknown;
   private token = "";
   private ticking = false;
+  private tickCoalesced = 0;
+  private readonly nextInstants = new Map<string, NextInstantCache>();
 
   constructor(
     private readonly paths: IntegralPaths,
     private readonly config: EffectiveConfig,
     overrides: Partial<SchedulerDependencies> = {},
+    private readonly logger?: Logger,
   ) {
     this.dependencies = { ...productionDependencies, ...overrides };
     this.schedules = new ScheduleStore(paths, undefined, () =>
@@ -76,23 +88,55 @@ export class Scheduler {
     );
     await this.tick();
     this.timer = this.dependencies.intervals.setInterval(
-      () => void this.tick(),
+      () => void this.tick().catch(() => undefined),
       1_000,
     );
     return server;
   }
 
   async tick(): Promise<void> {
-    if (this.ticking) return;
+    if (this.ticking) {
+      this.tickCoalesced++;
+      return;
+    }
     this.ticking = true;
+    const started = this.dependencies.now();
+    let failed = false;
     try {
       await this.materialize();
       for (const occurrence of this.occurrences
         .active()
         .filter((item) => item.state === "pending"))
         await this.dispatch(occurrence).catch(() => undefined);
+    } catch (error) {
+      failed = true;
+      this.logger?.event(
+        "warn",
+        "scheduler.tick_failed",
+        error instanceof Error ? error.message : String(error),
+        {
+          elapsed_ms: this.dependencies.now() - started,
+          coalesced_intervals: this.tickCoalesced,
+          schedule_count: this.schedules.list().length,
+        },
+      );
+      throw error;
     } finally {
       this.ticking = false;
+      const elapsed = this.dependencies.now() - started,
+        coalesced = this.tickCoalesced;
+      this.tickCoalesced = 0;
+      if (!failed && elapsed >= 1_000)
+        this.logger?.event(
+          "warn",
+          "scheduler.tick_slow",
+          "scheduler evaluation exceeded its interval",
+          {
+            elapsed_ms: elapsed,
+            coalesced_intervals: coalesced,
+            schedule_count: this.schedules.list().length,
+          },
+        );
     }
   }
 
@@ -119,25 +163,34 @@ export class Scheduler {
         : [];
     }
     let cursor = existing.length
-        ? Math.max(...existing.map((item) => Date.parse(item.scheduledFor)))
-        : Date.parse(schedule.updatedAt),
-      next = nextCronInstant(
-        schedule.trigger.cron,
-        schedule.trigger.timezone,
-        cursor,
-      );
+      ? Math.max(...existing.map((item) => Date.parse(item.scheduledFor)))
+      : Date.parse(schedule.updatedAt);
+    const cached = this.nextInstants.get(schedule.id);
+    let next =
+      cached?.revision === schedule.revision && cached.cursor === cursor
+        ? cached.next
+        : this.dependencies.nextCronInstant(
+            schedule.trigger.cron,
+            schedule.trigger.timezone,
+            cursor,
+          );
     const result: string[] = [];
     while (next <= now) {
       result.push(new Date(next).toISOString());
       if (result.length > 10_000)
         throw new IntegralError("too many missed schedule occurrences");
       cursor = next;
-      next = nextCronInstant(
+      next = this.dependencies.nextCronInstant(
         schedule.trigger.cron,
         schedule.trigger.timezone,
         cursor,
       );
     }
+    this.nextInstants.set(schedule.id, {
+      revision: schedule.revision,
+      cursor,
+      next,
+    });
     return result;
   }
 

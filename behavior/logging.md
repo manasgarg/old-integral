@@ -220,3 +220,12 @@ Given periodic coordinator or gateway maintenance cannot keep up with its config
 		Then Integral emits one diagnostic for the completed or failed pass
 			And includes its elapsed time and coalesced interval count
 ```
+
+## LOG-1177728F — Report slow scheduler evaluation
+
+```text
+Given scheduler evaluation takes at least its configured interval or fails
+	When the active tick finishes
+		Then Integral emits a slow or failed scheduler diagnostic
+			And includes elapsed time, coalesced tick count, and schedule count without task prompts
+```

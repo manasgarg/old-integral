@@ -78,6 +78,15 @@ Given an enabled schedule reaches its next execution instant
 			And calculates the next recurring instant using the schedule's IANA timezone and defined daylight-saving behavior
 ```
 
+## SCHEDULE-7A46ABEF — Keep future recurring evaluation bounded
+
+```text
+Given an unchanged recurring schedule already has a calculated future instant
+	When the scheduler evaluates the schedule again before that instant is due
+		Then it reuses the calculated instant without scanning the intervening timezone minutes again
+			And leaves the event loop available for coordinator, gateway, runner, and channel work
+```
+
 ## SCHEDULE-52697825 — Dispatch an occurrence idempotently
 
 ```text

@@ -6,6 +6,7 @@ import { Scheduler } from "../src/scheduler.ts";
 import { loadConfig } from "../src/config.ts";
 import { scheduleCommand } from "../src/cli.ts";
 import { fixture } from "./helpers.ts";
+import { Logger } from "../src/logging.ts";
 
 const profile = {
   connection: "model",
@@ -44,6 +45,97 @@ test("[SCHEDULE-A1F47A7A] cron parsing uses five fields, IANA timezones, and rea
     second = nextCronInstant("30 2 * * *", "Europe/Berlin", first);
   assert.equal(new Date(first).toISOString(), "2026-10-25T00:30:00.000Z");
   assert.equal(new Date(second).toISOString(), "2026-10-25T01:30:00.000Z");
+});
+
+/* @covers SCHEDULE-7A46ABEF
+Given an unchanged recurring schedule already has a calculated future instant
+	When the scheduler evaluates the schedule again before that instant is due
+		Then it reuses the calculated instant without scanning the intervening timezone minutes again
+			And leaves the event loop available for coordinator, gateway, runner, and channel work
+*/
+/* @covers LOG-1177728F
+Given scheduler evaluation takes at least its configured interval or fails
+	When the active tick finishes
+		Then Integral emits a slow or failed scheduler diagnostic
+			And includes elapsed time, coalesced tick count, and schedule count without task prompts
+*/
+test("[SCHEDULE-7A46ABEF] [LOG-1177728F] scheduler caches future cron instants and reports slow or failed ticks", async (t) => {
+  const paths = await fixture(t),
+    base = await loadConfig(paths, {}),
+    config = { ...base, server: { ...base.server, schedulerPort: 0 } },
+    lines: string[] = [];
+  let now = Date.parse("2026-08-25T14:00:00Z"),
+    cronCalls = 0,
+    fail = false;
+  const scheduler = new Scheduler(
+    paths,
+    config,
+    {
+      now: () => now,
+      nextCronInstant(expression, timezone, after) {
+        cronCalls++;
+        if (fail) throw new Error("cron evaluation failed");
+        const result = nextCronInstant(expression, timezone, after);
+        now += 1_500;
+        return result;
+      },
+      servers: {
+        async listen() {},
+        async close() {},
+      },
+      intervals: {
+        setInterval() {
+          return {};
+        },
+        clearInterval() {},
+      },
+      async internalFetch() {
+        throw new Error("future schedule must not dispatch");
+      },
+    },
+    new Logger({
+      component: "scheduler",
+      deploymentId: "test",
+      level: "trace",
+      format: "json",
+      sink: (line) => lines.push(line),
+    }),
+  );
+  await scheduler.start();
+  const schedule = await scheduler.schedules.create(
+    {
+      trigger: { type: "recurring", cron: "11 4 * * 1", timezone: "UTC" },
+      prompt: "private scheduled task prompt",
+      profile,
+    },
+    "operator",
+  );
+
+  await scheduler.tick();
+  await scheduler.tick();
+  assert.equal(cronCalls, 1);
+  const slow = lines
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((entry) => entry.event === "scheduler.tick_slow");
+  assert.equal(slow?.elapsed_ms, 1_500);
+  assert.equal(slow?.coalesced_intervals, 0);
+  assert.equal(slow?.schedule_count, 1);
+
+  await scheduler.schedules.update(
+    schedule.id,
+    { expectedRevision: schedule.revision, prompt: "updated private prompt" },
+    "operator",
+  );
+  fail = true;
+  await assert.rejects(scheduler.tick(), /cron evaluation failed/);
+  const failed = lines
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((entry) => entry.event === "scheduler.tick_failed");
+  assert.equal(failed?.schedule_count, 1);
+  assert.equal(failed?.coalesced_intervals, 0);
+  assert.doesNotMatch(lines.join(""), /private scheduled task prompt/);
+  assert.doesNotMatch(lines.join(""), /updated private prompt/);
+  await scheduler.stop();
 });
 
 /* @covers SCHEDULE-22FF69D9
