@@ -190,7 +190,22 @@ test("[LOG-D079FCFE] coordinator logs queue transitions without conversation tex
   assert.doesNotMatch(lines.join(""), /private failure reason/);
 });
 
-test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, and approval state", async (t) => {
+/* @covers DISCORD-6640EECF
+Given a task carries a Discord origin route
+	When the task succeeds or is cancelled
+		Then Integral does not emit an automatic Discord outcome notification
+			And retains the complete outcome in the durable task record
+	When the task fails and Integral emits its automatic Discord outcome notification
+		Then Integral identifies the task by its `Task: <title>.` prompt title when present
+			Or by a concise prompt description when no title is present
+			And never includes the internal task, execution, or schedule ID
+			And includes the failure timing and concise redacted recorded reason when available
+			And includes retry guidance when available
+			And sends the notification only to the stored Discord DM route
+			And records a successfully delivered notification in the same Discord conversation's history
+			And does not display the notification in the default terminal conversation or another channel
+*/
+test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared model, queue, task, and approval state", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     coordinator = new Coordinator(paths, config),
@@ -286,13 +301,20 @@ test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, a
   );
   assert.match(cancelledTask, /^cancelled {2}execution-1/);
 
+  const origin = {
+    provider: "discord" as const,
+    conversationId: scope.id,
+    externalId: "message-1",
+    userId: scope.discord.userId,
+    channelId: scope.discord.channelId,
+  };
   await coordinator.tasks.accept({
-    executionId: "execution-failed",
+    executionId: "execution-succeeded",
     scheduleId: "schedule-recurring",
     scheduleRevision: 2,
     triggerType: "recurring",
-    scheduledFor: "2026-08-23T11:00:00.000Z",
-    prompt: "prepare another report",
+    scheduledFor: "2026-08-23T10:30:00.000Z",
+    prompt: "Task: Successful report. prepare the report",
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T10:00:00.000Z",
@@ -303,13 +325,67 @@ test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, a
       piVersion: "1",
       piImage: "image",
     },
-    origin: {
-      provider: "discord",
-      conversationId: scope.id,
-      externalId: "message-1",
-      userId: scope.discord.userId,
-      channelId: scope.discord.channelId,
+    origin,
+  });
+  const successfulClaim = await coordinator.tasks.claim(),
+    successful = await coordinator.tasks.start(
+      successfulClaim!.executionId,
+      successfulClaim!.claimId!,
+    );
+  await coordinator.tasks.declareOutcome(
+    successful.executionId,
+    successful.attempts[0]!.attemptId,
+    "complete",
+    "report complete",
+  );
+  await coordinator.tasks.complete(
+    successful.executionId,
+    successful.attempts[0]!.attemptId,
+    "report complete",
+    0,
+  );
+  await coordinator.tasks.accept({
+    executionId: "execution-cancelled",
+    scheduleId: "schedule-once",
+    scheduleRevision: 1,
+    triggerType: "once",
+    scheduledFor: "2026-08-23T10:45:00.000Z",
+    prompt: "Task: Cancelled report. prepare the report",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T10:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
     },
+    origin,
+  });
+  await coordinator.tasks.cancel("execution-cancelled");
+  const repliesBeforeOutcomes = discordReplies.length;
+  await coordinator.flushTaskOutbox();
+  assert.equal(discordReplies.length, repliesBeforeOutcomes);
+
+  await coordinator.tasks.accept({
+    executionId: "execution-failed",
+    scheduleId: "schedule-recurring",
+    scheduleRevision: 2,
+    triggerType: "recurring",
+    scheduledFor: "2026-08-23T11:00:00.000Z",
+    prompt: "Task: Weekly source audit. prepare another report",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T10:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    origin,
   });
   const claim = await coordinator.tasks.claim(),
     running = await coordinator.tasks.start(
@@ -319,22 +395,24 @@ test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, a
   await coordinator.tasks.fail(
     running.executionId,
     running.attempts[0]!.attemptId,
-    "request failed at https://private-token@example.test/api",
+    "execution-failed request failed at https://private-token@example.test/api",
     1,
   );
   await coordinator.flushTaskOutbox();
   const failureNotice = discordReplies.find((text) =>
-    text.includes("execution-failed"),
+    text.includes("Weekly source audit"),
   );
   assert.match(failureNotice ?? "", /request failed/);
+  assert.match(failureNotice ?? "", /failed at \d{4}-\d{2}-\d{2}T/);
   assert.match(
     failureNotice ?? "",
     /https:\/\/\[redacted\]@example\.test\/api/,
   );
-  assert.match(failureNotice ?? "", /\/tasks show/);
-  assert.doesNotMatch(failureNotice ?? "", /\/status/);
+  assert.match(failureNotice ?? "", /before the next scheduled occurrence/);
+  assert.doesNotMatch(failureNotice ?? "", /execution-failed/);
+  assert.doesNotMatch(failureNotice ?? "", /schedule-recurring/);
   const delivered = discordReplies.filter((text) =>
-    text.includes("execution-failed"),
+    text.includes("Weekly source audit"),
   ).length;
   assert.equal(delivered, 1);
   assert.ok(
@@ -345,9 +423,47 @@ test("[SCHEDULE-42E63F16] Discord host commands use shared model, queue, task, a
   );
   await coordinator.flushTaskOutbox();
   assert.equal(
-    discordReplies.filter((text) => text.includes("execution-failed")).length,
+    discordReplies.filter((text) => text.includes("Weekly source audit"))
+      .length,
     delivered,
   );
+
+  await coordinator.tasks.accept({
+    executionId: "execution-untitled",
+    scheduleId: "schedule-recurring",
+    scheduleRevision: 2,
+    triggerType: "recurring",
+    scheduledFor: "2026-08-23T12:00:00.000Z",
+    prompt: "Prepare an untitled report. Include the current findings.",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T11:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    origin,
+  });
+  const untitledClaim = await coordinator.tasks.claim(),
+    untitled = await coordinator.tasks.start(
+      untitledClaim!.executionId,
+      untitledClaim!.claimId!,
+    );
+  await coordinator.tasks.fail(
+    untitled.executionId,
+    untitled.attempts[0]!.attemptId,
+    "report source unavailable",
+    1,
+  );
+  await coordinator.flushTaskOutbox();
+  const untitledNotice = discordReplies.find((text) =>
+    text.startsWith("Prepare an untitled report failed at "),
+  );
+  assert.match(untitledNotice ?? "", /report source unavailable/);
+  assert.doesNotMatch(untitledNotice ?? "", /execution-untitled/);
 
   const selection = {
     connection: "shared",

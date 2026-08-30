@@ -32,7 +32,11 @@ import {
   type IntervalRuntime,
 } from "./runtime.ts";
 import { internalFetch } from "./http-client.ts";
-import { DurableTaskQueue, type ScheduledTask } from "./task-queue.ts";
+import {
+  DurableTaskQueue,
+  type ScheduledTask,
+  type TaskOutboxEntry,
+} from "./task-queue.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
 import type { ConversationOriginRoute } from "./schedule-types.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "./constants.ts";
@@ -95,6 +99,31 @@ interface ConversationScope {
     userId: string;
     channelId: string;
   };
+}
+
+function taskDescription(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  const titled = /^Task:\s*(.+?)(?:\.\s|$)/i.exec(normalized)?.[1]?.trim();
+  if (titled) return titled;
+  const sentence = /^(.+?)(?:\.\s|$)/.exec(normalized)?.[1] ?? normalized;
+  return sentence.slice(0, 160) || "Scheduled task";
+}
+
+function omitInternalTaskIdentifiers(
+  text: string,
+  entry: TaskOutboxEntry,
+): string {
+  let sanitized = text.replace(
+    /\b[A-F0-9]{64}\b/g,
+    "[internal identifier omitted]",
+  );
+  for (const identifier of [entry.taskId, entry.executionId, entry.scheduleId])
+    if (identifier)
+      sanitized = sanitized.replaceAll(
+        identifier,
+        "[internal identifier omitted]",
+      );
+  return sanitized;
 }
 
 export interface CoordinatorDependencies {
@@ -600,15 +629,32 @@ export class Coordinator {
     if (!outbox.length) return;
     const secrets = await credentialSecretValues(this.paths);
     for (const entry of outbox) {
-      if (entry.origin && !entry.notificationDeliveredAt) {
+      if (
+        entry.outcome === "failed" &&
+        entry.origin &&
+        !entry.notificationDeliveredAt
+      ) {
         const scope = this.scopes.get(entry.origin.conversationId);
         if (scope?.discord) {
-          const detail = entry.result
-            ? `: ${entry.result}`
-            : entry.error
-              ? `: ${redactText(entry.error, secrets).replace(/\s+/g, " ").trim().slice(0, 300)}`
-              : "";
-          const text = `Task ${entry.taskId ?? entry.executionId} ${entry.outcome}${detail}. Inspect the complete task record with /tasks show.`;
+          const task = this.tasks
+              .snapshot()
+              .find((candidate) => candidate.executionId === entry.executionId),
+            description = taskDescription(task?.prompt ?? "Scheduled task"),
+            reason = entry.error
+              ? redactText(entry.error, secrets)
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .slice(0, 300)
+              : "No failure reason was recorded",
+            failedAt = task?.completedAt ?? entry.createdAt,
+            retryGuidance =
+              task?.triggerType === "recurring"
+                ? " Correct the problem before the next scheduled occurrence."
+                : "",
+            text = omitInternalTaskIdentifiers(
+              `${description} failed at ${failedAt}: ${reason}.${retryGuidance}`,
+              entry,
+            );
           if (!(await this.deliverDiscord(scope, text))) continue;
           await scope.conversation.append({ type: "notification", text });
           await this.tasks.markOutboxNotificationDelivered(entry.executionId);

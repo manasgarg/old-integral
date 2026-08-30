@@ -211,22 +211,13 @@ Given a Pi turn originated from the configured Discord DM
 			And does not allow Pi or task content to choose or replace that route
 			And sends a receipt containing the task ID, schedule when applicable, and a one-line prompt summary only to that Discord DM
 			And records the receipt in that Discord conversation's history
-Given a task carries a Discord origin route
-	When Integral emits a task progress, approval, completion, or failure notification
-		Then Integral identifies the task by its stable ID and current state
-			And summarizes the outcome or next required action in plain language
-			And a failure includes the concise redacted recorded reason when available
-			And tells the user to inspect the complete task record with `/tasks show`
-			And does not direct the user to `/status` for a task-specific failure reason
-			And sends the notification only to the stored Discord DM route
-			And records a successfully delivered notification in the same Discord conversation's history
-			And does not display the notification in the default terminal conversation or another channel
-	When the Discord delivery fails
-		Then Integral retains the task's original route
-			And reports the delivery failure without falling back to a terminal or another channel
 Given a task was created by the CLI, a schedule, or automation without a conversation origin
 	When Integral emits a task notification
 		Then Integral does not infer the configured Discord DM as its destination
+Given a task carries a Discord origin route
+	When the Discord delivery fails
+		Then Integral retains the task's original route
+			And reports the delivery failure without falling back to a terminal or another channel
 Given a governed request originates from the Discord conversation
 	When Integral asks the user for approval
 		Then it posts an ordinary bot message in the configured DM
@@ -236,6 +227,24 @@ Given a governed request originates from the Discord conversation
 	When the approval is approved, denied, stale, expired, or fails during execution
 		Then Integral posts the resulting state only in the configured DM
 			And includes the approval ID and a concise outcome
+```
+
+## DISCORD-6640EECF — Report only titled task failures automatically
+
+```text
+Given a task carries a Discord origin route
+	When the task succeeds or is cancelled
+		Then Integral does not emit an automatic Discord outcome notification
+			And retains the complete outcome in the durable task record
+	When the task fails and Integral emits its automatic Discord outcome notification
+		Then Integral identifies the task by its `Task: <title>.` prompt title when present
+			Or by a concise prompt description when no title is present
+			And never includes the internal task, execution, or schedule ID
+			And includes the failure timing and concise redacted recorded reason when available
+			And includes retry guidance when available
+			And sends the notification only to the stored Discord DM route
+			And records a successfully delivered notification in the same Discord conversation's history
+			And does not display the notification in the default terminal conversation or another channel
 ```
 
 ## DISCORD-89FAF039 — Handle Discord commands on the host
