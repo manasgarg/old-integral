@@ -19,6 +19,7 @@ import {
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
+  writeWebExtension,
   writePiCredential,
   type ContainerBackend,
   type McpSidecarSpec,
@@ -89,6 +90,7 @@ export interface RunnerDependencies {
   writeEmailExtension: typeof writeEmailExtension;
   writeTaskExtension: typeof writeTaskExtension;
   writeResourceExtension: typeof writeResourceExtension;
+  writeWebExtension: typeof writeWebExtension;
   ensurePiProfileRepository: typeof ensurePiProfileRepository;
   prepareResourceProjection: typeof prepareResourceProjection;
   cleanupResourceProjection: typeof cleanupResourceProjection;
@@ -119,6 +121,7 @@ const productionDependencies: RunnerDependencies = {
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
+  writeWebExtension,
   ensurePiProfileRepository,
   prepareResourceProjection,
   cleanupResourceProjection,
@@ -1309,6 +1312,7 @@ export class Runner {
         await this.dependencies.writeMcpExtension(home, catalogs);
         await this.dependencies.writeEmailExtension(home, email);
         await this.dependencies.writeResourceExtension(home, resources);
+        await this.dependencies.writeWebExtension(home);
         await this.dependencies.writePiCredential(home, model);
       },
       { session_id: identity.sessionId },

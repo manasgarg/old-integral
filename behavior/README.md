@@ -9,6 +9,7 @@ specifications for Phase 1.
 - [`logging.md`](logging.md) — component diagnostics, structure, and redaction
 - [`connection.md`](connection.md) — provider, service, and host-resource setup
 - [`mcp.md`](mcp.md) — generalized remote and stdio MCP discovery, isolation, and tools
+- [`web.md`](web.md) — governed public web search and readable page retrieval
 - [`repository.md`](repository.md) — agent-visible governed Git repositories
 - [`store.md`](store.md) — durable writable host stores
 - [`email.md`](email.md) — Gmail and Mailgun account capabilities and policy

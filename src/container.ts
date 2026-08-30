@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -189,6 +189,7 @@ export function buildContainerSpec(options: {
   if (options.model.auth !== "oauth" && options.model.auth !== "device-code")
     args.push("--api-key", SENTINEL);
   args.push("--model", options.selectedModel);
+  args.push("--extension", "/home/pi/.integral/extensions/integral-web.mjs");
   const mounts = [
     { source: options.caCert, target: caPath, readonly: true },
     { source: options.caBundle, target: bundlePath, readonly: true },
@@ -640,8 +641,18 @@ export default function (pi) {
   pi.registerTool({ name: "container_package_list", label: "List container packages", description: "List the governed Debian package set and current revision for the managed Pi image", parameters: Type.Object({}), async execute(_id, _params, signal) { return result(await schedule("/integral/control/container-packages", "GET", undefined, signal)); } });
   for (const operation of ["install", "upgrade"]) pi.registerTool({ name: "container_package_" + operation, label: operation + " container packages", description: operation + " Debian packages through Integral's governed immutable-image builder; the current container is replaced after this turn", parameters: Type.Object({ packages: Type.Array(Type.String()), expectedRevision: Type.Integer() }), async execute(_id, params, signal) { return result(await schedule("/integral/control/container-packages", "POST", { operation, packages: params.packages, expectedRevision: params.expectedRevision }, signal)); } });
 }
+
 `;
   await atomicWrite(join(directory, "integral-mcp.ts"), source);
+}
+
+export async function writeWebExtension(sessionHome: string): Promise<void> {
+  const directory = join(sessionHome, ".integral", "extensions"),
+    source = await readFile(
+      fileURLToPath(new URL("./integral-web.mjs", import.meta.url)),
+    );
+  await ensureDir(directory);
+  await atomicWrite(join(directory, "integral-web.mjs"), source);
 }
 
 export function mcpToolName(connection: string, tool: string): string {

@@ -83,14 +83,17 @@ export function allowsConnect(
   port: number,
 ): boolean {
   if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
-  return candidates.some(({ connection }) => {
-    return connectionBoundaries(connection).some(
-      (url) =>
-        url.protocol === "https:" &&
-        url.hostname.toLowerCase() === host.toLowerCase() &&
-        Number(url.port || 443) === port,
-    );
-  });
+  return (
+    port === 443 ||
+    candidates.some(({ connection }) => {
+      return connectionBoundaries(connection).some(
+        (url) =>
+          url.protocol === "https:" &&
+          url.hostname.toLowerCase() === host.toLowerCase() &&
+          Number(url.port || 443) === port,
+      );
+    })
+  );
 }
 
 export class Gateway {

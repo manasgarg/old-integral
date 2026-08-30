@@ -11,6 +11,7 @@ import {
   ensureContainerImage,
   freshSessionHome,
   newSessionIdentity,
+  writeWebExtension,
 } from "../../src/container.ts";
 import { loadConfig } from "../../src/config.ts";
 import { validateConnection } from "../../src/connections.ts";
@@ -22,7 +23,12 @@ import {
   ensureImageRecipeRepository,
 } from "../../src/image-recipe.ts";
 
-test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] live Pi container enforces the declared identity, mounts, resources, and internal network", async (t) => {
+/* @covers WEB-65AA5DDC
+Given an authenticated Pi session uses `web_search` or `fetch_pages`
+	When software in the container attempts to bypass the gateway
+		Then the locked network still prevents direct external access
+*/
+test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] [WEB-2ED07A71] [WEB-65AA5DDC] live Pi container exposes web tools while enforcing the declared identity, mounts, resources, and internal network", async (t) => {
   assert.doesNotThrow(
     () => execFileSync("docker", ["info"], { stdio: "ignore" }),
     "Docker acceptance requires a reachable Docker daemon",
@@ -38,6 +44,7 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] live Pi co
   await mkdir(join(sessionHome, ".integral"), { recursive: true });
   await mkdir(join(sessionHome, ".pi", "agent"), { recursive: true });
   await writeFile(join(sessionHome, ".integral", "auth.json"), "{}\n");
+  await writeWebExtension(sessionHome);
   await mkdir(currentRun, { recursive: true });
   await writeFile(
     join(historyArchive, "index.json"),
@@ -93,6 +100,23 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] live Pi co
   });
   execFileSync("docker", createArgs);
   execFileSync("docker", ["start", name], { stdio: "ignore" });
+  assert.deepEqual(
+    JSON.parse(
+      execFileSync(
+        "docker",
+        [
+          "exec",
+          name,
+          "node",
+          "--input-type=module",
+          "--eval",
+          `const tools=[]; const extension=(await import("file:///home/pi/.integral/extensions/integral-web.mjs")).default; extension({registerTool(tool){tools.push(tool.name)}}); process.stdout.write(JSON.stringify(tools));`,
+        ],
+        { encoding: "utf8" },
+      ),
+    ),
+    ["web_search", "fetch_pages"],
+  );
   const sessionOwner = (await stat(sessionHome)).uid;
   assert.equal(
     (await stat(join(sessionHome, "history", "runs"))).uid,

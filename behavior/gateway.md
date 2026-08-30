@@ -59,12 +59,13 @@ Given an authenticated chat container is active
 ```text
 Given an authenticated chat container is active
 	When it requests a destination outside every active connection boundary
+		And the request does not match the built-in credential-free web GET boundary
 		Then the gateway returns HTTP 403
 			And states that policy denied the request
 			And does not contact the requested upstream
 	When it requests an HTTPS tunnel
 		Then the gateway accepts `CONNECT` only on port 443
-			And refuses the tunnel before interception unless an active HTTPS connection can match its host and port
+			And refuses the tunnel before interception unless an active HTTPS connection or the built-in web GET boundary can match its host and port
 			And still applies method and path policy to each intercepted request
 ```
 

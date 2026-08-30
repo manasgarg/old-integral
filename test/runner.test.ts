@@ -458,6 +458,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/session");
         assert.deepEqual(
@@ -693,6 +694,7 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
       writePiCredential: async () => undefined,
       listen: async () => undefined,
       close: async () => undefined,
@@ -920,6 +922,7 @@ test("an approval continuation starts a replacement Pi session with parent linea
         }),
         writeMcpExtension: async () => undefined,
         writeResourceExtension: async () => undefined,
+        writeWebExtension: async () => undefined,
         writeEmailExtension: async () => undefined,
         writePiCredential: async () => undefined,
         prepareResourceProjection: async () => ({
@@ -1101,6 +1104,7 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
         }),
         writeMcpExtension: async () => undefined,
         writeResourceExtension: async () => undefined,
+        writeWebExtension: async () => undefined,
         writeEmailExtension: async () => undefined,
         writePiCredential: async () => undefined,
         listen: async () => undefined,
@@ -1306,6 +1310,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/task-home");
         assert.deepEqual(

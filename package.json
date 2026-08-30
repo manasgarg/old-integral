@@ -18,7 +18,7 @@
   },
   "scripts": {
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test:coverage && npm run behavior:coverage && npm run package:check",
-    "build": "tsc",
+    "build": "tsc && esbuild src/web-extension.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/src/integral-web.mjs",
     "prepare": "npm run build",
     "behavior:coverage": "node scripts/check-behavior-coverage.ts",
     "format": "prettier --write .",
@@ -34,12 +34,15 @@
     "test:coverage": "npm run build && node --experimental-test-coverage --test --test-concurrency=1 --test-coverage-include=dist/src/**/*.js --test-coverage-lines=50 --test-coverage-branches=75 --test-coverage-functions=60 dist/test/*.test.js"
   },
   "dependencies": {
+    "defuddle": "0.19.1",
     "discord.js": "14.22.1",
+    "linkedom": "0.18.12",
     "smol-toml": "1.4.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "24.10.1",
+    "esbuild": "0.25.9",
     "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.6",

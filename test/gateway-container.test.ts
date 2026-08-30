@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -10,6 +10,7 @@ import {
   OAUTH_SENTINEL,
   parseProxyAuthorization,
   SENTINEL,
+  WEB_CONNECTION_NAME,
 } from "../src/gateway-policy.ts";
 import {
   buildContainerSpec,
@@ -25,6 +26,7 @@ import {
   writePiCredential,
   writeResourceExtension,
   writeTaskExtension,
+  writeWebExtension,
 } from "../src/container.ts";
 import { loadConfig } from "../src/config.ts";
 import { saveConnection, validateConnection } from "../src/connections.ts";
@@ -43,6 +45,23 @@ test("[BOX-E1F472A1] managed Pi image identity changes with its build recipe", (
 
   assert.notEqual(first, second);
   assert.match(first, /^integral-pi:0\.1\.0-recipe-[a-f0-9]{12}-pi-1\.2\.3$/);
+});
+
+test("[WEB-2ED07A71] every session receives a self-contained web extension", async (t) => {
+  const paths = await fixture(t);
+  await writeWebExtension(paths.root);
+  const extensionPath = join(
+      paths.root,
+      ".integral",
+      "extensions",
+      "integral-web.mjs",
+    ),
+    extension = (await import(`${pathToFileURL(extensionPath).href}?fixture`))
+      .default as (api: { registerTool(tool: { name: string }): void }) => void,
+    tools: string[] = [];
+  extension({ registerTool: (tool) => tools.push(tool.name) });
+  assert.deepEqual(tools, ["web_search", "fetch_pages"]);
+  assert.ok((await stat(extensionPath)).size > 100_000);
 });
 
 test("[BOX-40521095] managed Pi image identity includes the governed package set", () => {
@@ -1153,15 +1172,28 @@ test("[SCHEDULE-930581F7] task outcome declarations derive execution identity fr
 /* @covers GATEWAY-EB8D96FE
 Given an authenticated chat container is active
 	When it requests a destination outside every active connection boundary
+		And the request does not match the built-in credential-free web GET boundary
 		Then the gateway returns HTTP 403
 			And states that policy denied the request
 			And does not contact the requested upstream
 	When it requests an HTTPS tunnel
 		Then the gateway accepts `CONNECT` only on port 443
-			And refuses the tunnel before interception unless an active HTTPS connection can match its host and port
+			And refuses the tunnel before interception unless an active HTTPS connection or the built-in web GET boundary can match its host and port
 			And still applies method and path policy to each intercepted request
 */
-test("[GATEWAY-EB8D96FE] CONNECT admits only the exact configured HTTPS host and port, including non-default ports", () => {
+/* @covers WEB-65AA5DDC
+Given an authenticated Pi session uses `web_search` or `fetch_pages`
+	When the tool makes an HTTP or HTTPS GET request
+		Then the request uses the session-authenticated Integral gateway
+			And the gateway permits the destination without requiring a configured connection
+			And attributes and logs the request to the session
+			And does not inject a credential through the built-in web boundary
+			And evaluates every redirected request through the same boundary
+	When the session attempts a non-GET request through the built-in web boundary
+		Then the gateway denies the request
+			And does not contact the requested upstream
+*/
+test("[GATEWAY-EB8D96FE] [WEB-65AA5DDC] CONNECT admits configured ports and the standard web HTTPS port", () => {
   const connection = validateConnection({
     name: "local-tls",
     kind: "http",
@@ -1171,9 +1203,85 @@ test("[GATEWAY-EB8D96FE] CONNECT admits only the exact configured HTTPS host and
   const candidates = [{ connection, credential: undefined }];
   assert.equal(allowsConnect(candidates, "service.test", 8443), true);
   assert.equal(allowsConnect(candidates, "SERVICE.TEST", 8443), true);
-  assert.equal(allowsConnect(candidates, "service.test", 443), false);
+  assert.equal(allowsConnect(candidates, "service.test", 443), true);
+  assert.equal(allowsConnect(candidates, "other.test", 443), true);
   assert.equal(allowsConnect(candidates, "other.test", 8443), false);
   assert.equal(allowsConnect(candidates, "service.test", 0), false);
+});
+
+test("[WEB-65AA5DDC] anonymous web forwarding is attributed without proxy credentials", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    logs: string[] = [];
+  let forwarded:
+    | { target: string; method: string | undefined; authorization: unknown }
+    | undefined;
+  const gateway = new Gateway(
+      paths,
+      config,
+      new Logger({
+        component: "gateway",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => logs.push(line),
+      }),
+      {
+        request(target, options, respond) {
+          const headers = options.headers as
+            Record<string, unknown> | undefined;
+          forwarded = {
+            target: target.toString(),
+            method: options.method,
+            authorization: headers?.authorization,
+          };
+          const request = new PassThrough(),
+            response = Readable.from(["page body"]) as IncomingMessage;
+          response.statusCode = 200;
+          response.headers = { "content-type": "text/plain" };
+          queueMicrotask(() => respond(response));
+          return request as any;
+        },
+      },
+    ),
+    request = Readable.from([]) as unknown as IncomingMessage,
+    response = new PassThrough() as unknown as ServerResponse;
+  request.method = "GET";
+  request.headers = {
+    "proxy-authorization": "Basic hidden",
+  };
+  (response as any).writeHead = () => response;
+  await (
+    gateway as unknown as {
+      forward(
+        req: IncomingMessage,
+        res: ServerResponse,
+        target: URL,
+        sessionId: string,
+      ): Promise<void>;
+    }
+  ).forward(
+    request,
+    response,
+    new URL("https://public.example/article"),
+    "session-web",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(forwarded, {
+    target: "https://public.example/article",
+    method: "GET",
+    authorization: undefined,
+  });
+  const decision = logs.find((line) => line.includes("gateway.decision"));
+  assert.ok(decision);
+  for (const expected of [
+    '"verdict":"allow"',
+    '"connection":"integral-web"',
+    '"session_id":"session-web"',
+    '"host":"public.example"',
+  ])
+    assert.match(decision, new RegExp(expected));
+  assert.doesNotMatch(decision, /Basic hidden/);
 });
 
 /* @covers GATEWAY-A2BBBBE8
@@ -1248,15 +1356,34 @@ test("[CONNECTION-12C87631] GitHub API and smart HTTP receive host-specific auth
   assert.equal(allowsConnect(candidates, "github.com", 22), false);
   assert.equal(
     allowsConnect(candidates, "objects.githubusercontent.com", 443),
-    false,
+    true,
+  );
+  const web = decideRequest(
+    "GET",
+    new URL("https://outside.test/"),
+    { "proxy-authorization": "hidden", authorization: "caller-value" },
+    candidates,
+  );
+  assert.equal(web.connection.name, WEB_CONNECTION_NAME);
+  assert.equal(web.headers["proxy-authorization"], undefined);
+  assert.equal(web.headers.authorization, "caller-value");
+  assert.equal(
+    decideRequest(
+      "GET",
+      new URL("https://redirected.test/final"),
+      {},
+      candidates,
+    ).connection.name,
+    WEB_CONNECTION_NAME,
   );
   assert.throws(
-    () => decideRequest("GET", new URL("https://evil.test/"), {}, candidates),
+    () =>
+      decideRequest("POST", new URL("https://outside.test/"), {}, candidates),
     /policy denied/,
   );
 });
 
-test("[GATEWAY-EB8D96FE] destinations, methods, paths, schemes, and ports outside active boundaries are denied", () => {
+test("[GATEWAY-EB8D96FE] non-GET methods, unsupported schemes, and nonstandard web ports outside active boundaries are denied", () => {
   const connection = validateConnection({
     name: "api",
     kind: "http",
@@ -1268,10 +1395,8 @@ test("[GATEWAY-EB8D96FE] destinations, methods, paths, schemes, and ports outsid
     ["POST", "https://api.test:8443/v1"],
     ["GET", "https://other.test:8443/v1"],
     ["GET", "http://api.test:8443/v1"],
-    ["GET", "https://api.test/v2"],
-    ["GET", "https://api.test/v1"],
+    ["GET", "ftp://other.test/v1"],
   ] as const) {
-    if (url.endsWith(":8443/v1") && method === "GET") continue;
     assert.throws(
       () =>
         decideRequest(method, new URL(url), {}, [
@@ -1358,7 +1483,7 @@ Given the host shell contains provider keys, tokens, or credential variables
 			And does not copy them into the container
 			And requires credentials to enter through `integral connection add`
 */
-test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] container environment is a managed allowlist with authenticated proxy and CA trust", async (t) => {
+test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] [WEB-2ED07A71] container environment is a managed allowlist with authenticated proxy, CA trust, and web tools", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     model = validateConnection({
@@ -1395,6 +1520,10 @@ test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] container envi
   assert.equal(spec.environment.NODE_USE_ENV_PROXY, "1");
   assert.equal("INTEGRAL_HOME" in spec.environment, false);
   assert.equal("AWS_SECRET_ACCESS_KEY" in spec.environment, false);
+  assert.deepEqual(spec.args.slice(-2), [
+    "--extension",
+    "/home/pi/.integral/extensions/integral-web.mjs",
+  ]);
 });
 
 test("[ENV-7B2D40AC] integral-managed environment names cannot be delegated to connection configuration", () => {
