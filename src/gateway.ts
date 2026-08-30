@@ -458,6 +458,79 @@ export class Gateway {
       }
       return;
     }
+    if (req.url === "/integral/discord" && req.method === "POST") {
+      const requestId = randomUUID();
+      try {
+        const body = await bodyJson(req, 110_000),
+          text = stringValue(body.text);
+        if (!text.trim())
+          throw new IntegralError("Discord message text is required", 400);
+        const candidates = this.candidates.filter(
+          ({ connection, credential }) =>
+            connection.kind === "channel" &&
+            connection.provider === "discord" &&
+            Boolean(credential),
+        );
+        if (candidates.length !== 1)
+          throw new IntegralError(
+            candidates.length
+              ? "only one Discord connection may be active"
+              : "active Discord connection not found",
+            503,
+          );
+        const connection = candidates[0]!.connection;
+        if (!connection.userId || !connection.channelId)
+          throw new IntegralError("Discord connection is incomplete", 503);
+        const upstream = await this.dependencies.internalFetch(
+          this.paths,
+          "gateway",
+          "coordinator",
+          "/integral/internal/channel-notification",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              provider: "discord",
+              conversationId: `discord:${connection.channelId}`,
+              userId: connection.userId,
+              channelId: connection.channelId,
+              text,
+            }),
+          },
+        );
+        const responseBody = await upstream.text();
+        if (!upstream.ok)
+          throw new IntegralError(
+            responseBody.trim() || "Discord delivery failed",
+            upstream.status,
+          );
+        this.logger.event(
+          "info",
+          "gateway.discord",
+          "Discord message delivered",
+          {
+            verdict: "allow",
+            connection: connection.name,
+            session_id: sessionId,
+            request_id: requestId,
+          },
+        );
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ delivered: true }));
+      } catch (error) {
+        this.logger.event(
+          "warn",
+          "gateway.discord_failed",
+          error instanceof Error ? error.message : String(error),
+          {
+            verdict: "deny",
+            session_id: sessionId,
+            request_id: requestId,
+          },
+        );
+        respondError(res, error);
+      }
+      return;
+    }
     if (req.url === "/integral/email" && req.method === "POST") {
       const requestId = randomUUID();
       let name = "",

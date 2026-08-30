@@ -22,6 +22,7 @@ import {
   managedPiImage,
   newSessionIdentity,
   parsePiModelList,
+  writeDiscordExtension,
   writeMcpExtension,
   writePiCredential,
   writeResourceExtension,
@@ -62,6 +63,52 @@ test("[WEB-2ED07A71] every session receives a self-contained web extension", asy
   extension({ registerTool: (tool) => tools.push(tool.name) });
   assert.deepEqual(tools, ["web_search", "fetch_pages"]);
   assert.ok((await stat(extensionPath)).size > 100_000);
+});
+
+/* @covers DISCORD-41A4A8BD
+Given an active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it registers `discord_send` for Pi
+			And describes that the tool sends text to the one configured Discord DM
+			And does not expose the bot token or accept Discord identity parameters
+Given no active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it does not register `discord_send`
+*/
+test("[DISCORD-41A4A8BD] only sessions with an active Discord connection receive the governed send tool", async (t) => {
+  const paths = await fixture(t),
+    connection = validateConnection({
+      name: "discord",
+      kind: "channel",
+      provider: "discord",
+      auth: "key",
+      application_id: "100000000000000001",
+      bot_user_id: "100000000000000002",
+      user_id: "100000000000000003",
+      channel_id: "100000000000000004",
+    });
+  await writeDiscordExtension(paths.root, [connection]);
+  const extensionPath = join(
+      paths.root,
+      ".integral",
+      "extensions",
+      "integral-discord.ts",
+    ),
+    source = await readFile(extensionPath, "utf8");
+  assert.match(source, /name: "discord_send"/);
+  assert.match(source, /one configured Discord DM/);
+  assert.match(source, /Type\.Object\(\{ text: Type\.String/);
+  for (const secretOrIdentity of [
+    "100000000000000001",
+    "100000000000000002",
+    "100000000000000003",
+    "100000000000000004",
+  ])
+    assert.doesNotMatch(source, new RegExp(secretOrIdentity));
+
+  await rm(extensionPath);
+  await writeDiscordExtension(paths.root, []);
+  await assert.rejects(stat(extensionPath), { code: "ENOENT" });
 });
 
 test("[BOX-40521095] managed Pi image identity includes the governed package set", () => {
@@ -1405,6 +1452,122 @@ test("[GATEWAY-EB8D96FE] non-GET methods, unsupported schemes, and nonstandard w
       /policy denied/,
     );
   }
+});
+
+/* @covers DISCORD-41A4A8BD
+Given an active Discord connection is configured for the deployment
+	When Pi calls `discord_send` with non-empty text
+		Then the authenticated gateway resolves the active Discord connection
+			And asks the coordinator to send the text only to that connection's configured DM
+			And records successful delivery in the Discord conversation's history
+Given a provisioned session has `discord_send`
+	And its Discord connection becomes unavailable before a call
+	When Pi calls `discord_send`
+		Then Integral reports the delivery failure
+			And does not fall back to another channel or destination
+*/
+test("[DISCORD-41A4A8BD] authenticated Pi Discord calls use only the configured DM and fail closed when it is unavailable", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    connection = validateConnection({
+      name: "discord",
+      kind: "channel",
+      provider: "discord",
+      auth: "key",
+      application_id: "100000000000000001",
+      bot_user_id: "100000000000000002",
+      user_id: "100000000000000003",
+      channel_id: "100000000000000004",
+    }),
+    forwarded: Array<{
+      target: string;
+      path: string;
+      body?: Record<string, unknown>;
+    }> = [];
+  await saveConnection(paths, connection, "discord-secret");
+  const gateway = new Gateway(
+    paths,
+    config,
+    new Logger({
+      component: "gateway",
+      deploymentId: deploymentId(paths),
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      async internalFetch(_paths, _caller, target, path, init) {
+        forwarded.push({
+          target,
+          path,
+          ...(typeof init?.body === "string"
+            ? { body: JSON.parse(init.body) as Record<string, unknown> }
+            : {}),
+        });
+        return new Response(null, { status: 204 });
+      },
+    },
+  );
+  await gateway.reload(true);
+  gateway.sessions.set("session-token", "session-1");
+
+  async function invoke(text: string): Promise<{
+    status: number;
+    body: string;
+  }> {
+    let body = "",
+      status = 200;
+    const request = Readable.from([
+        Buffer.from(JSON.stringify({ text })),
+      ]) as unknown as IncomingMessage,
+      response = {
+        setHeader() {},
+        writeHead(value: number) {
+          status = value;
+          return response;
+        },
+        end(value?: string) {
+          body = value ?? "";
+          return response;
+        },
+      } as unknown as ServerResponse;
+    request.url = "/integral/discord";
+    request.method = "POST";
+    request.headers = {
+      "content-type": "application/json",
+      "proxy-authorization": `Basic ${Buffer.from("integral:session-token").toString("base64")}`,
+    };
+    await (
+      gateway as unknown as {
+        route(req: IncomingMessage, res: ServerResponse): Promise<void>;
+      }
+    ).route(request, response);
+    return { status, body };
+  }
+
+  assert.deepEqual(await invoke("Retrospective repaired."), {
+    status: 200,
+    body: '{"delivered":true}',
+  });
+  assert.deepEqual(forwarded, [
+    {
+      target: "coordinator",
+      path: "/integral/internal/channel-notification",
+      body: {
+        provider: "discord",
+        conversationId: "discord:100000000000000004",
+        userId: "100000000000000003",
+        channelId: "100000000000000004",
+        text: "Retrospective repaired.",
+      },
+    },
+  ]);
+
+  (gateway as unknown as { candidates: unknown[] }).candidates = [];
+  const unavailable = await invoke("Do not reroute this.");
+  assert.equal(unavailable.status, 503);
+  assert.match(unavailable.body, /active Discord connection not found/);
+  assert.equal(forwarded.length, 1);
 });
 
 /* @covers GATEWAY-123EDBDF

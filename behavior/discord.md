@@ -99,7 +99,8 @@ Given the Discord listener receives a message in the configured DM
 			And does not add or broadcast the message to the default terminal conversation
 			And Pi processes it with only the Discord conversation's history, selected model, session, and queue state
 			And Pi may use the deployment's governed connections without gaining access to another conversation
-			And Pi receives neither the Discord bot token nor a tool for sending Discord messages
+			And Pi never receives the Discord bot token or native Discord identities
+			And Pi receives only the host-controlled Discord tool when an active Discord connection exists
 Given Integral has already imported a Discord message ID
 	When Discord delivers that message again
 		Then Integral does not create another Discord conversation message or queue entry
@@ -120,6 +121,28 @@ Given a Discord message contains both non-empty text and an unsupported attachme
 	When Integral imports the message
 		Then Integral adds only the text to the conversation
 			And replies once that the attachment was not processed
+```
+
+## DISCORD-41A4A8BD — Give Pi a governed Discord send tool
+
+```text
+Given an active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it registers `discord_send` for Pi
+			And describes that the tool sends text to the one configured Discord DM
+			And does not expose the bot token or accept Discord identity parameters
+	When Pi calls `discord_send` with non-empty text
+		Then the authenticated gateway resolves the active Discord connection
+			And asks the coordinator to send the text only to that connection's configured DM
+			And records successful delivery in the Discord conversation's history
+Given no active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it does not register `discord_send`
+Given a provisioned session has `discord_send`
+	And its Discord connection becomes unavailable before a call
+	When Pi calls `discord_send`
+		Then Integral reports the delivery failure
+			And does not fall back to another channel or destination
 ```
 
 ## DISCORD-5D67C2B9 — Present Discord replies safely

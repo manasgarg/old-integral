@@ -16,6 +16,7 @@ import {
   freshSessionHome,
   newSessionIdentity,
   writeMcpExtension,
+  writeDiscordExtension,
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
@@ -86,6 +87,7 @@ export interface RunnerDependencies {
   freshSessionHome: typeof freshSessionHome;
   newSessionIdentity: typeof newSessionIdentity;
   writeMcpExtension: typeof writeMcpExtension;
+  writeDiscordExtension: typeof writeDiscordExtension;
   discoverRemoteMcp: typeof discoverRemoteMcp;
   writeEmailExtension: typeof writeEmailExtension;
   writeTaskExtension: typeof writeTaskExtension;
@@ -117,6 +119,7 @@ const productionDependencies: RunnerDependencies = {
   freshSessionHome,
   newSessionIdentity,
   writeMcpExtension,
+  writeDiscordExtension,
   discoverRemoteMcp,
   writeEmailExtension,
   writeTaskExtension,
@@ -1225,6 +1228,10 @@ export class Runner {
       model = selectModel(all, selection),
       mcp = active.filter((connection) => connection.kind === "mcp"),
       email = active.filter((connection) => connection.kind === "email"),
+      discord = active.filter(
+        (connection) =>
+          connection.kind === "channel" && connection.provider === "discord",
+      ),
       identity = this.dependencies.newSessionIdentity(),
       ca = await this.dependencies.ensureCa(this.paths),
       sessionHomes = join(this.paths.state, "session-homes");
@@ -1310,6 +1317,7 @@ export class Runner {
       "write-session-files",
       async () => {
         await this.dependencies.writeMcpExtension(home, catalogs);
+        await this.dependencies.writeDiscordExtension(home, discord);
         await this.dependencies.writeEmailExtension(home, email);
         await this.dependencies.writeResourceExtension(home, resources);
         await this.dependencies.writeWebExtension(home);
@@ -1349,6 +1357,7 @@ export class Runner {
     for (const extension of [
       "integral-mcp.ts",
       "integral-resources.ts",
+      ...(discord.length ? ["integral-discord.ts"] : []),
       ...(email.length ? ["integral-email.ts"] : []),
     ])
       spec.args.push(

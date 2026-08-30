@@ -695,6 +695,24 @@ export default function (pi) { for (const account of accounts) for (const capabi
   await atomicWrite(join(directory, "integral-email.ts"), source);
 }
 
+export async function writeDiscordExtension(
+  sessionHome: string,
+  connections: Connection[],
+): Promise<void> {
+  if (!connections.length) return;
+  if (connections.length !== 1)
+    throw new IntegralError("only one Discord channel connection is supported");
+  const directory = join(sessionHome, ".integral", "extensions");
+  await ensureDir(directory);
+  const source = `import { request } from "node:http";
+import { Type } from "typebox";
+function endpoint() { const proxy = new URL(process.env.HTTP_PROXY); const authorization = "Basic " + Buffer.from(decodeURIComponent(proxy.username) + ":" + decodeURIComponent(proxy.password)).toString("base64"); proxy.username = ""; proxy.password = ""; proxy.pathname = "/integral/discord"; proxy.search = ""; return { url: proxy.toString(), authorization }; }
+function send(text, signal) { return new Promise((resolve, reject) => { const target = endpoint(), payload = JSON.stringify({ text }), chunks = []; let settled = false; const finish = (action) => { if (settled) return; settled = true; signal?.removeEventListener("abort", abort); action(); }, req = request(target.url, { agent: false, method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload), "proxy-authorization": target.authorization } }, (res) => { res.on("data", (chunk) => chunks.push(chunk)); res.on("end", () => finish(() => { const body = Buffer.concat(chunks).toString("utf8"); if ((res.statusCode || 500) < 200 || (res.statusCode || 500) >= 300) reject(new Error(body.trim() || "Discord delivery failed")); else resolve(body ? JSON.parse(body) : { delivered: true }); })); res.on("error", (error) => finish(() => reject(error))); }), abort = () => req.destroy(new Error("Discord delivery was cancelled")); signal?.addEventListener("abort", abort, { once: true }); req.on("error", (error) => finish(() => reject(error))); req.end(payload); }); }
+export default function (pi) { pi.registerTool({ name: "discord_send", label: "Send Discord message", description: "Send text to the deployment's one configured Discord DM", parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 100000 }) }), async execute(_id, params, signal) { const value = await send(params.text, signal); return { content: [{ type: "text", text: "Discord message sent." }], details: value }; } }); }
+`;
+  await atomicWrite(join(directory, "integral-discord.ts"), source);
+}
+
 export async function writeResourceExtension(
   sessionHome: string,
   projection: ResourceProjection,

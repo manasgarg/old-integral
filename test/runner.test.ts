@@ -34,6 +34,19 @@ function emptyProjection(sessionId: string): ResourceProjection {
   };
 }
 
+function discordConnection() {
+  return validateConnection({
+    name: "discord",
+    kind: "channel",
+    provider: "discord",
+    auth: "key",
+    application_id: "100000000000000001",
+    bot_user_id: "100000000000000002",
+    user_id: "100000000000000003",
+    channel_id: "100000000000000004",
+  });
+}
+
 function profileProjection(sessionId: string): ResourceProjection {
   return {
     ...emptyProjection(sessionId),
@@ -324,6 +337,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
     }),
     "mail-secret",
   );
+  await saveConnection(paths, discordConnection(), "discord-secret");
   const deployment = deploymentId(paths);
   for (const component of ["coordinator", "gateway", "runner"] as const)
     await writeComponentState(paths, {
@@ -333,7 +347,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       pid: process.pid,
       status: "ready",
       fingerprint: config.fingerprint,
-      connectionGeneration: 2,
+      connectionGeneration: 3,
       startedAt: "now",
     });
   const recoveryDirectory = join(paths.recovery, "profile-id", "session-old-1");
@@ -459,6 +473,14 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
       writeWebExtension: async () => undefined,
+      async writeDiscordExtension(home, connections) {
+        assert.equal(home, "/test/session");
+        assert.deepEqual(
+          connections.map((connection) => connection.name),
+          ["discord"],
+        );
+        calls.push("talk:discord-tools");
+      },
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/session");
         assert.deepEqual(
@@ -478,6 +500,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
 
   assert.equal(calls.filter((call) => call === "profile:ensure").length, 1);
   assert.equal(calls.filter((call) => call === "pi:create").length, 1);
+  assert.equal(calls.filter((call) => call === "talk:discord-tools").length, 1);
   assert.equal(calls.filter((call) => call === "talk:email-tools").length, 1);
   assert.ok(calls.includes("pi:prompt:hello"));
   assert.equal(spec?.image, "sha256:test-pi");
@@ -485,6 +508,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
   for (const extension of [
     "integral-mcp.ts",
     "integral-resources.ts",
+    "integral-discord.ts",
     "integral-email.ts",
   ])
     assert.ok(
@@ -1184,6 +1208,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
     }),
     "mail-secret",
   );
+  await saveConnection(paths, discordConnection(), "discord-secret");
   for (const component of ["coordinator", "gateway"] as const)
     await writeComponentState(paths, {
       component,
@@ -1192,7 +1217,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       pid: process.pid,
       status: "ready",
       fingerprint: config.fingerprint,
-      connectionGeneration: 2,
+      connectionGeneration: 3,
       startedAt: "now",
     });
   const spec: ContainerSpec = {
@@ -1311,6 +1336,14 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
       writeWebExtension: async () => undefined,
+      async writeDiscordExtension(home, connections) {
+        assert.equal(home, "/test/task-home");
+        assert.deepEqual(
+          connections.map((connection) => connection.name),
+          ["discord"],
+        );
+        calls.push("task:discord-tools");
+      },
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/task-home");
         assert.deepEqual(
@@ -1335,6 +1368,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
   assert.deepEqual(
     calls.filter((call) => call.startsWith("task:")),
     [
+      "task:discord-tools",
       "task:email-tools",
       "task:outcome-tools",
       "task:create",
