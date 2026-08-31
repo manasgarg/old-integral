@@ -116,6 +116,7 @@ export class Gateway {
   private lastConnectionHash: string | undefined;
   private lastGeneration = 0;
   private sawInvalidConnections = false;
+  private lastHealthNotification: string | undefined;
   private readonly resourceLocks = new Map<
     string,
     {
@@ -281,18 +282,38 @@ export class Gateway {
       this.sawInvalidConnections = false;
     }
     this.lastGeneration = generation;
-    const errors = [...loaded.errors, ...credentialErrors];
-    await updateComponentState(
-      this.paths,
-      "gateway",
-      errors.length
-        ? {
-            connectionGeneration: generation,
-            status: "degraded",
-            error: errors.join("\n"),
-          }
-        : { connectionGeneration: generation, status: "ready" },
-    );
+    const errors = [...loaded.errors, ...credentialErrors],
+      error = errors.length ? errors.join("\n") : undefined,
+      status: "ready" | "degraded" = error ? "degraded" : "ready",
+      health = {
+        connectionGeneration: generation,
+        status,
+        ...(error ? { error } : {}),
+      };
+    await updateComponentState(this.paths, "gateway", health);
+    await this.publishHealthNotification(status, error);
+  }
+  private async publishHealthNotification(
+    status: "ready" | "degraded",
+    error?: string,
+  ): Promise<void> {
+    const signature = JSON.stringify({ status, error });
+    if (signature === this.lastHealthNotification) return;
+    try {
+      const response = await this.dependencies.internalFetch(
+        this.paths,
+        "gateway",
+        "coordinator",
+        "/integral/internal/gateway-health-notification",
+        {
+          method: "POST",
+          body: JSON.stringify({ status, ...(error ? { error } : {}) }),
+        },
+      );
+      if (response.ok) this.lastHealthNotification = signature;
+    } catch {
+      /* The next gateway reload retries after the coordinator becomes available. */
+    }
   }
   private authenticate(req: IncomingMessage): string | undefined {
     const token = parseProxyAuthorization(req.headers["proxy-authorization"]);

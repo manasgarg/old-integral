@@ -101,6 +101,20 @@ interface ConversationScope {
   };
 }
 
+interface DeliveredGatewayHealth {
+  status: "ready" | "degraded";
+  reason?: string;
+  deliveredAt: string;
+}
+
+function sameGatewayHealth(
+  previous: DeliveredGatewayHealth | undefined,
+  status: "ready" | "degraded",
+  reason?: string,
+): boolean {
+  return previous?.status === status && previous.reason === reason;
+}
+
 function taskDescription(prompt: string): string {
   const normalized = prompt.replace(/\s+/g, " ").trim();
   const titled = /^Task:\s*(.+?)(?:\.\s|$)/i.exec(normalized)?.[1]?.trim();
@@ -489,6 +503,66 @@ export class Coordinator {
       );
       return false;
     }
+  }
+  private async notifyGatewayHealth(
+    status: "ready" | "degraded",
+    error?: string,
+  ): Promise<boolean> {
+    const scope = this.discordScope;
+    if (!scope?.discord) return false;
+    const file = join(this.paths.state, "discord-gateway-health.json"),
+      raw = await readText(file);
+    let previous: DeliveredGatewayHealth | undefined;
+    if (raw)
+      try {
+        const parsed = JSON.parse(raw) as Partial<DeliveredGatewayHealth>;
+        if (
+          (parsed.status === "ready" || parsed.status === "degraded") &&
+          typeof parsed.deliveredAt === "string" &&
+          (parsed.reason === undefined || typeof parsed.reason === "string")
+        )
+          previous = parsed as DeliveredGatewayHealth;
+      } catch {
+        /* Replace malformed notification state after the next delivery. */
+      }
+    const secrets = await credentialSecretValues(this.paths),
+      reason =
+        status === "degraded"
+          ? redactText(
+              error?.split(/\r?\n/, 1)[0] ?? "No reason was recorded",
+              secrets,
+            )
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 300)
+          : undefined;
+    if (sameGatewayHealth(previous, status, reason)) return true;
+    if (!previous && status === "ready") {
+      await atomicWrite(
+        file,
+        `${JSON.stringify({ status, deliveredAt: new Date(this.dependencies.now()).toISOString() })}\n`,
+      );
+      return true;
+    }
+    const text =
+      status === "degraded"
+        ? `Integral cannot currently process new messages because its gateway is degraded. Reason: ${reason}. New messages remain safely queued. Run \`integral connection ls\` to see the affected connection.`
+        : "Integral's gateway has recovered. Queued messages can resume processing.";
+    if (!(await this.deliverDiscord(scope, text))) return false;
+    await scope.conversation.append({ type: "notification", text });
+    await atomicWrite(
+      file,
+      `${JSON.stringify({ status, ...(reason ? { reason } : {}), deliveredAt: new Date(this.dependencies.now()).toISOString() })}\n`,
+    );
+    this.logger?.event(
+      "info",
+      status === "degraded"
+        ? "gateway.health_notification_delivered"
+        : "gateway.recovery_notification_delivered",
+      "delivered gateway health notification",
+      { conversation_id: scope.id, gateway_status: status },
+    );
+    return true;
   }
   private async submitDiscord(
     scope: ConversationScope,
@@ -1672,6 +1746,24 @@ export class Coordinator {
         if (!(await this.deliverDiscord(scope, text)))
           throw new IntegralError("Discord notification delivery failed", 503);
         await scope.conversation.append({ type: "notification", text });
+        res.writeHead(204).end();
+        return;
+      }
+      if (
+        url.pathname === "/integral/internal/gateway-health-notification" &&
+        req.method === "POST"
+      ) {
+        if (!this.internal(req, "gateway")) return unauthorized(res);
+        const body = await bodyJson(req),
+          status = stringValue(body.status),
+          error = stringValue(body.error);
+        if (status !== "ready" && status !== "degraded")
+          throw new IntegralError("invalid gateway health status", 400);
+        if (!(await this.notifyGatewayHealth(status, error || undefined)))
+          throw new IntegralError(
+            "Discord gateway health notification delivery failed",
+            503,
+          );
         res.writeHead(204).end();
         return;
       }

@@ -188,6 +188,7 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     credential,
   );
   let refreshFails = true;
+  const healthNotifications: Record<string, unknown>[] = [];
   const gateway = new Gateway(
     paths,
     config,
@@ -202,6 +203,17 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
       async refreshOAuth() {
         if (refreshFails) throw new Error("refresh token expired");
         return { access: "fresh-access", serialized: credential };
+      },
+      async internalFetch(_paths, caller, target, path, init) {
+        assert.equal(caller, "gateway");
+        assert.equal(target, "coordinator");
+        assert.equal(path, "/integral/internal/gateway-health-notification");
+        if (typeof init?.body !== "string")
+          throw new Error("expected serialized gateway health");
+        healthNotifications.push(
+          JSON.parse(init.body) as Record<string, unknown>,
+        );
+        return new Response(null, { status: 204 });
       },
     },
   );
@@ -226,6 +238,10 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     ]),
     [["anthropic", "active", undefined]],
   );
+  assert.deepEqual(healthNotifications, [
+    { status: "degraded", error: "refresh token expired" },
+    { status: "ready" },
+  ]);
 });
 
 /* @covers SERVER-CBD35885
@@ -1621,25 +1637,35 @@ test("[DISCORD-41A4A8BD] authenticated Pi Discord calls use only the configured 
     status: 200,
     body: '{"delivered":true}',
   });
-  assert.deepEqual(forwarded, [
-    {
-      target: "coordinator",
-      path: "/integral/internal/channel-notification",
-      body: {
-        provider: "discord",
-        conversationId: "discord:100000000000000004",
-        userId: "100000000000000003",
-        channelId: "100000000000000004",
-        text: "Retrospective repaired.",
+  assert.deepEqual(
+    forwarded.filter(
+      (request) => request.path === "/integral/internal/channel-notification",
+    ),
+    [
+      {
+        target: "coordinator",
+        path: "/integral/internal/channel-notification",
+        body: {
+          provider: "discord",
+          conversationId: "discord:100000000000000004",
+          userId: "100000000000000003",
+          channelId: "100000000000000004",
+          text: "Retrospective repaired.",
+        },
       },
-    },
-  ]);
+    ],
+  );
 
   (gateway as unknown as { candidates: unknown[] }).candidates = [];
   const unavailable = await invoke("Do not reroute this.");
   assert.equal(unavailable.status, 503);
   assert.match(unavailable.body, /active Discord connection not found/);
-  assert.equal(forwarded.length, 1);
+  assert.equal(
+    forwarded.filter(
+      (request) => request.path === "/integral/internal/channel-notification",
+    ).length,
+    1,
+  );
 });
 
 /* @covers GATEWAY-123EDBDF

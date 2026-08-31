@@ -329,3 +329,22 @@ Given the core Integral server is healthy
 			And identifies the configured bot, user, and DM without printing credentials
 			And reports conversation-specific queue and session state with an unambiguous conversation label
 ```
+
+## DISCORD-A9DA6034 — Report gateway health incidents directly
+
+```text
+Given the Discord listener and gateway are running
+	When the gateway becomes degraded with a recorded failure reason
+		Then the gateway reports the health incident to the coordinator
+			And the coordinator sends one plain-language alert directly to the configured Discord DM
+			And the alert identifies the gateway and a bounded redacted reason
+			And the alert explains that new messages remain queued
+			And the coordinator records the delivered alert in the Discord conversation history
+			And the notification does not enter or depend on the conversation queue
+	When the same degraded gateway state is observed again
+		Then the coordinator does not send a duplicate alert
+	When the gateway returns to ready after a delivered incident
+		Then the coordinator sends one direct recovery notification
+			And records the delivered recovery in the Discord conversation history
+			And permits a later gateway incident to produce a new alert
+```

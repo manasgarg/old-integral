@@ -818,6 +818,96 @@ test("[BOX-40521095] package changes rebuild the selected exact Pi image and per
   assert.equal(builds[2]?.rebuild, false);
 });
 
+/* @covers DISCORD-A9DA6034
+Given the Discord listener and gateway are running
+	When the gateway becomes degraded with a recorded failure reason
+		Then the gateway reports the health incident to the coordinator
+			And the coordinator sends one plain-language alert directly to the configured Discord DM
+			And the alert identifies the gateway and a bounded redacted reason
+			And the alert explains that new messages remain queued
+			And the coordinator records the delivered alert in the Discord conversation history
+			And the notification does not enter or depend on the conversation queue
+	When the same degraded gateway state is observed again
+		Then the coordinator does not send a duplicate alert
+	When the gateway returns to ready after a delivered incident
+		Then the coordinator sends one direct recovery notification
+			And records the delivered recovery in the Discord conversation history
+			And permits a later gateway incident to produce a new alert
+*/
+test("[DISCORD-A9DA6034] gateway health incidents notify Discord once and recover durably", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    directory = join(paths.channels, "discord-health"),
+    queue = new DurableQueue(join(directory, "queue.json")),
+    conversation = new ConversationStore(join(directory, "conversation.jsonl")),
+    modelSelection = new ModelSelectionStore(join(directory, "model.json")),
+    discordReplies: string[] = [],
+    scope = {
+      id: "discord:100000000000000004",
+      queue,
+      conversation,
+      modelSelection,
+      discord: {
+        listener: {
+          async typing() {},
+          async reply(text: string) {
+            discordReplies.push(text);
+          },
+        },
+        ingress: {},
+        userId: "100000000000000003",
+        channelId: "100000000000000004",
+      },
+    };
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "key",
+    }),
+    "actual-secret",
+  );
+  await Promise.all([queue.load(), conversation.load(), modelSelection.load()]);
+
+  const first = new Coordinator(paths, config) as any;
+  first.discordScope = scope;
+  await first.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+  await first.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+
+  assert.equal(discordReplies.length, 1);
+  assert.match(discordReplies[0]!, /gateway is degraded/i);
+  assert.match(discordReplies[0]!, /messages remain safely queued/i);
+  assert.doesNotMatch(discordReplies[0]!, /actual-secret|private stack/);
+  assert.equal(queue.snapshot().length, 0);
+  assert.equal(conversation.snapshot().length, 1);
+
+  const restarted = new Coordinator(paths, config) as any;
+  restarted.discordScope = scope;
+  await restarted.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+  await restarted.notifyGatewayHealth("ready");
+  await restarted.notifyGatewayHealth("ready");
+  await restarted.notifyGatewayHealth("degraded", "another safe failure");
+
+  assert.equal(discordReplies.length, 3);
+  assert.match(discordReplies[1]!, /gateway has recovered/i);
+  assert.match(discordReplies[2]!, /another safe failure/);
+  assert.deepEqual(
+    conversation.snapshot().map((event) => event.type),
+    ["notification", "notification", "notification"],
+  );
+});
+
 test("a live Pi package request waits for an attached human and returns the durable result", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
