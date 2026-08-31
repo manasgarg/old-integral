@@ -128,6 +128,9 @@ Given the selected connection type supports the requested authentication method
 	When an expired OAuth credential cannot be refreshed
 		Then the gateway excludes its credential from request injection
 			And publishes degraded gateway health with the refresh error
+			And marks the affected connection degraded at the authorization stage
+	When the affected OAuth credential can be refreshed again
+		Then the gateway returns the connection to active
 ```
 
 ## CONNECTION-6D2A9F84 — Complete OAuth without opening a local browser
@@ -186,6 +189,7 @@ Given zero or more connections have been configured
 			And shows `DISABLED (no secret)` when a credentialed connection has no credential
 			And shows `DISABLED (no secret)` when a stdio connection is missing any declared secret environment value
 			And shows `DISABLED (no secret)` for malformed or expired OAuth without a refresh token
+			And shows `degraded` with a bounded failure reason when connection health is degraded
 			And does not print secret values
 ```
 
@@ -196,6 +200,7 @@ Given zero or more connections have been configured
 	When the user runs `integral connection ls --json`
 		Then integral writes a machine-readable JSON array to stdout
 			And represents the same names, types, auth methods, and states as the human view
+			And includes a bounded failure reason when connection health is degraded
 			And does not include secret values
 ```
 

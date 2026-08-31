@@ -20,7 +20,11 @@ import {
 } from "../src/cli.ts";
 import { loadConfig } from "../src/config.ts";
 import { fixture } from "./helpers.ts";
-import { saveConnection, validateConnection } from "../src/connections.ts";
+import {
+  markConnectionDegraded,
+  saveConnection,
+  validateConnection,
+} from "../src/connections.ts";
 import { addHostResource, softDeleteResource } from "../src/resources.ts";
 
 async function capture(
@@ -650,6 +654,50 @@ test("[CONNECTION-06B6AE14] host-resource listing labels its host path, Pi mount
       path: backing,
       availabilityReason: null,
       restorationPossible: true,
+    },
+  ]);
+});
+
+/* @covers CONNECTION-5833EDC7
+Given zero or more connections have been configured
+	When the user runs `integral connection ls`
+		Then integral lists every connection by name
+			And shows `degraded` with a bounded failure reason when connection health is degraded
+*/
+/* @covers CONNECTION-475E6AE7
+Given zero or more connections have been configured
+	When the user runs `integral connection ls --json`
+		Then integral writes a machine-readable JSON array to stdout
+			And includes a bounded failure reason when connection health is degraded
+*/
+test("[CONNECTION-5833EDC7] [CONNECTION-475E6AE7] connection listings show bounded degraded health", async (t) => {
+  const paths = await fixture(t),
+    env = { INTEGRAL_HOME: paths.root };
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "documents",
+      kind: "mcp",
+      url: "https://mcp.example.test",
+      auth: "none",
+    }),
+  );
+  await markConnectionDegraded(paths, "documents", "authorization");
+
+  const human = await capture(["connection", "ls"], env);
+  assert.equal(human.stdout, "documents\tmcp\tnone\tdegraded\tauthorization\n");
+
+  const json = JSON.parse(
+    (await capture(["connection", "ls", "--json"], env)).stdout,
+  );
+  assert.deepEqual(json, [
+    {
+      name: "documents",
+      kind: "mcp",
+      provider: null,
+      auth: "none",
+      state: "degraded",
+      availabilityReason: "authorization",
     },
   ]);
 });

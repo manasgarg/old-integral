@@ -414,7 +414,9 @@ async function showConnections(
                   availabilityReason: availabilityReason ?? null,
                   restorationPossible,
                 }
-              : {}),
+              : availabilityReason
+                ? { availabilityReason }
+                : {}),
           }),
         ),
         null,
@@ -426,7 +428,7 @@ async function showConnections(
       const isHostResource =
         row.kind === "host-repo" || row.kind === "host-store";
       writeOutput(
-        `${row.name}\t${row.provider ?? row.kind}\t${row.auth}\t${row.state}${isHostResource ? `\t${row.availabilityReason ?? "-"}\trestorable=${row.restorationPossible ? "yes" : "no"}\thost-path=${row.path}\tpi-mount=${row.mount}` : ""}\n`,
+        `${row.name}\t${row.provider ?? row.kind}\t${row.auth}\t${row.state}\t${row.availabilityReason ?? "-"}${isHostResource ? `\trestorable=${row.restorationPossible ? "yes" : "no"}\thost-path=${row.path}\tpi-mount=${row.mount}` : ""}\n`,
       );
     }
 }

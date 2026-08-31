@@ -30,7 +30,11 @@ import {
   writeWebExtension,
 } from "../src/container.ts";
 import { loadConfig } from "../src/config.ts";
-import { saveConnection, validateConnection } from "../src/connections.ts";
+import {
+  listConnections,
+  saveConnection,
+  validateConnection,
+} from "../src/connections.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
 import { Logger } from "../src/logging.ts";
 import { deploymentId, writeComponentState } from "../src/state.ts";
@@ -154,6 +158,74 @@ test("[GATEWAY-3F299566] gateway health identifies deployment and publishes the 
     status: "degraded",
     error: "invalid connection",
   });
+});
+
+/* @covers CONNECTION-512D9A25
+Given the selected connection type supports the requested authentication method
+	When an expired OAuth credential cannot be refreshed
+		Then the gateway excludes its credential from request injection
+			And marks the affected connection degraded at the authorization stage
+	When the affected OAuth credential can be refreshed again
+		Then the gateway returns the connection to active
+*/
+test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected connection until recovery", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    credential = JSON.stringify({
+      type: "oauth",
+      access: "expired-access",
+      refresh: "expired-refresh",
+      expires: 0,
+    });
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "oauth",
+    }),
+    credential,
+  );
+  let refreshFails = true;
+  const gateway = new Gateway(
+    paths,
+    config,
+    new Logger({
+      component: "gateway",
+      deploymentId: deploymentId(paths),
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      async refreshOAuth() {
+        if (refreshFails) throw new Error("refresh token expired");
+        return { access: "fresh-access", serialized: credential };
+      },
+    },
+  );
+
+  await gateway.reload(true);
+  assert.deepEqual(
+    (await listConnections(paths)).map((connection) => [
+      connection.name,
+      connection.state,
+      connection.availabilityReason,
+    ]),
+    [["anthropic", "degraded", "authorization"]],
+  );
+
+  refreshFails = false;
+  await gateway.reload(true);
+  assert.deepEqual(
+    (await listConnections(paths)).map((connection) => [
+      connection.name,
+      connection.state,
+      connection.availabilityReason,
+    ]),
+    [["anthropic", "active", undefined]],
+  );
 });
 
 /* @covers SERVER-CBD35885

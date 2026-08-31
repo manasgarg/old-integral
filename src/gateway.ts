@@ -7,9 +7,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { Connection } from "./connections.ts";
 import {
+  clearConnectionDegraded,
   connectionBoundaries,
   credentialFor,
   loadConnections,
+  markConnectionDegraded,
 } from "./connections.ts";
 import type { IntegralPaths } from "./paths.ts";
 import type { EffectiveConfig } from "./config.ts";
@@ -221,8 +223,18 @@ export class Gateway {
                 join(this.paths.credentials, connection.name),
                 refreshed.serialized,
               );
+            await clearConnectionDegraded(
+              this.paths,
+              connection.name,
+              "authorization",
+            );
           } catch (error) {
             credential = undefined;
+            await markConnectionDegraded(
+              this.paths,
+              connection.name,
+              "authorization",
+            );
             credentialErrors.push(
               error instanceof Error ? error.message : String(error),
             );
