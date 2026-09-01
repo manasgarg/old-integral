@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { X509Certificate } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -36,6 +37,7 @@ import {
   validateConnection,
 } from "../src/connections.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
+import { certificateFor, ensureCa } from "../src/ca.ts";
 import { Logger } from "../src/logging.ts";
 import {
   deploymentId,
@@ -47,6 +49,56 @@ import {
   cleanupResourceProjection,
   prepareResourceProjection,
 } from "../src/resources.ts";
+
+/* @covers ENV-F19A64B2
+Given integral provisions a Pi container
+	When a cached host certificate is expired or will expire within 24 hours
+		Then integral renews the certificate before using it for HTTPS interception
+			And keeps the existing host private key
+			And leaves the previous certificate usable until its replacement is complete
+*/
+test("[ENV-F19A64B2] gateway renews expired and expiring cached host certificates without replacing their key", async (t) => {
+  const paths = await fixture(t),
+    ca = await ensureCa(paths),
+    first = await certificateFor(paths, "chatgpt.com", ca),
+    firstKey = await readFile(first.key),
+    firstCertificate = await readFile(first.cert),
+    firstParsed = new X509Certificate(firstCertificate),
+    afterExpiry = Date.parse(firstParsed.validTo) + 1;
+
+  await assert.rejects(
+    certificateFor(
+      paths,
+      "chatgpt.com",
+      { ...ca, key: join(paths.ca, "missing-ca.key") },
+      { now: () => afterExpiry },
+    ),
+  );
+  assert.deepEqual(await readFile(first.cert), firstCertificate);
+  assert.deepEqual(await readFile(first.key), firstKey);
+
+  const expired = await certificateFor(paths, "chatgpt.com", ca, {
+      now: () => afterExpiry,
+    }),
+    expiredReplacement = await readFile(expired.cert),
+    expiredReplacementParsed = new X509Certificate(expiredReplacement),
+    expiring = await certificateFor(paths, "chatgpt.com", ca, {
+      now: () =>
+        Date.parse(expiredReplacementParsed.validTo) - 12 * 60 * 60 * 1000,
+    }),
+    expiringReplacement = await readFile(expiring.cert),
+    expiringReplacementParsed = new X509Certificate(expiringReplacement),
+    caCertificate = new X509Certificate(await readFile(ca.cert));
+
+  assert.notDeepEqual(expiredReplacement, firstCertificate);
+  assert.notDeepEqual(expiringReplacement, expiredReplacement);
+  assert.deepEqual(await readFile(expiring.key), firstKey);
+  assert.equal(
+    expiringReplacementParsed.checkHost("chatgpt.com"),
+    "chatgpt.com",
+  );
+  assert.equal(expiringReplacementParsed.verify(caCertificate.publicKey), true);
+});
 
 test("[BOX-E1F472A1] managed Pi image identity changes with its build recipe", () => {
   const first = managedPiImage("1.2.3", [Buffer.from("first recipe")]),
