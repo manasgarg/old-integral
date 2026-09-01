@@ -11,6 +11,7 @@ import type {
 import { loadConfig } from "../src/config.ts";
 import {
   listConnections,
+  markConnectionDegraded,
   saveConnection,
   validateConnection,
 } from "../src/connections.ts";
@@ -170,7 +171,7 @@ test("[LOG-D079FCFE] runner reports slow provisioning stages with correlated saf
 
 /* @covers FAILURE-3780301D
 Given the runner has not claimed its next message
-	When gateway state is missing or not ready
+	When gateway state is missing or has a deployment-wide configuration failure
 		Then the runner marks itself degraded
 			And does not claim new work
 			And does not fall back to direct internet access
@@ -224,6 +225,81 @@ test("[FAILURE-3780301D] runner degrades without claiming work when gateway stat
   const state = await readComponentState(paths, "runner");
   assert.equal(state?.status, "degraded");
   assert.match(state?.error ?? "", /configuration or connection generations/);
+});
+
+/* @covers FAILURE-F93D8325
+Given the gateway is reachable with one active model connection and one degraded model connection
+	When a conversation message selects the active model connection
+		Then the runner may claim and process the message while gateway health is partially degraded
+*/
+test("[FAILURE-F93D8325] runner claims healthy-model work during connection-local gateway degradation", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    deployment = deploymentId(paths);
+  for (const name of ["healthy", "broken"])
+    await saveConnection(
+      paths,
+      validateConnection({
+        name,
+        kind: "model",
+        provider: "anthropic",
+        auth: "key",
+      }),
+      `${name}-credential`,
+    );
+  await markConnectionDegraded(paths, "broken", "authorization");
+  for (const component of ["coordinator", "runner"] as const)
+    await writeComponentState(paths, {
+      component,
+      deploymentId: deployment,
+      endpoint: "http://127.0.0.1:1",
+      pid: process.pid,
+      status: "ready",
+      fingerprint: config.fingerprint,
+      connectionGeneration: 2,
+      startedAt: "now",
+    });
+  await writeComponentState(paths, {
+    component: "gateway",
+    deploymentId: deployment,
+    endpoint: "http://127.0.0.1:1",
+    pid: process.pid,
+    status: "degraded",
+    degradation: "connection",
+    error: "broken authorization",
+    fingerprint: config.fingerprint,
+    connectionGeneration: 2,
+    startedAt: "now",
+  });
+  let claimBody: Record<string, unknown> | undefined;
+  const runner = new Runner(
+    paths,
+    config,
+    new Logger({
+      component: "runner",
+      deploymentId: deployment,
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      clock: new ManualClock(),
+      fetch: async () => new Response("ok"),
+      async internalFetch(_paths, _caller, target, path, init) {
+        if (target === "gateway") return new Response(null, { status: 204 });
+        assert.equal(path, "/integral/internal/claim");
+        if (typeof init?.body !== "string")
+          throw new Error("expected serialized claim filter");
+        claimBody = JSON.parse(init.body) as Record<string, unknown>;
+        return Response.json({ context: [] });
+      },
+    },
+  );
+
+  await runner.runOnce();
+
+  assert.deepEqual(claimBody, { modelConnections: ["healthy"] });
+  assert.equal((await readComponentState(paths, "runner"))?.status, "ready");
 });
 
 test("[MCP-5751370A] [MCP-6F5CFA0E] runner detects validated catalog changes between turns and retains the active catalog on refresh failure", async (t) => {

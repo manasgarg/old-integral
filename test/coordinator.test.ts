@@ -908,6 +908,119 @@ test("[DISCORD-A9DA6034] gateway health incidents notify Discord once and recove
   );
 });
 
+/* @covers FAILURE-F93D8325
+Given the gateway is reachable with one active model connection and one degraded model connection
+	When a conversation message selects the degraded model connection
+		Then the coordinator leaves that message queued without increasing its delivery attempts
+			And work selecting an active model connection remains claimable
+	When a scheduled task selects the degraded model connection
+		Then the coordinator leaves that task queued without creating an attempt
+			And scheduled work selecting an active model connection remains claimable
+*/
+test("[FAILURE-F93D8325] coordinator claims only work whose selected model connection is active", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    coordinator = new Coordinator(paths, config),
+    activeDirectory = join(paths.channels, "active-model"),
+    activeQueue = new DurableQueue(join(activeDirectory, "queue.json")),
+    activeConversation = new ConversationStore(
+      join(activeDirectory, "conversation.jsonl"),
+    ),
+    activeSelection = new ModelSelectionStore(
+      join(activeDirectory, "model.json"),
+    ),
+    token = await componentIdentity(paths),
+    headers = internalHeaders("runner", token, deploymentId(paths));
+  await Promise.all([
+    coordinator.queue.load(),
+    coordinator.conversation.load(),
+    coordinator.modelSelection.load(),
+    coordinator.tasks.load(),
+    activeQueue.load(),
+    activeConversation.load(),
+    activeSelection.load(),
+  ]);
+  (coordinator as any).token = token;
+  await coordinator.modelSelection.set({
+    connection: "broken",
+    provider: "anthropic",
+    model: "claude",
+    piVersion: "1",
+    piImage: "image",
+  });
+  await activeSelection.set({
+    connection: "healthy",
+    provider: "openai-codex",
+    model: "gpt",
+    piVersion: "1",
+    piImage: "image",
+  });
+  (coordinator as any).scopes.set("active", {
+    id: "active",
+    queue: activeQueue,
+    conversation: activeConversation,
+    modelSelection: activeSelection,
+  });
+  const blockedMessage = await coordinator.queue.enqueue("blocked"),
+    activeMessage = await activeQueue.enqueue("processable"),
+    claimedMessage = await coordinatorPost(
+      coordinator,
+      "/integral/internal/claim",
+      { modelConnections: ["healthy"] },
+      headers,
+    );
+  assert.equal(
+    (claimedMessage.body as { message?: { id: string } }).message?.id,
+    activeMessage.id,
+  );
+  assert.deepEqual(
+    coordinator.queue
+      .snapshot()
+      .map((message) => [message.id, message.status, message.attempts]),
+    [[blockedMessage.id, "queued", 0]],
+  );
+
+  const occurrence = (executionId: string, connection: string) => ({
+    executionId,
+    scheduleId: `schedule-${executionId}`,
+    scheduleRevision: 1,
+    triggerType: "once" as const,
+    scheduledFor: "2026-09-01T10:00:00.000Z",
+    prompt: `run ${executionId}`,
+    profile: {
+      connection,
+      provider: connection === "healthy" ? "openai-codex" : "anthropic",
+      model: connection === "healthy" ? "gpt" : "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    state: "pending" as const,
+    dispatchAttempts: 1,
+    createdAt: "2026-09-01T09:00:00.000Z",
+  });
+  await coordinator.tasks.accept(occurrence("blocked-task", "broken"));
+  await coordinator.tasks.accept(occurrence("active-task", "healthy"));
+  const claimedTask = await coordinatorPost(
+    coordinator,
+    "/integral/internal/tasks/claim",
+    { modelConnections: ["healthy"] },
+    headers,
+  );
+  assert.equal(
+    (claimedTask.body as { task?: { executionId: string } }).task?.executionId,
+    "active-task",
+  );
+  assert.deepEqual(
+    coordinator.tasks
+      .snapshot()
+      .map((task) => [task.executionId, task.state, task.attempts.length]),
+    [
+      ["blocked-task", "queued", 0],
+      ["active-task", "claimed", 0],
+    ],
+  );
+});
+
 test("a live Pi package request waits for an attached human and returns the durable result", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),

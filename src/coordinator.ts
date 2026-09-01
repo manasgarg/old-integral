@@ -115,6 +115,16 @@ function sameGatewayHealth(
   return previous?.status === status && previous.reason === reason;
 }
 
+function modelConnectionFilter(value: unknown): Set<string> | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.some((connection) => typeof connection !== "string")
+  )
+    throw new IntegralError("modelConnections must be an array of names", 400);
+  return new Set(value);
+}
+
 function taskDescription(prompt: string): string {
   const normalized = prompt.replace(/\s+/g, " ").trim();
   const titled = /^Task:\s*(.+?)(?:\.\s|$)/i.exec(normalized)?.[1]?.trim();
@@ -1597,7 +1607,15 @@ export class Coordinator {
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
-        json(res, 200, { task: await this.tasks.claim() });
+        const body = await bodyJson(req),
+          modelConnections = modelConnectionFilter(body.modelConnections);
+        json(res, 200, {
+          task: await this.tasks.claim(
+            modelConnections
+              ? (task) => modelConnections.has(task.profile.connection)
+              : undefined,
+          ),
+        });
         return;
       }
       const taskDeclaration = url.pathname.match(
@@ -1692,10 +1710,14 @@ export class Coordinator {
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
+        const body = await bodyJson(req),
+          modelConnections = modelConnectionFilter(body.modelConnections);
         const result = await this.exclusiveWork(async () => {
           for (const scope of this.scopes.values()) {
             const selection = scope.modelSelection.get();
             if (!selection) continue;
+            if (modelConnections && !modelConnections.has(selection.connection))
+              continue;
             const item = await scope.queue.claim();
             if (item) return { item, selection, scope };
           }

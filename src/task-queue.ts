@@ -177,7 +177,9 @@ export class DurableTaskQueue {
     });
   }
 
-  async claim(): Promise<ScheduledTask | undefined> {
+  async claim(
+    eligible: (task: ScheduledTask) => boolean = () => true,
+  ): Promise<ScheduledTask | undefined> {
     return this.operations.run(async () => {
       if (
         this.data.tasks.some(
@@ -188,9 +190,10 @@ export class DurableTaskQueue {
       const now = this.now(),
         task = this.data.tasks.find(
           (item) =>
-            item.state === "queued" ||
-            (item.state === "retry-wait" &&
-              Date.parse(item.nextAttemptAt ?? "") <= now),
+            eligible(item) &&
+            (item.state === "queued" ||
+              (item.state === "retry-wait" &&
+                Date.parse(item.nextAttemptAt ?? "") <= now)),
         );
       if (!task) return undefined;
       task.state = "claimed";

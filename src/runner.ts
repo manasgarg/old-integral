@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { EffectiveConfig } from "./config.ts";
 import {
+  activeModelConnectionNames,
   credentialFor,
   clearConnectionDegraded,
   listConnections,
@@ -41,6 +42,7 @@ import {
   componentIdentity,
   deploymentId,
   readComponentState,
+  type ComponentState,
   verifyInternal,
 } from "./state.ts";
 import { updateComponentState } from "./state.ts";
@@ -155,6 +157,13 @@ async function recordResourceProjection(
       commit: initialHead,
     })),
   });
+}
+
+function gatewayAllowsClaims(state: ComponentState | undefined): boolean {
+  return (
+    state?.status === "ready" ||
+    (state?.status === "degraded" && state.degradation === "connection")
+  );
 }
 
 export class Runner {
@@ -461,7 +470,7 @@ export class Runner {
         !coordinatorState ||
         !gatewayState ||
         coordinatorState.status !== "ready" ||
-        gatewayState.status !== "ready" ||
+        !gatewayAllowsClaims(gatewayState) ||
         coordinatorState.fingerprint !== this.config.fingerprint ||
         gatewayState.fingerprint !== this.config.fingerprint ||
         coordinatorState.connectionGeneration !== generation ||
@@ -469,12 +478,13 @@ export class Runner {
       )
         return;
       await this.ensureGatewayListener();
+      const modelConnections = await activeModelConnectionNames(this.paths);
       const claimed = await this.dependencies.internalFetch(
         this.paths,
         "runner",
         "coordinator",
         "/integral/internal/tasks/claim",
-        { method: "POST", body: "{}" },
+        { method: "POST", body: JSON.stringify({ modelConnections }) },
       );
       if (!claimed.ok)
         throw new IntegralError(`task claim failed: ${claimed.status}`);
@@ -801,7 +811,7 @@ export class Runner {
         !coordinatorState ||
         !gatewayState ||
         coordinatorState.status !== "ready" ||
-        gatewayState.status !== "ready" ||
+        !gatewayAllowsClaims(gatewayState) ||
         coordinatorState.fingerprint !== this.config.fingerprint ||
         gatewayState.fingerprint !== this.config.fingerprint ||
         coordinatorState.connectionGeneration !== generation ||
@@ -820,12 +830,13 @@ export class Runner {
         ),
       );
       if (!gateway.ok) throw new IntegralError("gateway unavailable");
+      const modelConnections = await activeModelConnectionNames(this.paths);
       const response = await this.dependencies.internalFetch(
         this.paths,
         "runner",
         "coordinator",
         "/integral/internal/claim",
-        { method: "POST", body: "{}" },
+        { method: "POST", body: JSON.stringify({ modelConnections }) },
       );
       if (!response.ok)
         throw new IntegralError(`claim failed: ${response.status}`);

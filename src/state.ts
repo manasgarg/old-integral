@@ -15,6 +15,7 @@ export interface ComponentState {
   connectionGeneration: number;
   startedAt: string;
   error?: string;
+  degradation?: "connection" | "configuration";
 }
 
 export function deploymentId(paths: IntegralPaths): string {
@@ -55,13 +56,17 @@ export async function updateComponentState(
   paths: IntegralPaths,
   component: Component,
   patch: Partial<
-    Pick<ComponentState, "status" | "connectionGeneration" | "error">
+    Pick<
+      ComponentState,
+      "status" | "connectionGeneration" | "error" | "degradation"
+    >
   >,
 ): Promise<void> {
   const current = await readComponentState(paths, component);
   if (!current || current.pid !== process.pid) return;
   const next = { ...current, ...patch };
   if (patch.error === undefined) delete next.error;
+  if (patch.degradation === undefined) delete next.degradation;
   await writeComponentState(paths, next);
 }
 

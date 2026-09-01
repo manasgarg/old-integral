@@ -840,6 +840,26 @@ export async function listConnections(
     }),
   );
 }
+export async function activeModelConnectionNames(
+  paths: IntegralPaths,
+): Promise<string[]> {
+  const loaded = await loadConnections(paths);
+  if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
+  const names = await Promise.all(
+    loaded.connections
+      .filter((connection) => connection.kind === "model")
+      .map(async (connection) => {
+        const [health, credential] = await Promise.all([
+          connectionHealth(paths, connection.name),
+          credentialFor(paths, connection.name),
+        ]);
+        return !health && usableCredential(connection, credential)
+          ? connection.name
+          : undefined;
+      }),
+  );
+  return names.filter((name): name is string => name !== undefined);
+}
 function usableCredential(
   connection: Connection,
   raw: string | undefined,

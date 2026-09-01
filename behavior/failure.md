@@ -23,7 +23,7 @@ Given a chat turn is in progress
 
 ```text
 Given the runner has not claimed its next message
-	When gateway state is missing or not ready
+	When gateway state is missing or has a deployment-wide configuration failure
 		Then the runner marks itself degraded
 			And does not claim new work
 			And does not fall back to direct internet access
@@ -33,6 +33,20 @@ Given a chat turn is already in progress
 			And integral does not place a real credential in any replacement container
 			And the coordinator durably returns the interrupted message to the queue
 			And reports the turn error to attached terminals
+```
+
+## FAILURE-F93D8325 — Isolate a degraded connection
+
+```text
+Given the gateway is reachable with one active model connection and one degraded model connection
+	When a conversation message selects the active model connection
+		Then the runner may claim and process the message while gateway health is partially degraded
+	When a conversation message selects the degraded model connection
+		Then the coordinator leaves that message queued without increasing its delivery attempts
+			And work selecting an active model connection remains claimable
+	When a scheduled task selects the degraded model connection
+		Then the coordinator leaves that task queued without creating an attempt
+			And scheduled work selecting an active model connection remains claimable
 ```
 
 ## FAILURE-A4C19E72 — Handle an immediate Pi prompt rejection

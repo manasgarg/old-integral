@@ -289,6 +289,13 @@ export class Gateway {
         connectionGeneration: generation,
         status,
         ...(error ? { error } : {}),
+        ...(error
+          ? {
+              degradation: loaded.errors.length
+                ? ("configuration" as const)
+                : ("connection" as const),
+            }
+          : {}),
       };
     await updateComponentState(this.paths, "gateway", health);
     await this.publishHealthNotification(status, error);

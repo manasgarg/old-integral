@@ -37,7 +37,11 @@ import {
 } from "../src/connections.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
 import { Logger } from "../src/logging.ts";
-import { deploymentId, writeComponentState } from "../src/state.ts";
+import {
+  deploymentId,
+  readComponentState,
+  writeComponentState,
+} from "../src/state.ts";
 import { fixture } from "./helpers.ts";
 import {
   cleanupResourceProjection,
@@ -187,6 +191,16 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     }),
     credential,
   );
+  await writeComponentState(paths, {
+    component: "gateway",
+    deploymentId: deploymentId(paths),
+    endpoint: "http://127.0.0.1:7310",
+    pid: process.pid,
+    status: "ready",
+    fingerprint: config.fingerprint,
+    connectionGeneration: 1,
+    startedAt: "now",
+  });
   let refreshFails = true;
   const healthNotifications: Record<string, unknown>[] = [];
   const gateway = new Gateway(
@@ -219,6 +233,10 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
   );
 
   await gateway.reload(true);
+  assert.equal(
+    (await readComponentState(paths, "gateway"))?.degradation,
+    "connection",
+  );
   assert.deepEqual(
     (await listConnections(paths)).map((connection) => [
       connection.name,
@@ -230,6 +248,10 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
 
   refreshFails = false;
   await gateway.reload(true);
+  assert.equal(
+    (await readComponentState(paths, "gateway"))?.degradation,
+    undefined,
+  );
   assert.deepEqual(
     (await listConnections(paths)).map((connection) => [
       connection.name,
