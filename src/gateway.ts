@@ -79,6 +79,15 @@ function modelBoundary(connection: Connection): Connection {
   };
 }
 
+const OAUTH_RETRY_INITIAL_MS = 30_000;
+const OAUTH_RETRY_MAX_MS = 15 * 60_000;
+interface OAuthRefreshBackoff {
+  credentialHash: string;
+  error: string;
+  delayMs: number;
+  nextAttemptAt: number;
+}
+
 export function allowsConnect(
   candidates: CredentialedConnection[],
   host: string,
@@ -117,6 +126,7 @@ export class Gateway {
   private lastGeneration = 0;
   private sawInvalidConnections = false;
   private lastHealthNotification: string | undefined;
+  private readonly oauthRefreshBackoff = new Map<string, OAuthRefreshBackoff>();
   private readonly resourceLocks = new Map<
     string,
     {
@@ -205,41 +215,68 @@ export class Gateway {
     const loaded = await loadConnections(this.paths);
     if (strict && loaded.errors.length)
       throw new IntegralError(loaded.errors.join("\n"));
-    const credentialErrors: string[] = [];
+    const credentialErrors: string[] = [],
+      activeConnectionNames = new Set(
+        loaded.connections.map((connection) => connection.name),
+      );
+    for (const name of this.oauthRefreshBackoff.keys())
+      if (!activeConnectionNames.has(name))
+        this.oauthRefreshBackoff.delete(name);
     this.candidates = await Promise.all(
       loaded.connections.map(async (connection) => {
         const raw = await credentialFor(this.paths, connection.name);
         let credential = raw,
           injectedHeaders: Record<string, string> | undefined;
-        if (raw && oauthAccess(raw))
-          try {
-            const refreshed = await this.dependencies.refreshOAuth(
-              this.paths,
-              connection,
-              raw,
-            );
-            credential = refreshed.access;
-            if (refreshed.serialized !== raw)
-              await atomicWrite(
-                join(this.paths.credentials, connection.name),
-                refreshed.serialized,
-              );
-            await clearConnectionDegraded(
-              this.paths,
-              connection.name,
-              "authorization",
-            );
-          } catch (error) {
+        if (raw && oauthAccess(raw)) {
+          const credentialHash = createHash("sha256").update(raw).digest("hex"),
+            previous = this.oauthRefreshBackoff.get(connection.name),
+            sameFailedCredential = previous?.credentialHash === credentialHash;
+          if (
+            sameFailedCredential &&
+            this.dependencies.now() < previous.nextAttemptAt
+          ) {
             credential = undefined;
-            await markConnectionDegraded(
-              this.paths,
-              connection.name,
-              "authorization",
-            );
-            credentialErrors.push(
-              error instanceof Error ? error.message : String(error),
-            );
-          }
+            credentialErrors.push(previous.error);
+          } else
+            try {
+              const refreshed = await this.dependencies.refreshOAuth(
+                this.paths,
+                connection,
+                raw,
+              );
+              credential = refreshed.access;
+              if (refreshed.serialized !== raw)
+                await atomicWrite(
+                  join(this.paths.credentials, connection.name),
+                  refreshed.serialized,
+                );
+              this.oauthRefreshBackoff.delete(connection.name);
+              await clearConnectionDegraded(
+                this.paths,
+                connection.name,
+                "authorization",
+              );
+            } catch (error) {
+              credential = undefined;
+              const message =
+                  error instanceof Error ? error.message : String(error),
+                delayMs = sameFailedCredential
+                  ? Math.min(previous.delayMs * 2, OAUTH_RETRY_MAX_MS)
+                  : OAUTH_RETRY_INITIAL_MS;
+              this.oauthRefreshBackoff.set(connection.name, {
+                credentialHash,
+                error: message,
+                delayMs,
+                nextAttemptAt: this.dependencies.now() + delayMs,
+              });
+              await markConnectionDegraded(
+                this.paths,
+                connection.name,
+                "authorization",
+              );
+              credentialErrors.push(message);
+            }
+        } else this.oauthRefreshBackoff.delete(connection.name);
         if (raw && connection.provider === "openai-codex")
           try {
             const accountId = (JSON.parse(raw) as { accountId?: unknown })

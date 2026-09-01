@@ -129,8 +129,13 @@ Given the selected connection type supports the requested authentication method
 		Then the gateway excludes its credential from request injection
 			And publishes degraded gateway health with the refresh error
 			And marks the affected connection degraded at the authorization stage
-	When the affected OAuth credential can be refreshed again
-		Then the gateway returns the connection to active
+	When the same failed OAuth credential is observed before its retry delay expires
+		Then the gateway keeps the connection degraded without contacting the provider again
+	When the retry delay expires and the same OAuth credential still fails
+		Then the gateway retries once and increases the delay before its next retry
+	When the OAuth credential is replaced during a retry delay
+		Then the gateway attempts the replacement immediately
+			And returns the connection to active when refresh succeeds
 ```
 
 ## CONNECTION-6D2A9F84 — Complete OAuth without opening a local browser

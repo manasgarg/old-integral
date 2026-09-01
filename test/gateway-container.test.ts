@@ -221,10 +221,15 @@ Given the selected connection type supports the requested authentication method
 	When an expired OAuth credential cannot be refreshed
 		Then the gateway excludes its credential from request injection
 			And marks the affected connection degraded at the authorization stage
-	When the affected OAuth credential can be refreshed again
-		Then the gateway returns the connection to active
+	When the same failed OAuth credential is observed before its retry delay expires
+		Then the gateway keeps the connection degraded without contacting the provider again
+	When the retry delay expires and the same OAuth credential still fails
+		Then the gateway retries once and increases the delay before its next retry
+	When the OAuth credential is replaced during a retry delay
+		Then the gateway attempts the replacement immediately
+			And returns the connection to active when refresh succeeds
 */
-test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected connection until recovery", async (t) => {
+test("[CONNECTION-512D9A25] OAuth refresh failure backs off until retry or credential replacement", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     credential = JSON.stringify({
@@ -253,7 +258,8 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     connectionGeneration: 1,
     startedAt: "now",
   });
-  let refreshFails = true;
+  let now = 1_000,
+    refreshCalls = 0;
   const healthNotifications: Record<string, unknown>[] = [];
   const gateway = new Gateway(
     paths,
@@ -267,8 +273,13 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     }),
     {
       async refreshOAuth() {
-        if (refreshFails) throw new Error("refresh token expired");
-        return { access: "fresh-access", serialized: credential };
+        refreshCalls++;
+        const current = await readFile(
+          join(paths.credentials, "anthropic"),
+          "utf8",
+        );
+        if (current === credential) throw new Error("refresh token expired");
+        return { access: "fresh-access", serialized: current };
       },
       async internalFetch(_paths, caller, target, path, init) {
         assert.equal(caller, "gateway");
@@ -281,10 +292,12 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
         );
         return new Response(null, { status: 204 });
       },
+      now: () => now,
     },
   );
 
   await gateway.reload(true);
+  assert.equal(refreshCalls, 1);
   assert.equal(
     (await readComponentState(paths, "gateway"))?.degradation,
     "connection",
@@ -298,8 +311,27 @@ test("[CONNECTION-512D9A25] OAuth refresh failure degrades only the affected con
     [["anthropic", "degraded", "authorization"]],
   );
 
-  refreshFails = false;
+  now += 29_999;
   await gateway.reload(true);
+  assert.equal(refreshCalls, 1);
+
+  now++;
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 2);
+
+  now += 59_999;
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 2);
+
+  const replacement = JSON.stringify({
+    type: "oauth",
+    access: "replacement-access",
+    refresh: "replacement-refresh",
+    expires: 0,
+  });
+  await writeFile(join(paths.credentials, "anthropic"), replacement);
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 3);
   assert.equal(
     (await readComponentState(paths, "gateway"))?.degradation,
     undefined,
