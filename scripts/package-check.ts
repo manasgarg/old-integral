@@ -4,13 +4,17 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const directory = await mkdtemp(join(tmpdir(), "integral-package-check-"));
+const cacheDirectory = await mkdtemp(join(tmpdir(), "integral-package-cache-"));
 
 try {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm",
     packed = spawnSync(
       npm,
       ["pack", "--ignore-scripts", "--pack-destination", directory],
-      { stdio: "inherit" },
+      {
+        stdio: "inherit",
+        env: { ...process.env, npm_config_cache: cacheDirectory },
+      },
     );
   if (packed.error) throw packed.error;
   if (packed.status !== 0) process.exitCode = packed.status ?? 1;
@@ -34,5 +38,9 @@ try {
     if (linted.status !== 0) process.exitCode = linted.status ?? 1;
   }
 } finally {
-  await rm(directory, { recursive: true, force: true });
+  await Promise.all(
+    [directory, cacheDirectory].map(async (path) =>
+      rm(path, { recursive: true, force: true }),
+    ),
+  );
 }
