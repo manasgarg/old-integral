@@ -170,9 +170,10 @@ export function buildContainerSpec(options: {
   };
   const provider = options.model.provider!;
   // Pi sees only a sentinel. The gateway swaps it for the host credential inside the allowed boundary.
-  environment[
-    provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
-  ] = SENTINEL;
+  if (options.model.auth !== "oauth" && options.model.auth !== "device-code")
+    environment[
+      provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
+    ] = SENTINEL;
   if (
     options.connections?.some((connection) => connection.provider === "github")
   )

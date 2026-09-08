@@ -49,6 +49,7 @@ Given an authenticated chat container is active
 	When Pi sends the request through the gateway
 		Then the gateway establishes a verified upstream TLS connection
 			And replaces the managed sentinel with the connection's real credential when authentication requires it
+			And removes any other managed sentinel authentication header
 			And refuses a caller-supplied credential that is not the integral sentinel
 			And forwards the upstream response to Pi
 			And does not log the real credential

@@ -1533,6 +1533,7 @@ Given an authenticated chat container is active
 	When Pi sends the request through the gateway
 		Then the gateway establishes a verified upstream TLS connection
 			And replaces the managed sentinel with the connection's real credential when authentication requires it
+			And removes any other managed sentinel authentication header
 			And refuses a caller-supplied credential that is not the integral sentinel
 			And forwards the upstream response to Pi
 			And does not log the real credential
@@ -1563,6 +1564,14 @@ test("[GATEWAY-A2BBBBE8] a matching connection injects its host credential only 
     ).headers.authorization,
     "Bearer real-secret",
   );
+  const oauthAlias = decideRequest(
+    "POST",
+    new URL("https://api.test/v1/messages/1"),
+    { "x-api-key": OAUTH_SENTINEL },
+    [{ connection, credential: "real-secret" }],
+  );
+  assert.equal(oauthAlias.headers.authorization, "Bearer real-secret");
+  assert.equal(oauthAlias.headers["x-api-key"], undefined);
 });
 
 test("[CONNECTION-12C87631] GitHub API and smart HTTP receive host-specific authentication", () => {
@@ -2120,6 +2129,7 @@ Given the coordinator, runner, and gateway are healthy
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
+			And omits API-key environment variables when the selected model connection uses OAuth
 			And restores conversational context from the durable conversation record
 			And sends the claimed message as a Pi `prompt` command
 */
@@ -2633,6 +2643,7 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
     true,
   );
   assert.equal(spec.args.includes("--api-key"), false);
+  assert.equal("OPENAI_API_KEY" in spec.environment, false);
   assert.equal(spec.environment.PI_CODING_AGENT_DIR, "/home/pi/.pi/agent");
   assert.deepEqual(
     spec.mounts.find(
@@ -2644,6 +2655,23 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
       readonly: true,
     },
   );
+  const anthropicSpec = buildContainerSpec({
+    config,
+    selectedModel: "claude-haiku-4-5",
+    gatewayUrl: "http://host.integral.internal:7310",
+    caCert: "/ca",
+    caBundle: "/bundle",
+    sessionHome: paths.root,
+    ...newSessionIdentity(),
+    model: validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "oauth",
+    }),
+    mcp: [],
+  });
+  assert.equal("ANTHROPIC_API_KEY" in anthropicSpec.environment, false);
 });
 
 /* @covers FAILURE-A4C19E72
@@ -2678,6 +2706,9 @@ Given Pi is processing a chat turn
 	When Pi ends the final attempt
 		Then integral completes the turn with the accumulated final-attempt text
 			And publishes that text as the assistant response
+	When Pi ends the final attempt with a provider error
+		Then integral reports the provider error instead of an empty assistant response
+			And durably returns the interrupted message to the queue
 */
 test("[FAILURE-BE6D295B] Pi automatic retries do not complete the chat turn early", () => {
   assert.deepEqual(
@@ -2698,6 +2729,34 @@ test("[FAILURE-BE6D295B] Pi automatic retries do not complete the chat turn earl
       JSON.stringify({ type: "agent_end", willRetry: false }),
     ),
     { type: "complete" },
+  );
+  const failed = {
+    role: "assistant",
+    stopReason: "error",
+    errorMessage: '401 {"type":"authentication_error"}',
+  };
+  assert.deepEqual(
+    interpretPiProtocol(
+      JSON.stringify({
+        type: "agent_end",
+        messages: [failed],
+        willRetry: true,
+      }),
+    ),
+    { type: "ignored" },
+  );
+  assert.deepEqual(
+    interpretPiProtocol(
+      JSON.stringify({
+        type: "agent_end",
+        messages: [failed],
+        willRetry: false,
+      }),
+    ),
+    {
+      type: "rejected",
+      error: 'Pi provider failed: 401 {"type":"authentication_error"}',
+    },
   );
 });
 

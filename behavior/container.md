@@ -26,6 +26,7 @@ Given the coordinator, runner, and gateway are healthy
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
+			And omits API-key environment variables when the selected model connection uses OAuth
 			And restores conversational context from the durable conversation record
 			And sends the claimed message as a Pi `prompt` command
 ```

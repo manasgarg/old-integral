@@ -69,6 +69,9 @@ Given Pi is processing a chat turn
 	When Pi ends the final attempt
 		Then integral completes the turn with the accumulated final-attempt text
 			And publishes that text as the assistant response
+	When Pi ends the final attempt with a provider error
+		Then integral reports the provider error instead of an empty assistant response
+			And durably returns the interrupted message to the queue
 ```
 
 ## FAILURE-282E3B57 — Redact known secrets from component diagnostics

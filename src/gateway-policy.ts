@@ -84,6 +84,9 @@ export function decideRequest(
       !String(incoming).toLowerCase().includes(SENTINEL)
     )
       throw new IntegralError("gateway refused an unmanaged credential", 403);
+    for (const [name, value] of Object.entries(clean))
+      if (name !== header && String(value).toLowerCase().includes(SENTINEL))
+        delete clean[name];
     clean[header] =
       match.connection.provider === "github"
         ? target.hostname.toLowerCase() === "github.com"
