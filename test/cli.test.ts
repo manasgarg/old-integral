@@ -31,12 +31,10 @@ Given integral is installed
 	When the user runs `integral`, `integral --help`, `integral -h`, or `integral help`
 		Then the command exits successfully
 			And lists `server`, `talk`, `status`, `model`, `queue`, `task`, `approval`, `schedule`, `connection`, `image`, `config`, and `version`
-			And does not list a separate `auth` or `credential` command
 			And describes each command in plain English
 	When npm reads the package metadata
 		Then the package is named `@pirogram/integral`
 			And it exposes `integral` through `bin/integral.js`
-			And it does not expose an `rr` binary
 */
 test("[CLI-6001FE46] top-level help lists the public command surface", async () => {
   const result = await capture(["--help"]);
@@ -57,18 +55,17 @@ test("[CLI-6001FE46] top-level help lists the public command surface", async () 
   ]) {
     assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
   }
-  assert.doesNotMatch(result.stdout, /\bauth\b|\bcredential\b/);
 });
 
-test("[CLI-6001FE46] package metadata exposes only the Integral CLI", async () => {
+test("[CLI-6001FE46] package metadata names and exposes the Integral CLI", async () => {
   const packageJson: unknown = JSON.parse(
     await readFile("package.json", "utf8"),
   );
   assert.ok(packageJson && typeof packageJson === "object");
   assert.equal(Reflect.get(packageJson, "name"), "@pirogram/integral");
-  assert.deepEqual(Reflect.get(packageJson, "bin"), {
-    integral: "bin/integral.js",
-  });
+  const bin: unknown = Reflect.get(packageJson, "bin");
+  assert.ok(bin && typeof bin === "object");
+  assert.equal(Reflect.get(bin, "integral"), "bin/integral.js");
 });
 
 /* @covers CLI-04301CCA

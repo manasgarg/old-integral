@@ -114,44 +114,6 @@ test("[CLI-A7D3E91B] -h prints applicable help at every command depth without pe
   }
 });
 
-/* coverage narrative CLI-D1B5816E
-Given the integral coordinator is healthy
-	And an operation concerns the shared conversation rather than host administration or terminal lifecycle
-	When the user invokes `integral status` or enters `/status` in `integral talk`
-		Then integral reports the same conversation and component status from either surface
-	When the user invokes `integral model [<pattern>...]` or enters `/model [<pattern>...]` in `integral talk`
-		Then integral uses the same model chooser and changes the same durable conversation selection from either surface
-	When the user invokes `integral connection catalog` or enters `/connection catalog` in `integral talk`
-		Then integral shows the same public connection types and authentication methods from either surface
-	When the user invokes `integral connection ls` or enters `/connection ls` in `integral talk`
-		Then integral shows the same connection names, types, authentication methods, and states from either surface
-			And neither surface prints secret values
-	When the user invokes `integral queue ls`, `integral queue edit <id> <text>`, or `integral queue delete <id>`
-		And the user could instead enter the corresponding `/queue` command in `integral talk`
-		Then integral reads or changes the same durable queue from either surface
-	When the user invokes `integral approval ls` or enters `/approvals` in `integral talk`
-		Then integral lists the same durable approval requests from either surface
-	When the user invokes `integral approval approve <id>` or `integral approval deny <id>`
-		And the user could instead enter the corresponding `/approve <id>` or `/deny <id>` command in `integral talk`
-		Then integral decides the same durable approval request from either surface
-			And applies the same validation, revalidation, authorization, persistence, and redaction rules
-			And attributes the shell form to the trusted local operator
-			And attributes the slash form to the attached human terminal
-	When a shared operation succeeds or fails
-		Then both surfaces report the same essential result or actionable error
-			And the shell form exits without attaching a talk session
-			And the slash form keeps the current talk session attached
-			And the slash form handles the operation on the host without sending it to Pi
-	When integral shows top-level CLI help or local talk help
-		Then it identifies the equivalent spelling for every shared operation on the other surface
-Given an operation is specific to host administration, scripting, or an attached terminal
-	When integral shows top-level CLI help or local talk help
-		Then `server`, `talk`, `schedule`, `image`, `config`, and `version` remain CLI-only
-			And connection setup, credential rotation, and removal remain CLI-only
-			And structured-output flags remain CLI-only
-			And `/exit` remains talk-only
-			And integral does not treat an arbitrary top-level CLI command as a local talk command
-*/
 test("standalone conversation commands share state without attaching talk", async (t) => {
   const paths = await fixture(t),
     requests: Array<{ path: string; method: string; body?: string }> = [];
