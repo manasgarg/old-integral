@@ -30,6 +30,22 @@ Speak in plain English.
   files, and use `npm run pack:check` to inspect the package tarball before a
   release.
 
+## Architecture and naming
+
+- Follow the layers in `docs/architecture.md`. A module imports only from its
+  own layer and the layers below it; `npm run lint` rejects imports from a
+  higher layer. Do not disable that rule to make a change pass. Move the shared
+  type down a layer or pass the dependency in instead.
+- Give every folder, file and symbol (types, functions, variables) a name that
+  says what it is or does in Integral's domain, for example `message-queue.ts`
+  and `MessageQueue` rather than `queue.ts` and `DurableQueue`.
+- Avoid generic names such as `state`, `utils`, `helpers`, `resources`,
+  `runtime` or `manager` on their own. Say whose state or which runtime.
+- Do not put two names side by side that are easy to mix up, such as
+  `runner.ts` and `runtime.ts`. If two things are distinct, name the
+  difference.
+- Name a test file after the module it covers.
+
 ## Behavior change workflow
 
 Keep the behavior specification, implementation, and tests synchronized as one
