@@ -6,7 +6,6 @@ import test from "node:test";
 import { promisify } from "node:util";
 import {
   activateImageProposal,
-  buildImageRecipe,
   bundledFoundationalImage,
   commitImageDockerfile,
   ensureImageRecipeRepository,
@@ -16,8 +15,9 @@ import {
   RETIRED_FOUNDATIONAL_IMAGES,
   stageImageProposal,
   validateImageDockerfile,
-} from "../src/image-recipe.ts";
-import { loadConfig } from "../src/config.ts";
+} from "../src/stores/image-recipe-store.ts";
+import { buildImageRecipe } from "../src/image-build.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { PI_VERSION } from "../src/platform/constants.ts";
 import type { IntegralPaths } from "../src/platform/deployment-paths.ts";
 import { fixture } from "./helpers.ts";

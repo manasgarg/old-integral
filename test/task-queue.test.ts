@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ScheduledOccurrence } from "../src/occurrence-store.ts";
-import { DurableTaskQueue } from "../src/task-queue.ts";
+import type { ScheduledOccurrence } from "../src/stores/occurrence-store.ts";
+import { DurableTaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 function occurrence(

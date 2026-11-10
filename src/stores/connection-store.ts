@@ -1,9 +1,9 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, normalize } from "node:path";
 import { parse } from "smol-toml";
-import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
-import { IntegralError } from "./platform/errors.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { atomicWrite, ensureDir, readText } from "../platform/files.ts";
+import { IntegralError } from "../platform/errors.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
 
 export type ConnectionKind =
   "model" | "http" | "mcp" | "email" | "channel" | "host-repo" | "host-store";
@@ -861,7 +861,7 @@ export async function listConnections(
   const loaded = await loadConnections(paths);
   if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
 
-  const resourceModule = await import("./resources.ts"),
+  const resourceModule = await import("./resource-store.ts"),
     records = await resourceModule.listResourceRecords(paths),
     hostRecords = new Map(
       (

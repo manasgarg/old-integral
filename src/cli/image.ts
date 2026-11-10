@@ -2,18 +2,18 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, type EffectiveConfig } from "../config.ts";
+import { loadConfig, type EffectiveConfig } from "../stores/config.ts";
 import { IntegralError } from "../platform/errors.ts";
 import { atomicWrite } from "../platform/files.ts";
 import {
-  buildImageRecipe,
   commitImageDockerfile,
   ensureImageRecipeRepository,
   imageRecipeDockerfile,
-} from "../image-recipe.ts";
+} from "../stores/image-recipe-store.ts";
+import { buildImageRecipe } from "../image-build.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
-import { ModelSelectionStore } from "../queue.ts";
+import { ModelSelectionStore } from "../stores/conversation-store.ts";
 
 const HELP = `Usage: integral image <command>
 

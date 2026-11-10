@@ -1,5 +1,5 @@
 import http from "node:http";
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import {
   activeModelConnectionNames,
   credentialFor,
@@ -7,7 +7,7 @@ import {
   listConnections,
   markConnectionDegraded,
   type Connection,
-} from "./connections.ts";
+} from "./stores/connection-store.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import type { Logger } from "./platform/logging.ts";
 import {
@@ -35,7 +35,7 @@ import {
   prepareResourceProjection,
   recoverAbandonedResourceProjections,
   type ResourceProjection,
-} from "./resources.ts";
+} from "./stores/resource-store.ts";
 import { ensureCa } from "./ca.ts";
 import {
   componentEndpoint,
@@ -60,21 +60,21 @@ import {
 } from "./mcp.ts";
 import type {
   ApprovalContinuation,
-  ConversationEvent,
   QueuedMessage,
-} from "./queue.ts";
+} from "./stores/message-queue.ts";
+import type { ConversationEvent } from "./stores/conversation-store.ts";
 import {
   sameSelection,
   type ModelSelection,
 } from "./domain/model-selection.ts";
-import type { ScheduledTask } from "./task-queue.ts";
+import type { ScheduledTask } from "./stores/task-queue.ts";
 import { rm } from "node:fs/promises";
 import {
   RunStore,
   type FinalizeRunOptions,
   type RunRecorder,
   type RunTermination,
-} from "./run-store.ts";
+} from "./stores/run-history/run-store.ts";
 import { readJsonObject } from "./platform/json-http.ts";
 import { McpSidecarManager } from "./runner/mcp-sidecars.ts";
 

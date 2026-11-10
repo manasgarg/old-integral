@@ -5,9 +5,9 @@ import { join } from "node:path";
 import {
   createSnowflakeId,
   DurableQueue,
-  ConversationStore,
   SNOWFLAKE_EPOCH,
-} from "../src/queue.ts";
+} from "../src/stores/message-queue.ts";
+import { ConversationStore } from "../src/stores/conversation-store.ts";
 import { fixture } from "./helpers.ts";
 
 /* @covers QUEUE-6A1B4E82

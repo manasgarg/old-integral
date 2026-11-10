@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { atomicWrite, readText } from "./platform/files.ts";
-import type { ModelSelection } from "./domain/model-selection.ts";
+import { atomicWrite, readText } from "../platform/files.ts";
+import type { ModelSelection } from "../domain/model-selection.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
-import type { ConversationOriginRoute } from "./domain/schedules.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import { IntegralError } from "./platform/errors.ts";
-import { SerialExecutor } from "./platform/serial-executor.ts";
+import type { ConversationOriginRoute } from "../domain/schedules.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
+import { IntegralError } from "../platform/errors.ts";
+import { SerialExecutor } from "../platform/serial-executor.ts";
 
 export type TaskState =
   | "queued"

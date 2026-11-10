@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Component } from "./platform/constants.ts";
 import { COMPONENTS } from "./platform/constants.ts";
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import { acquireLock, readText } from "./platform/files.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
@@ -17,8 +17,8 @@ import { Scheduler } from "./scheduler.ts";
 import { Runner, validateRunnerHost } from "./runner.ts";
 import { Logger } from "./platform/logging.ts";
 import { IntegralError } from "./platform/errors.ts";
-import { credentialSecretValues } from "./connections.ts";
-import { ensurePiProfileRepository } from "./resources.ts";
+import { credentialSecretValues } from "./stores/connection-store.ts";
+import { ensurePiProfileRepository } from "./stores/resource-store.ts";
 
 interface Started {
   component: Component;

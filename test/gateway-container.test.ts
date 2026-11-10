@@ -30,12 +30,12 @@ import {
   writeTaskExtension,
   writeWebExtension,
 } from "../src/container.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,
   saveConnection,
   validateConnection,
-} from "../src/connections.ts";
+} from "../src/stores/connection-store.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
 import { certificateFor, ensureCa } from "../src/ca.ts";
 import { Logger } from "../src/platform/logging.ts";
@@ -48,7 +48,7 @@ import { fixture } from "./helpers.ts";
 import {
   cleanupResourceProjection,
   prepareResourceProjection,
-} from "../src/resources.ts";
+} from "../src/stores/resource-store.ts";
 
 /* @covers ENV-F19A64B2
 Given integral provisions a Pi container

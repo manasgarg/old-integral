@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { ApprovalStore } from "../src/approval-store.ts";
+import { ApprovalStore } from "../src/stores/approval-store.ts";
 import { fixture } from "./helpers.ts";
 
 const selection = {

@@ -18,14 +18,17 @@ import {
   taskCommand,
   talkCommand,
 } from "../src/cli.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import {
   markConnectionDegraded,
   saveConnection,
   validateConnection,
-} from "../src/connections.ts";
-import { addHostResource, softDeleteResource } from "../src/resources.ts";
+} from "../src/stores/connection-store.ts";
+import {
+  addHostResource,
+  softDeleteResource,
+} from "../src/stores/resource-store.ts";
 
 async function capture(
   args: string[],
