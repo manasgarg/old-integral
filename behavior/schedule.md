@@ -171,7 +171,7 @@ Given Pi creates or updates a schedule
 Given the runner is about to start an isolated attempt for an occurrence
 	When the deployment's shared model selection names a usable model
 		Then the attempt uses that model selection as it stands at that moment
-			And uses the deployment's pinned Pi version and its current Pi image
+			And uses the deployment's current managed Pi image and that image's Pi version
 			And the attempt's run record names the model, Pi version, and image it used
 	When the deployment has no usable model selection
 		Then the runner does not start a container

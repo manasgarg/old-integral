@@ -3,7 +3,6 @@ import {
   componentEndpoint,
   verifiedFetch,
 } from "../platform/internal-http-client.ts";
-import type { ModelSelection } from "../domain/model-selection.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
 import { fetchJson, requestJson } from "./coordinator-client.ts";
@@ -134,18 +133,6 @@ export async function scheduleCommand(
     if (!prompt)
       throw new IntegralError("schedule create requires --prompt <text>");
 
-    const coordinator = await dependencies.componentEndpoint(
-        paths,
-        "coordinator",
-      ),
-      snapshot = (await fetchJson(
-        new URL("/integral/snapshot", coordinator),
-        dependencies.fetch,
-      )) as { modelSelection?: ModelSelection | null };
-
-    if (!snapshot.modelSelection)
-      throw new IntegralError("select a model before creating a schedule");
-
     const value = await requestJson(
       new URL("/integral/schedules", scheduler),
       {
@@ -155,7 +142,6 @@ export async function scheduleCommand(
           actor,
           prompt,
           trigger: scheduleTriggerFromFlags(args),
-          profile: snapshot.modelSelection,
         }),
       },
       dependencies.fetch,

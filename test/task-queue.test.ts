@@ -15,13 +15,6 @@ function occurrence(
     triggerType,
     scheduledFor: "2026-08-02T12:00:00.000Z",
     prompt: "perform work",
-    profile: {
-      connection: "model",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-      piVersion: "1.2.3",
-      piImage: "sha256:test",
-    },
     state: "pending",
     dispatchAttempts: 1,
     createdAt: "2026-08-02T12:00:00.000Z",
@@ -85,6 +78,62 @@ test("[SCHEDULE-E85BDCAD] a recurring occurrence receives one execution attempt 
     queue.outbox().map((item) => item.outcome),
     ["failed"],
   );
+});
+
+/* @covers SCHEDULE-E85BDCAD
+Given a recurring occurrence has been durably accepted by the coordinator
+	When delivery or capacity fails before its isolated Pi container starts
+		Then integral keeps the occurrence pending for an execution attempt
+			And records the reason with the occurrence
+			And waits with capped backoff before the runner may claim it again
+*/
+test("[SCHEDULE-E85BDCAD] a failure before the container starts records its reason and backs off", async (t) => {
+  const paths = await fixture(t);
+  let now = Date.parse("2026-08-02T12:00:00Z");
+  let id = 0;
+  const queue = new TaskQueue(
+    paths,
+    () => now,
+    () => `id-${++id}`,
+  );
+  await queue.load();
+  await queue.accept(occurrence("execution-r", "recurring"));
+
+  const delays: number[] = [];
+  for (let failure = 0; failure < 14; failure++) {
+    const claimed = await queue.claim();
+    assert.ok(claimed, `claim ${failure}`);
+    const released = await queue.releaseClaim(
+      "execution-r",
+      claimed.claimId!,
+      "scheduled Pi image is unavailable",
+    );
+    assert.equal(released.state, "retry-wait");
+    assert.equal(released.lastError, "scheduled Pi image is unavailable");
+    assert.equal(released.attempts.length, 0);
+
+    const delay = Date.parse(released.nextAttemptAt!) - now;
+    delays.push(delay);
+    now += delay - 1;
+    assert.equal(await queue.claim(), undefined, "claimed before backoff");
+    now += 1;
+  }
+
+  assert.equal(delays[0], 5_000);
+  assert.equal(delays[1], 10_000);
+  assert.ok(delays.every((delay, i) => i === 0 || delay >= delays[i - 1]!));
+  assert.equal(delays.at(-1), 60 * 60_000);
+
+  const reloaded = new TaskQueue(paths, () => now);
+  await reloaded.load();
+  assert.equal(
+    reloaded.snapshot()[0]?.lastError,
+    "scheduled Pi image is unavailable",
+  );
+
+  const claimed = await queue.claim(),
+    started = await queue.start("execution-r", claimed!.claimId!);
+  assert.equal(started.preStartFailures, undefined);
 });
 
 /* @covers SCHEDULE-4205553B

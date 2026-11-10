@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { atomicWrite, readText } from "../platform/files.ts";
-import type { ModelSelection } from "../domain/model-selection.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import type { ScheduleDefinition } from "../domain/schedules.ts";
 import type { ConversationOriginRoute } from "../domain/schedules.ts";
@@ -17,7 +16,6 @@ export interface ScheduledOccurrence {
   triggerType: "recurring" | "once";
   scheduledFor: string;
   prompt: string;
-  profile: ModelSelection;
   state: OccurrenceState;
   dispatchAttempts: number;
   createdAt: string;
@@ -102,7 +100,6 @@ export class OccurrenceStore {
         triggerType: schedule.trigger.type,
         scheduledFor,
         prompt: schedule.prompt,
-        profile: structuredClone(schedule.profile),
         state,
         dispatchAttempts: 0,
         createdAt: new Date(this.now()).toISOString(),

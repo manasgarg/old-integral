@@ -15,7 +15,6 @@ import type {
   ScheduleTrigger,
   UpdateSchedule,
 } from "../domain/schedules.ts";
-import type { ModelSelection } from "../domain/model-selection.ts";
 import { SerialExecutor } from "../platform/serial-executor.ts";
 
 const execute = promisify(execFile);
@@ -53,20 +52,19 @@ function validatePrompt(prompt: string): void {
     throw new IntegralError("schedule prompt must not exceed 100000 bytes");
 }
 
-function validateProfile(profile: ModelSelection): void {
-  for (const [name, value] of Object.entries(profile))
-    if (typeof value !== "string" || !value.trim())
-      throw new IntegralError(`schedule profile ${name} must be non-empty`);
-}
-
 function validateActor(actor: string): void {
   if (!actor.trim() || actor.length > 200 || /[\r\n\0]/.test(actor))
     throw new IntegralError("invalid schedule actor");
 }
 
+/**
+ * Releases before deployment format 2 pinned a model and Pi runtime in each
+ * definition. Restoring one of those revisions drops the pin.
+ */
 function parseDefinition(raw: string, file: string): ScheduleDefinition {
   try {
-    const value = JSON.parse(raw) as ScheduleDefinition;
+    const value = JSON.parse(raw) as ScheduleDefinition & { profile?: unknown };
+    delete value.profile;
     if (
       typeof value.id !== "string" ||
       !Number.isInteger(value.revision) ||
@@ -75,12 +73,9 @@ function parseDefinition(raw: string, file: string): ScheduleDefinition {
       typeof value.enabled !== "boolean" ||
       typeof value.deleted !== "boolean" ||
       !value.trigger ||
-      typeof value.trigger !== "object" ||
-      !value.profile ||
-      typeof value.profile !== "object"
+      typeof value.trigger !== "object"
     )
       throw new Error("invalid fields");
-    validateProfile(value.profile);
     return value;
   } catch (error) {
     throw new IntegralError(
@@ -189,7 +184,6 @@ export class ScheduleStore {
     return this.operations.run(async () => {
       validateActor(actor);
       validatePrompt(input.prompt);
-      validateProfile(input.profile);
       validateTrigger(input.trigger, this.now());
 
       const timestamp = new Date(this.now()).toISOString(),
@@ -198,7 +192,6 @@ export class ScheduleStore {
           revision: 1,
           trigger: structuredClone(input.trigger),
           prompt: input.prompt,
-          profile: structuredClone(input.profile),
           enabled: true,
           deleted: false,
           createdAt: timestamp,
@@ -223,7 +216,6 @@ export class ScheduleStore {
       const trigger = input.trigger ?? current.trigger,
         prompt = input.prompt ?? current.prompt;
       validatePrompt(prompt);
-      validateProfile(input.profile ?? current.profile);
       validateTrigger(trigger, this.now());
 
       const next: ScheduleDefinition = {
@@ -231,7 +223,6 @@ export class ScheduleStore {
         revision: current.revision + 1,
         trigger: structuredClone(trigger),
         prompt,
-        profile: structuredClone(input.profile ?? current.profile),
         updatedAt: new Date(this.now()).toISOString(),
       };
 
@@ -319,6 +310,33 @@ export class ScheduleStore {
       validateTrigger(next.trigger, this.now());
       await this.commit(next, "restore", actor);
       return structuredClone(next);
+    });
+  }
+
+  /**
+   * Commits every definition whose file still records the
+   * model and Pi runtime pin that releases before format 2 wrote. Safe to run
+   * again: `load` discards an uncommitted rewrite, and a committed one no
+   * longer has the pin.
+   */
+  async removeLegacyPins(actor: string): Promise<number> {
+    return this.operations.run(async () => {
+      validateActor(actor);
+      let migrated = 0;
+
+      for (const definition of [...this.definitions.values()]) {
+        const raw = await readText(
+          join(this.paths.schedules, this.filename(definition.id)),
+        );
+        if (!raw || !("profile" in (JSON.parse(raw) as object))) continue;
+
+        // The revision stays the same: execution IDs and Pi's expected
+        // revision both depend on it, and the schedule's meaning is unchanged.
+        await this.commit(definition, "migrate", actor);
+        migrated += 1;
+      }
+
+      return migrated;
     });
   }
 

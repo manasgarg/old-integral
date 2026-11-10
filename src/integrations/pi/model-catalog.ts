@@ -51,20 +51,22 @@ const productionDependencies: ModelCatalogDependencies = {
   discoverVersion: discoverPiVersion,
 };
 
-export async function listModelChoices(
+export interface ManagedPiRuntime {
+  piVersion: string;
+  piImage: string;
+}
+
+/**
+ * The Pi version and image the deployment currently runs: the active managed
+ * image when one is recorded, otherwise the image for the pinned Pi version.
+ * The model chooser and scheduled attempts both use it.
+ */
+export async function resolveManagedPiRuntime(
   paths: IntegralPaths,
   config: EffectiveConfig,
   overrides: Partial<ModelCatalogDependencies> = {},
   progress?: ModelCatalogProgress,
-): Promise<ModelCatalog> {
-  const connections = (await listConnections(paths))
-    .filter(
-      (connection) =>
-        connection.kind === "model" && connection.state === "active",
-    )
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!connections.length) return { choices: [] };
-
+): Promise<ManagedPiRuntime> {
   const dependencies = { ...productionDependencies, ...overrides };
   progress?.("runtime.resolve", "checking and preparing the Pi runtime");
   const runtime = await dependencies.ensureRuntime(paths);
@@ -108,9 +110,33 @@ export async function listModelChoices(
   });
 
   const piVersion =
-      config.runner.image === DEFAULT_PI_IMAGE
-        ? (active?.result.piVersion ?? runtime.version)
-        : await dependencies.discoverVersion(image),
+    config.runner.image === DEFAULT_PI_IMAGE
+      ? (active?.result.piVersion ?? runtime.version)
+      : await dependencies.discoverVersion(image);
+  return { piVersion, piImage: image };
+}
+
+export async function listModelChoices(
+  paths: IntegralPaths,
+  config: EffectiveConfig,
+  overrides: Partial<ModelCatalogDependencies> = {},
+  progress?: ModelCatalogProgress,
+): Promise<ModelCatalog> {
+  const connections = (await listConnections(paths))
+    .filter(
+      (connection) =>
+        connection.kind === "model" && connection.state === "active",
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!connections.length) return { choices: [] };
+
+  const dependencies = { ...productionDependencies, ...overrides },
+    { piVersion, piImage: image } = await resolveManagedPiRuntime(
+      paths,
+      config,
+      dependencies,
+      progress,
+    ),
     providers = [
       ...new Set(connections.map((connection) => connection.provider!)),
     ];

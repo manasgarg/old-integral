@@ -1,6 +1,10 @@
 import http from "node:http";
 import type { EffectiveConfig } from "../../stores/config.ts";
 import {
+  resolveManagedPiRuntime,
+  type ManagedPiRuntime,
+} from "../../integrations/pi/model-catalog.ts";
+import {
   activeModelConnectionNames,
   credentialFor,
   clearConnectionDegraded,
@@ -108,6 +112,11 @@ export interface RunnerDependencies {
   cleanupResourceProjection: typeof cleanupResourceProjection;
   recoverAbandonedResourceProjections: typeof recoverAbandonedResourceProjections;
   writePiCredential: typeof writePiCredential;
+  /** The Pi version and image scheduled attempts run on. */
+  currentPiRuntime(
+    paths: IntegralPaths,
+    config: EffectiveConfig,
+  ): Promise<ManagedPiRuntime>;
   now(): number;
   listen(server: http.Server, port: number, address: string): Promise<void>;
   close(server: http.Server): Promise<void>;
@@ -141,6 +150,7 @@ const productionDependencies: RunnerDependencies = {
   cleanupResourceProjection,
   recoverAbandonedResourceProjections,
   writePiCredential,
+  currentPiRuntime: (paths, config) => resolveManagedPiRuntime(paths, config),
   now: Date.now,
   async listen(server, port, address) {
     await new Promise<void>((resolve, reject) => {
@@ -524,13 +534,21 @@ export class Runner {
       if (!claimed.ok)
         throw new IntegralError(`task claim failed: ${claimed.status}`);
 
-      task = ((await claimed.json()) as { task?: ScheduledTask }).task;
+      const claim = (await claimed.json()) as {
+        task?: ScheduledTask;
+        selection?: ModelSelection | null;
+      };
+      task = claim.task;
       if (!task) return;
       if (!task.claimId)
         throw new IntegralError("claimed task has no claim ID");
 
       this.currentTask = { id: task.id, claimId: task.claimId };
-      runtime = await this.createTaskRuntime(task);
+      if (!claim.selection)
+        throw new IntegralError(
+          "no model is selected for the conversation; select one with integral model or /model",
+        );
+      runtime = await this.createTaskRuntime(task, claim.selection);
       this.activeTaskRuntime = runtime;
       await runtime.start();
 
@@ -724,19 +742,23 @@ export class Runner {
     }
   }
 
-  private async createTaskRuntime(task: ScheduledTask): Promise<TaskPiSession> {
-    const resolvedImage = await this.dependencies.containers.ensureImage(
-      this.config,
-      task.profile.piVersion,
-      { expectedImage: task.profile.piImage },
-    );
-    if (resolvedImage !== task.profile.piImage)
-      throw new IntegralError(
-        `scheduled Pi image ${task.profile.piImage} is unavailable`,
-      );
+  private async createTaskRuntime(
+    task: ScheduledTask,
+    selection: ModelSelection,
+  ): Promise<TaskPiSession> {
+    const piRuntime = await this.dependencies.currentPiRuntime(
+        this.paths,
+        this.config,
+      ),
+      profile: ModelSelection = {
+        connection: selection.connection,
+        provider: selection.provider,
+        model: selection.model,
+        ...piRuntime,
+      };
 
     const { spec, identity, resources, catalogs, sidecars } =
-      await this.preparePiEnvironment(task.profile, task.profile.piImage);
+      await this.preparePiEnvironment(profile, profile.piImage);
     this.taskResources = resources;
 
     await this.dependencies.writeTaskExtension(spec.home);
@@ -750,7 +772,7 @@ export class Runner {
       recorder = await this.runs.begin({
         kind: "scheduled",
         sessionId: identity.sessionId,
-        model: task.profile,
+        model: profile,
         config: this.config,
         scheduleId: task.scheduleId,
         executionId: task.executionId,

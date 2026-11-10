@@ -378,7 +378,6 @@ function createInput(body: Record<string, unknown>): CreateSchedule {
   return {
     trigger: trigger(body.trigger),
     prompt: string(body.prompt),
-    profile: profile(body.profile),
     ...(body.origin === undefined ? {} : { origin: origin(body.origin) }),
   };
 }
@@ -402,7 +401,6 @@ function updateInput(body: Record<string, unknown>): UpdateSchedule {
     expectedRevision: integer(body.expectedRevision),
     ...(body.trigger === undefined ? {} : { trigger: trigger(body.trigger) }),
     ...(body.prompt === undefined ? {} : { prompt: string(body.prompt) }),
-    ...(body.profile === undefined ? {} : { profile: profile(body.profile) }),
   };
 }
 
@@ -417,17 +415,6 @@ function trigger(value: unknown): ScheduleTrigger {
     };
   if (type === "once") return { type, runAt: string(item.runAt) };
   throw new IntegralError("invalid schedule trigger", 400);
-}
-
-function profile(value: unknown): CreateSchedule["profile"] {
-  const item = record(value);
-  return {
-    connection: string(item.connection),
-    provider: string(item.provider),
-    model: string(item.model),
-    piVersion: string(item.piVersion),
-    piImage: string(item.piImage),
-  };
 }
 
 async function bodyJson(
