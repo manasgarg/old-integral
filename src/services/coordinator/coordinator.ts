@@ -1,62 +1,59 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { EffectiveConfig } from "./stores/config.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import { DurableQueue } from "./stores/message-queue.ts";
+import type { EffectiveConfig } from "../../stores/config.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
+import { DurableQueue } from "../../stores/message-queue.ts";
 import {
   ConversationStore,
   ModelSelectionStore,
-} from "./stores/conversation-store.ts";
+} from "../../stores/conversation-store.ts";
 import {
   listModelChoices,
   type ModelCatalog,
   type ModelCatalogProgress,
-} from "./integrations/pi/model-catalog.ts";
+} from "../../integrations/pi/model-catalog.ts";
 import {
   matchModelChoices,
   sameSelection,
   type ModelChoice,
   type ModelSelection,
-} from "./domain/model-selection.ts";
+} from "../../domain/model-selection.ts";
 import {
   componentIdentity,
   deploymentId,
   readComponentState,
   updateComponentState,
   verifyInternal,
-} from "./platform/component-identity.ts";
-import { atomicWrite, readText } from "./platform/files.ts";
+} from "../../platform/component-identity.ts";
+import { atomicWrite, readText } from "../../platform/files.ts";
 import { join } from "node:path";
-import { IntegralError } from "./platform/errors.ts";
+import { IntegralError } from "../../platform/errors.ts";
 import {
   nodeHttpServerRuntime,
   nodeIntervalRuntime,
   type HttpServerRuntime,
   type IntervalRuntime,
-} from "./platform/timers-and-servers.ts";
-import { internalFetch } from "./platform/internal-http-client.ts";
+} from "../../platform/timers-and-servers.ts";
+import { internalFetch } from "../../platform/internal-http-client.ts";
 import {
   DurableTaskQueue,
   type ScheduledTask,
   type TaskOutboxEntry,
-} from "./stores/task-queue.ts";
-import type { ScheduledOccurrence } from "./stores/occurrence-store.ts";
-import type { ConversationOriginRoute } from "./domain/schedules.ts";
-import { DEFAULT_PI_IMAGE, type Component } from "./platform/constants.ts";
-import type { Logger } from "./platform/logging.ts";
-import { ensureContainerImage } from "./integrations/docker/managed-image.ts";
-import { readJsonObject, writeJson } from "./platform/json-http.ts";
-import {
-  ClientEventStream,
-  type ClientEvent,
-} from "./coordinator/event-stream.ts";
-export type { ClientEvent } from "./coordinator/event-stream.ts";
+} from "../../stores/task-queue.ts";
+import type { ScheduledOccurrence } from "../../stores/occurrence-store.ts";
+import type { ConversationOriginRoute } from "../../domain/schedules.ts";
+import { DEFAULT_PI_IMAGE, type Component } from "../../platform/constants.ts";
+import type { Logger } from "../../platform/logging.ts";
+import { ensureContainerImage } from "../../integrations/docker/managed-image.ts";
+import { readJsonObject, writeJson } from "../../platform/json-http.ts";
+import { ClientEventStream, type ClientEvent } from "./event-stream.ts";
+export type { ClientEvent } from "./event-stream.ts";
 import {
   loadContainerPackageState,
   planContainerPackageChange,
   saveContainerPackageState,
   validateContainerPackageNames,
   type ContainerPackageOperation,
-} from "./stores/container-package-store.ts";
+} from "../../stores/container-package-store.ts";
 import {
   ApprovalStore,
   isTerminalApproval,
@@ -64,7 +61,7 @@ import {
   type ApprovalRecord,
   type PublicApproval,
   type TerminalApprovalStatus,
-} from "./stores/approval-store.ts";
+} from "../../stores/approval-store.ts";
 import {
   activateImageProposal,
   imageRecipeHead,
@@ -72,23 +69,23 @@ import {
   stageImageProposal,
   type ImageBuildResult,
   type ImageProposal,
-} from "./stores/image-recipe-store.ts";
-import { buildImageRecipe } from "./integrations/docker/image-build.ts";
+} from "../../stores/image-recipe-store.ts";
+import { buildImageRecipe } from "../../integrations/docker/image-build.ts";
 import {
   clearConnectionDegraded,
   credentialSecretValues,
   credentialFor,
   loadConnections,
   markConnectionDegraded,
-} from "./stores/connection-store.ts";
-import { redactText } from "./stores/run-history/redaction.ts";
+} from "../../stores/connection-store.ts";
+import { redactText } from "../../stores/run-history/redaction.ts";
 import {
   DiscordIngressStore,
   DiscordJsListener,
   type DiscordListener,
   type DiscordListenerCallbacks,
   type DiscordMessage,
-} from "./integrations/discord.ts";
+} from "../../integrations/discord.ts";
 
 interface ConversationScope {
   id: string;
@@ -177,7 +174,7 @@ export interface CoordinatorDependencies {
   imageRecipeHead: typeof imageRecipeHead;
   imageRecipeTreeDigest: typeof imageRecipeTreeDigest;
   createDiscordListener(
-    connection: import("./stores/connection-store.ts").Connection,
+    connection: import("../../stores/connection-store.ts").Connection,
     token: string,
     callbacks: DiscordListenerCallbacks,
   ): DiscordListener;

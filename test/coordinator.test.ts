@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
+import {
+  Coordinator,
+  type ClientEvent,
+} from "../src/services/coordinator/coordinator.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import {

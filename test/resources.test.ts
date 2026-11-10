@@ -17,7 +17,7 @@ import test from "node:test";
 import { loadConfig } from "../src/stores/config.ts";
 import { validateConnection } from "../src/stores/connection-store.ts";
 import { readText } from "../src/platform/files.ts";
-import { Gateway } from "../src/gateway.ts";
+import { Gateway } from "../src/services/gateway/gateway.ts";
 import { Logger } from "../src/platform/logging.ts";
 import {
   addHostResource,

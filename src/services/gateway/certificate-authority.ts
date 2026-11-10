@@ -3,8 +3,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { createHash, randomUUID, X509Certificate } from "node:crypto";
-import { atomicWrite, ensureDir } from "./platform/files.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { atomicWrite, ensureDir } from "../../platform/files.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
 
 const exec = promisify(execFile);
 const HOST_CERTIFICATE_RENEWAL_WINDOW_MS = 24 * 60 * 60 * 1000;

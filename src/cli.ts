@@ -25,7 +25,7 @@ import {
 } from "./stores/connection-store.ts";
 import { resolvePaths } from "./platform/deployment-paths.ts";
 import { messageOf, IntegralError } from "./platform/errors.ts";
-import { serverStatus, startComponents } from "./server.ts";
+import { serverStatus, startComponents } from "./services/launcher.ts";
 import {
   componentEndpoint,
   verifiedFetch,

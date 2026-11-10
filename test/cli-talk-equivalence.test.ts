@@ -10,7 +10,10 @@ import {
   saveConnection,
   validateConnection,
 } from "../src/stores/connection-store.ts";
-import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
+import {
+  Coordinator,
+  type ClientEvent,
+} from "../src/services/coordinator/coordinator.ts";
 import { ApprovalStore } from "../src/stores/approval-store.ts";
 import {
   pathsFor,

@@ -1,5 +1,5 @@
 import http from "node:http";
-import type { EffectiveConfig } from "./stores/config.ts";
+import type { EffectiveConfig } from "../../stores/config.ts";
 import {
   activeModelConnectionNames,
   credentialFor,
@@ -7,9 +7,9 @@ import {
   listConnections,
   markConnectionDegraded,
   type Connection,
-} from "./stores/connection-store.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import type { Logger } from "./platform/logging.ts";
+} from "../../stores/connection-store.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
+import type { Logger } from "../../platform/logging.ts";
 import {
   buildContainerSpec,
   dockerAvailable,
@@ -20,8 +20,8 @@ import {
   type ContainerBackend,
   type PiRuntime,
   type TaskRuntime,
-} from "./integrations/docker/pi-container.ts";
-import { type McpSidecarSpec } from "./integrations/docker/mcp-sidecar.ts";
+} from "../../integrations/docker/pi-container.ts";
+import { type McpSidecarSpec } from "../../integrations/docker/mcp-sidecar.ts";
 import {
   writeMcpExtension,
   writeDiscordExtension,
@@ -29,7 +29,7 @@ import {
   writeTaskExtension,
   writeResourceExtension,
   writeWebExtension,
-} from "./integrations/pi/session-extensions.ts";
+} from "../../integrations/pi/session-extensions.ts";
 import {
   cleanupResourceProjection,
   ensurePiProfileRepository,
@@ -37,48 +37,48 @@ import {
   prepareResourceProjection,
   recoverAbandonedResourceProjections,
   type ResourceProjection,
-} from "./stores/resource-store.ts";
-import { ensureCa } from "./ca.ts";
+} from "../../stores/resource-store.ts";
+import { ensureCa } from "../gateway/certificate-authority.ts";
 import {
   componentEndpoint,
   internalFetch,
-} from "./platform/internal-http-client.ts";
+} from "../../platform/internal-http-client.ts";
 import {
   componentIdentity,
   deploymentId,
   readComponentState,
   type ComponentState,
   verifyInternal,
-} from "./platform/component-identity.ts";
-import { updateComponentState } from "./platform/component-identity.ts";
-import { ensureDir, readText } from "./platform/files.ts";
+} from "../../platform/component-identity.ts";
+import { updateComponentState } from "../../platform/component-identity.ts";
+import { ensureDir, readText } from "../../platform/files.ts";
 import { join } from "node:path";
-import { IntegralError } from "./platform/errors.ts";
-import { oauthAccess } from "./integrations/oauth.ts";
+import { IntegralError } from "../../platform/errors.ts";
+import { oauthAccess } from "../../integrations/oauth.ts";
 import {
   discoverRemoteMcp,
   McpCatalogRegistry,
   type McpCatalog,
-} from "./integrations/mcp.ts";
+} from "../../integrations/mcp.ts";
 import type {
   ApprovalContinuation,
   QueuedMessage,
-} from "./stores/message-queue.ts";
-import type { ConversationEvent } from "./stores/conversation-store.ts";
+} from "../../stores/message-queue.ts";
+import type { ConversationEvent } from "../../stores/conversation-store.ts";
 import {
   sameSelection,
   type ModelSelection,
-} from "./domain/model-selection.ts";
-import type { ScheduledTask } from "./stores/task-queue.ts";
+} from "../../domain/model-selection.ts";
+import type { ScheduledTask } from "../../stores/task-queue.ts";
 import { rm } from "node:fs/promises";
 import {
   RunStore,
   type FinalizeRunOptions,
   type RunRecorder,
   type RunTermination,
-} from "./stores/run-history/run-store.ts";
-import { readJsonObject } from "./platform/json-http.ts";
-import { McpSidecarManager } from "./runner/mcp-sidecars.ts";
+} from "../../stores/run-history/run-store.ts";
+import { readJsonObject } from "../../platform/json-http.ts";
+import { McpSidecarManager } from "./mcp-sidecars.ts";
 
 export interface RunnerClock {
   setTimeout(
