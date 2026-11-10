@@ -10,11 +10,11 @@ import {
   validateConnection,
 } from "../../src/stores/connection-store.ts";
 import {
-  componentStatePath,
-  readComponentState,
+  componentRecordPath,
+  readComponentRecord,
 } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
-import { DurableQueue } from "../../src/stores/message-queue.ts";
+import { MessageQueue } from "../../src/stores/message-queue.ts";
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -82,7 +82,7 @@ level = "error"
     }),
     "acceptance-secret",
   );
-  const durableQueue = new DurableQueue(paths.queue);
+  const durableQueue = new MessageQueue(paths.queue);
   await durableQueue.load();
   const queued = await durableQueue.enqueue("acceptance queued");
 
@@ -114,7 +114,7 @@ level = "error"
       (
         await Promise.all(
           (["coordinator", "scheduler", "gateway", "runner"] as const).map(
-            (component) => readComponentState(paths, component),
+            (component) => readComponentRecord(paths, component),
           ),
         )
       ).every((state) => state?.status === "ready"),
@@ -179,7 +179,7 @@ level = "error"
     "gateway",
     "runner",
   ] as const)
-    await assert.rejects(readFile(componentStatePath(paths, component)), {
+    await assert.rejects(readFile(componentRecordPath(paths, component)), {
       code: "ENOENT",
     });
 });

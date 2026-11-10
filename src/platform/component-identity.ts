@@ -5,7 +5,7 @@ import { open } from "node:fs/promises";
 import type { Component } from "./constants.ts";
 import type { IntegralPaths } from "./deployment-paths.ts";
 
-export interface ComponentState {
+export interface ComponentRecord {
   component: Component;
   deploymentId: string;
   endpoint: string;
@@ -22,32 +22,32 @@ export function deploymentId(paths: IntegralPaths): string {
   return createHash("sha256").update(paths.root).digest("hex").slice(0, 20);
 }
 
-export function componentStatePath(
+export function componentRecordPath(
   paths: IntegralPaths,
   component: Component,
 ): string {
   return join(paths.componentState, `${component}.json`);
 }
 
-export async function writeComponentState(
+export async function writeComponentRecord(
   paths: IntegralPaths,
-  state: ComponentState,
+  state: ComponentRecord,
 ): Promise<void> {
   await atomicWrite(
-    componentStatePath(paths, state.component),
+    componentRecordPath(paths, state.component),
     `${JSON.stringify(state)}\n`,
   );
 }
 
-export async function readComponentState(
+export async function readComponentRecord(
   paths: IntegralPaths,
   component: Component,
-): Promise<ComponentState | undefined> {
-  const raw = await readText(componentStatePath(paths, component));
+): Promise<ComponentRecord | undefined> {
+  const raw = await readText(componentRecordPath(paths, component));
   if (!raw) return undefined;
 
   try {
-    const state = JSON.parse(raw) as ComponentState;
+    const state = JSON.parse(raw) as ComponentRecord;
     return state.component === component &&
       state.deploymentId === deploymentId(paths)
       ? state
@@ -57,24 +57,24 @@ export async function readComponentState(
   }
 }
 
-export async function updateComponentState(
+export async function updateComponentRecord(
   paths: IntegralPaths,
   component: Component,
   patch: Partial<
     Pick<
-      ComponentState,
+      ComponentRecord,
       "status" | "connectionGeneration" | "error" | "degradation"
     >
   >,
 ): Promise<void> {
-  const current = await readComponentState(paths, component);
+  const current = await readComponentRecord(paths, component);
   if (!current || current.pid !== process.pid) return;
 
   const next = { ...current, ...patch };
   if (patch.error === undefined) delete next.error;
   if (patch.degradation === undefined) delete next.degradation;
 
-  await writeComponentState(paths, next);
+  await writeComponentRecord(paths, next);
 }
 
 export async function componentIdentity(paths: IntegralPaths): Promise<string> {

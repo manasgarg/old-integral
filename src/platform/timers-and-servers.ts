@@ -1,16 +1,16 @@
 import type http from "node:http";
 
-export interface HttpServerRuntime {
+export interface HttpServers {
   listen(server: http.Server, port: number, address: string): Promise<void>;
   close(server: http.Server): Promise<void>;
 }
 
-export interface IntervalRuntime {
+export interface IntervalTimers {
   setInterval(callback: () => void, milliseconds: number): unknown;
   clearInterval(handle: unknown): void;
 }
 
-export const nodeHttpServerRuntime: HttpServerRuntime = {
+export const nodeHttpServers: HttpServers = {
   async listen(server, port, address) {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -33,7 +33,7 @@ export const nodeHttpServerRuntime: HttpServerRuntime = {
   },
 };
 
-export const nodeIntervalRuntime: IntervalRuntime = {
+export const nodeIntervalTimers: IntervalTimers = {
   setInterval: (callback, milliseconds) => setInterval(callback, milliseconds),
   clearInterval: (handle) =>
     clearInterval(handle as NodeJS.Timeout | undefined),

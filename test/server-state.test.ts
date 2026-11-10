@@ -10,9 +10,9 @@ import {
   componentIdentity,
   deploymentId,
   internalHeaders,
-  readComponentState,
+  readComponentRecord,
   verifyInternal,
-  writeComponentState,
+  writeComponentRecord,
 } from "../src/platform/component-identity.ts";
 import {
   serverStatus,
@@ -20,7 +20,7 @@ import {
   waitForShutdownSignal,
   type StartComponentsDependencies,
 } from "../src/services/launcher.ts";
-import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
+import { nodeHttpServers } from "../src/platform/timers-and-servers.ts";
 import type { Component } from "../src/platform/constants.ts";
 import { requireActiveModelConnection } from "../src/services/runner/runner.ts";
 
@@ -135,7 +135,7 @@ test("[SERVER-3B7F90C2] [CONFIG-35D8A2F1] aggregate health probes each component
     "gateway",
     "scheduler",
   ] as Component[])
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: `http://127.0.0.1:${component === "gateway" ? 7310 : component === "coordinator" ? 7311 : component === "runner" ? 7312 : 7313}`,
@@ -170,7 +170,7 @@ Given a healthy coordinator recorded its endpoint under an `INTEGRAL_HOME`
 test("[SERVER-51C9A3E8] [ENV-A4D8206F] state discovery accepts only the expected component and deployment", async (t) => {
   const paths = await fixture(t),
     deployment = deploymentId(paths);
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "coordinator",
     deploymentId: deployment,
     endpoint: "http://127.0.0.1:9999",
@@ -181,7 +181,7 @@ test("[SERVER-51C9A3E8] [ENV-A4D8206F] state discovery accepts only the expected
     startedAt: new Date().toISOString(),
   });
   assert.equal(
-    (await readComponentState(paths, "coordinator"))?.endpoint,
+    (await readComponentRecord(paths, "coordinator"))?.endpoint,
     "http://127.0.0.1:9999",
   );
   const raw = JSON.stringify({
@@ -191,7 +191,7 @@ test("[SERVER-51C9A3E8] [ENV-A4D8206F] state discovery accepts only the expected
   });
   const { writeFile } = await import("node:fs/promises");
   await writeFile(join(paths.componentState, "coordinator.json"), raw);
-  assert.equal(await readComponentState(paths, "coordinator"), undefined);
+  assert.equal(await readComponentRecord(paths, "coordinator"), undefined);
 });
 
 /* @covers SERVER-6F18C2D9
@@ -204,7 +204,7 @@ Given coordinator, runner, gateway, and scheduler run in separate processes
 test("[SERVER-6F18C2D9] stale ready files cannot make a stopped component healthy", async (t) => {
   const paths = await fixture(t),
     deployment = deploymentId(paths);
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "gateway",
     deploymentId: deployment,
     endpoint: "http://127.0.0.1:1",
@@ -231,7 +231,7 @@ test("[SERVER-7C21D5E8] coordinator, runner, and scheduler component state publi
   const paths = await fixture(t),
     deployment = deploymentId(paths);
   for (const component of ["coordinator", "runner", "scheduler"] as const) {
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: `http://127.0.0.1:${component === "coordinator" ? 7311 : component === "runner" ? 7312 : 7313}`,
@@ -242,7 +242,7 @@ test("[SERVER-7C21D5E8] coordinator, runner, and scheduler component state publi
       startedAt: "now",
     });
     assert.equal(
-      new URL((await readComponentState(paths, component))!.endpoint).hostname,
+      new URL((await readComponentRecord(paths, component))!.endpoint).hostname,
       "127.0.0.1",
     );
   }
@@ -297,7 +297,7 @@ test("[SERVER-F886D80C] [SERVER-0D7E29B5] combined orchestration starts every co
       observedReady = (
         await Promise.all(
           (["coordinator", "scheduler", "gateway", "runner"] as const).map(
-            (component) => readComponentState(paths, component),
+            (component) => readComponentRecord(paths, component),
           ),
         )
       ).every((state) => state?.status === "ready");
@@ -331,7 +331,7 @@ test("[SERVER-F886D80C] [SERVER-0D7E29B5] combined orchestration starts every co
     "gateway",
     "runner",
   ] as const) {
-    assert.equal(await readComponentState(paths, component), undefined);
+    assert.equal(await readComponentRecord(paths, component), undefined);
     const unlock = await acquireLock(join(paths.locks, `${component}.lock`));
     await unlock();
   }
@@ -404,7 +404,7 @@ test("[SERVER-C6A830F4] [LOG-E5A81D23] partial startup failure cleans the failin
     "stop:coordinator",
   ]);
   for (const component of ["coordinator", "gateway"] as const) {
-    assert.equal(await readComponentState(paths, component), undefined);
+    assert.equal(await readComponentRecord(paths, component), undefined);
     const unlock = await acquireLock(join(paths.locks, `${component}.lock`));
     await unlock();
   }
@@ -535,7 +535,7 @@ test("[SERVER-33E00BBA] shutdown closes active connections after refusing new on
     },
   } as unknown as http.Server;
 
-  await nodeHttpServerRuntime.close(server);
+  await nodeHttpServers.close(server);
 
   assert.deepEqual(events, ["close", "close-all"]);
 });

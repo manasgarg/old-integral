@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ScheduledOccurrence } from "../src/stores/occurrence-store.ts";
-import { DurableTaskQueue } from "../src/stores/task-queue.ts";
+import { TaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 function occurrence(
@@ -30,7 +30,7 @@ function occurrence(
 
 test("[SCHEDULE-52697825] coordinator acceptance is idempotent and rejects conflicting immutable task data", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableTaskQueue(paths);
+    queue = new TaskQueue(paths);
   await queue.load();
   const input = occurrence("execution-1", "once"),
     first = await queue.accept(input),
@@ -62,7 +62,7 @@ test("[SCHEDULE-E85BDCAD] a recurring occurrence receives one execution attempt 
   const paths = await fixture(t);
   let now = Date.parse("2026-08-02T12:00:00Z");
   let id = 0;
-  const queue = new DurableTaskQueue(
+  const queue = new TaskQueue(
     paths,
     () => now,
     () => `id-${++id}`,
@@ -106,7 +106,7 @@ test("[SCHEDULE-4205553B] [SCHEDULE-930581F7] a one-time task retries in a fresh
   const paths = await fixture(t);
   let now = Date.parse("2026-08-02T12:00:00Z"),
     attempt = 0;
-  const queue = new DurableTaskQueue(
+  const queue = new TaskQueue(
     paths,
     () => now,
     () => `id-${++attempt}`,
@@ -149,7 +149,7 @@ test("[SCHEDULE-4205553B] [SCHEDULE-930581F7] a one-time task retries in a fresh
 
 test("[SCHEDULE-E85BDCAD] [SCHEDULE-4205553B] restart resolves unknown running outcomes by trigger type", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableTaskQueue(
+    queue = new TaskQueue(
       paths,
       () => Date.parse("2026-08-02T12:00:00Z"),
       (() => {
@@ -162,7 +162,7 @@ test("[SCHEDULE-E85BDCAD] [SCHEDULE-4205553B] restart resolves unknown running o
   const recurringClaim = await queue.claim();
   await queue.start("execution-r", recurringClaim!.claimId!);
 
-  const recovered = new DurableTaskQueue(paths, () =>
+  const recovered = new TaskQueue(paths, () =>
     Date.parse("2026-08-02T12:01:00Z"),
   );
   await recovered.load();
@@ -170,7 +170,7 @@ test("[SCHEDULE-E85BDCAD] [SCHEDULE-4205553B] restart resolves unknown running o
   assert.equal(recovered.outbox()[0]!.outcome, "failed");
 
   const oncePaths = await fixture(t),
-    once = new DurableTaskQueue(
+    once = new TaskQueue(
       oncePaths,
       undefined,
       (() => {
@@ -182,7 +182,7 @@ test("[SCHEDULE-E85BDCAD] [SCHEDULE-4205553B] restart resolves unknown running o
   await once.accept(occurrence("execution-o", "once"));
   const onceClaim = await once.claim();
   await once.start("execution-o", onceClaim!.claimId!);
-  const onceRecovered = new DurableTaskQueue(oncePaths);
+  const onceRecovered = new TaskQueue(oncePaths);
   await onceRecovered.load();
   assert.equal(onceRecovered.snapshot()[0]!.state, "queued");
   assert.deepEqual(onceRecovered.outbox(), []);
@@ -199,7 +199,7 @@ Given the coordinator has durably completed a task or terminally failed a recurr
 */
 test("[SCHEDULE-42E63F16] successful outbox acknowledgement is durable and idempotent", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableTaskQueue(
+    queue = new TaskQueue(
       paths,
       undefined,
       (() => {
@@ -237,12 +237,12 @@ test("[SCHEDULE-42E63F16] successful outbox acknowledgement is durable and idemp
   assert.equal(queue.outbox().length, 1);
   await queue.markOutboxNotificationDelivered("execution");
   await queue.markOutboxNotificationDelivered("execution");
-  const marked = new DurableTaskQueue(paths);
+  const marked = new TaskQueue(paths);
   await marked.load();
   assert.ok(marked.outbox()[0]?.notificationDeliveredAt);
   await marked.acknowledgeOutbox("execution");
   await marked.acknowledgeOutbox("execution");
-  const restored = new DurableTaskQueue(paths);
+  const restored = new TaskQueue(paths);
   await restored.load();
   assert.deepEqual(restored.outbox(), []);
   assert.equal(restored.snapshot()[0]!.state, "completed");
@@ -250,7 +250,7 @@ test("[SCHEDULE-42E63F16] successful outbox acknowledgement is durable and idemp
 
 test("[SCHEDULE-930581F7] clean exit finalizes Pi's declared failure and rejects success without a declaration", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableTaskQueue(
+    queue = new TaskQueue(
       paths,
       undefined,
       (() => {
@@ -302,7 +302,7 @@ Given one occurrence of a recurring schedule is running
 test("[SCHEDULE-FDFA799E] a later occurrence cannot overlap a running occurrence", async (t) => {
   const paths = await fixture(t);
   let id = 0;
-  const queue = new DurableTaskQueue(paths, undefined, () => `id-${++id}`);
+  const queue = new TaskQueue(paths, undefined, () => `id-${++id}`);
   await queue.load();
   const first = occurrence("execution-1", "recurring"),
     second = {

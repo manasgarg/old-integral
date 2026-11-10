@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { EffectiveConfig } from "../../stores/config.ts";
 import type { IntegralPaths } from "../../platform/deployment-paths.ts";
-import { DurableQueue } from "../../stores/message-queue.ts";
+import { MessageQueue } from "../../stores/message-queue.ts";
 import {
   ConversationStore,
   ModelSelectionStore,
@@ -20,22 +20,22 @@ import {
 import {
   componentIdentity,
   deploymentId,
-  readComponentState,
-  updateComponentState,
+  readComponentRecord,
+  updateComponentRecord,
   verifyInternal,
 } from "../../platform/component-identity.ts";
 import { atomicWrite, readText } from "../../platform/files.ts";
 import { join } from "node:path";
 import { IntegralError } from "../../platform/errors.ts";
 import {
-  nodeHttpServerRuntime,
-  nodeIntervalRuntime,
-  type HttpServerRuntime,
-  type IntervalRuntime,
+  nodeHttpServers,
+  nodeIntervalTimers,
+  type HttpServers,
+  type IntervalTimers,
 } from "../../platform/timers-and-servers.ts";
 import { internalFetch } from "../../platform/internal-http-client.ts";
 import {
-  DurableTaskQueue,
+  TaskQueue,
   type ScheduledTask,
   type TaskOutboxEntry,
 } from "../../stores/task-queue.ts";
@@ -43,7 +43,7 @@ import type { ScheduledOccurrence } from "../../stores/occurrence-store.ts";
 import type { ConversationOriginRoute } from "../../domain/schedules.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "../../platform/constants.ts";
 import type { Logger } from "../../platform/logging.ts";
-import { ensureContainerImage } from "../../integrations/docker/managed-image.ts";
+import { ensureManagedPiImage } from "../../integrations/docker/managed-image.ts";
 import { readJsonObject, writeJson } from "../../platform/json-http.ts";
 import { ClientEventStream, type ClientEvent } from "./event-stream.ts";
 export type { ClientEvent } from "./event-stream.ts";
@@ -89,7 +89,7 @@ import {
 
 interface ConversationScope {
   id: string;
-  queue: DurableQueue;
+  queue: MessageQueue;
   conversation: ConversationStore;
   modelSelection: ModelSelectionStore;
   discord?: {
@@ -152,8 +152,8 @@ function omitInternalTaskIdentifiers(
 }
 
 export interface CoordinatorDependencies {
-  servers: HttpServerRuntime;
-  intervals: IntervalRuntime;
+  servers: HttpServers;
+  intervals: IntervalTimers;
   internalFetch: typeof internalFetch;
   defer(callback: () => void): unknown;
   cancelDeferred(handle: unknown): void;
@@ -181,8 +181,8 @@ export interface CoordinatorDependencies {
 }
 
 const productionDependencies: CoordinatorDependencies = {
-  servers: nodeHttpServerRuntime,
-  intervals: nodeIntervalRuntime,
+  servers: nodeHttpServers,
+  intervals: nodeIntervalTimers,
   internalFetch,
   defer: (callback) => setTimeout(callback, 0),
   cancelDeferred: (handle) =>
@@ -190,7 +190,7 @@ const productionDependencies: CoordinatorDependencies = {
   now: Date.now,
   listModelChoices: (paths, config, progress) =>
     listModelChoices(paths, config, {}, progress),
-  ensureImage: ensureContainerImage,
+  ensureImage: ensureManagedPiImage,
   stageImageProposal,
   buildImageRecipe,
   activateImageProposal,
@@ -201,10 +201,10 @@ const productionDependencies: CoordinatorDependencies = {
 };
 
 export class Coordinator {
-  readonly queue: DurableQueue;
+  readonly queue: MessageQueue;
   readonly conversation: ConversationStore;
   readonly modelSelection: ModelSelectionStore;
-  readonly tasks: DurableTaskQueue;
+  readonly tasks: TaskQueue;
   readonly approvals: ApprovalStore;
 
   private readonly eventStream = new ClientEventStream();
@@ -241,7 +241,7 @@ export class Coordinator {
     private readonly logger?: Logger,
   ) {
     this.dependencies = { ...productionDependencies, ...overrides };
-    this.queue = new DurableQueue(paths.queue, (event) =>
+    this.queue = new MessageQueue(paths.queue, (event) =>
       this.broadcast(`queue.${event.type}`, event),
     );
     this.conversation = new ConversationStore(paths.conversation);
@@ -254,7 +254,7 @@ export class Coordinator {
       modelSelection: this.modelSelection,
     });
 
-    this.tasks = new DurableTaskQueue(paths);
+    this.tasks = new TaskQueue(paths);
     this.approvals = new ApprovalStore(paths, () => this.dependencies.now());
   }
 
@@ -325,7 +325,7 @@ export class Coordinator {
       ),
       scope: ConversationScope = {
         id: `discord:${connection.channelId}`,
-        queue: new DurableQueue(join(directory, "queue.json")),
+        queue: new MessageQueue(join(directory, "queue.json")),
         conversation: new ConversationStore(
           join(directory, "conversation.jsonl"),
         ),
@@ -404,9 +404,9 @@ export class Coordinator {
     if (name === "status") {
       const selection = this.modelSelection.get(),
         [gateway, runner, scheduler] = await Promise.all([
-          readComponentState(this.paths, "gateway"),
-          readComponentState(this.paths, "runner"),
-          readComponentState(this.paths, "scheduler"),
+          readComponentRecord(this.paths, "gateway"),
+          readComponentRecord(this.paths, "runner"),
+          readComponentRecord(this.paths, "scheduler"),
         ]),
         conversations = [...this.scopes.values()].map((candidate) => {
           const queue = candidate.queue.snapshot(),
@@ -876,7 +876,7 @@ export class Coordinator {
     const changed = this.connectionGeneration !== generation;
     this.connectionGeneration = generation;
 
-    await updateComponentState(this.paths, "coordinator", {
+    await updateComponentRecord(this.paths, "coordinator", {
       connectionGeneration: generation,
       status: "ready",
     });
@@ -1570,9 +1570,9 @@ export class Coordinator {
 
       if (url.pathname === "/integral/health" && req.method === "GET") {
         const [gateway, runner, scheduler] = await Promise.all([
-          readComponentState(this.paths, "gateway"),
-          readComponentState(this.paths, "runner"),
-          readComponentState(this.paths, "scheduler"),
+          readComponentRecord(this.paths, "gateway"),
+          readComponentRecord(this.paths, "runner"),
+          readComponentRecord(this.paths, "scheduler"),
         ]);
         json(res, 200, {
           component: "coordinator",
@@ -2109,9 +2109,9 @@ export class Coordinator {
 
       if (url.pathname === "/integral/status" && req.method === "GET") {
         const [gateway, runner, scheduler] = await Promise.all([
-          readComponentState(this.paths, "gateway"),
-          readComponentState(this.paths, "runner"),
-          readComponentState(this.paths, "scheduler"),
+          readComponentRecord(this.paths, "gateway"),
+          readComponentRecord(this.paths, "runner"),
+          readComponentRecord(this.paths, "scheduler"),
         ]);
 
         const queue = this.queue.snapshot();

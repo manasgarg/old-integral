@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type {
   ContainerBackend,
   ContainerSpec,
-  PiRuntime,
-  TaskRuntime,
+  PiSession,
+  TaskPiSession,
 } from "../src/integrations/docker/pi-container.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import {
@@ -20,8 +20,8 @@ import { Runner, type RunnerClock } from "../src/services/runner/runner.ts";
 import type { ResourceProjection } from "../src/stores/resource-store.ts";
 import {
   deploymentId,
-  readComponentState,
-  writeComponentState,
+  readComponentRecord,
+  writeComponentRecord,
 } from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 
@@ -191,7 +191,7 @@ test("[FAILURE-3780301D] runner degrades without claiming work when gateway stat
     },
     deployment = deploymentId(paths);
   for (const component of ["coordinator", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -222,7 +222,7 @@ test("[FAILURE-3780301D] runner degrades without claiming work when gateway stat
   );
   await runner.runOnce();
   assert.equal(internalRequests, 0);
-  const state = await readComponentState(paths, "runner");
+  const state = await readComponentRecord(paths, "runner");
   assert.equal(state?.status, "degraded");
   assert.match(state?.error ?? "", /configuration or connection generations/);
 });
@@ -249,7 +249,7 @@ test("[FAILURE-F93D8325] runner claims healthy-model work during connection-loca
     );
   await markConnectionDegraded(paths, "broken", "authorization");
   for (const component of ["coordinator", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -259,7 +259,7 @@ test("[FAILURE-F93D8325] runner claims healthy-model work during connection-loca
       connectionGeneration: 2,
       startedAt: "now",
     });
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "gateway",
     deploymentId: deployment,
     endpoint: "http://127.0.0.1:1",
@@ -299,7 +299,7 @@ test("[FAILURE-F93D8325] runner claims healthy-model work during connection-loca
   await runner.runOnce();
 
   assert.deepEqual(claimBody, { modelConnections: ["healthy"] });
-  assert.equal((await readComponentState(paths, "runner"))?.status, "ready");
+  assert.equal((await readComponentRecord(paths, "runner"))?.status, "ready");
 });
 
 test("[MCP-5751370A] [MCP-6F5CFA0E] runner detects validated catalog changes between turns and retains the active catalog on refresh failure", async (t) => {
@@ -416,7 +416,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
   await saveConnection(paths, discordConnection(), "discord-secret");
   const deployment = deploymentId(paths);
   for (const component of ["coordinator", "gateway", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: `http://127.0.0.1:${component === "gateway" ? 7310 : component === "coordinator" ? 7311 : 7312}`,
@@ -439,7 +439,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
 
   let spec: ContainerSpec | undefined,
     observe: ((event: Record<string, unknown>) => void) | undefined;
-  const pi: PiRuntime = {
+  const pi: PiSession = {
       get spec() {
         assert.ok(spec);
         return spec;
@@ -706,7 +706,7 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
       home: "/test/session",
       gatewayAddress: "127.0.0.1",
     } satisfies ContainerSpec,
-    pi: PiRuntime = {
+    pi: PiSession = {
       spec,
       async start() {},
       async prompt() {
@@ -728,7 +728,7 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
   );
   const deployment = deploymentId(paths);
   for (const component of ["coordinator", "gateway", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -817,7 +817,7 @@ test("[CHAT-C53A90D2] runner recycles an idle Pi container after the conversatio
     },
     deployment = deploymentId(paths),
     calls: string[] = [],
-    pi: PiRuntime = {
+    pi: PiSession = {
       spec: {
         image: "test",
         args: [],
@@ -837,7 +837,7 @@ test("[CHAT-C53A90D2] runner recycles an idle Pi container after the conversatio
       },
     };
   for (const component of ["coordinator", "gateway", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -914,7 +914,7 @@ test("an approval continuation starts a replacement Pi session with parent linea
     "secret",
   );
   for (const component of ["coordinator", "gateway", "runner"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -924,7 +924,7 @@ test("an approval continuation starts a replacement Pi session with parent linea
       connectionGeneration: 1,
       startedAt: "now",
     });
-  const old: PiRuntime = {
+  const old: PiSession = {
       spec: {
         image: "sha256:test-pi",
         args: [],
@@ -1105,7 +1105,7 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
     "github-secret",
   );
   for (const component of ["coordinator", "gateway"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -1115,7 +1115,7 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
       connectionGeneration: 2,
       startedAt: "now",
     });
-  const stale: PiRuntime = {
+  const stale: PiSession = {
       spec: {
         image: "sha256:test-pi",
         args: [],
@@ -1286,7 +1286,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
   );
   await saveConnection(paths, discordConnection(), "discord-secret");
   for (const component of ["coordinator", "gateway"] as const)
-    await writeComponentState(paths, {
+    await writeComponentRecord(paths, {
       component,
       deploymentId: deployment,
       endpoint: "http://127.0.0.1:1",
@@ -1306,7 +1306,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       home: "/test/task-home",
       gatewayAddress: "127.0.0.1",
     },
-    taskRuntime: TaskRuntime = {
+    taskRuntime: TaskPiSession = {
       spec,
       async start() {
         calls.push("task:start");

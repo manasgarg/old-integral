@@ -43,7 +43,7 @@ export function managedPiImage(
   return `integral-pi:${INTEGRAL_VERSION}-recipe-${recipe}-pi-${version.replace(/[^0-9A-Za-z_.-]/g, "-")}`;
 }
 
-export function ensureContainerImage(
+export function ensureManagedPiImage(
   config: EffectiveConfig,
   piVersion: string,
   options: {

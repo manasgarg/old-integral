@@ -4,7 +4,7 @@ import test from "node:test";
 import { join } from "node:path";
 import {
   createSnowflakeId,
-  DurableQueue,
+  MessageQueue,
   SNOWFLAKE_EPOCH,
 } from "../src/stores/message-queue.ts";
 import { ConversationStore } from "../src/stores/conversation-store.ts";
@@ -21,7 +21,7 @@ Given two or more terminals are attached to the same conversation
 test("[QUEUE-5B7C2E91] [QUEUE-6A1B4E82] concurrent submissions commit one durable opaque-ID order", async (t) => {
   const paths = await fixture(t),
     events: unknown[] = [],
-    queue = new DurableQueue(paths.queue, (e) => events.push(e));
+    queue = new MessageQueue(paths.queue, (e) => events.push(e));
   await queue.load();
   const items = await Promise.all([
     queue.enqueue("one"),
@@ -54,13 +54,13 @@ test("[QUEUE-5B7C2E91] Snowflakes encode time, worker, and sequence as uppercase
 
 test("[QUEUE-5B7C2E91] persisted Snowflake state prevents reuse after restart and clock rollback", async (t) => {
   const paths = await fixture(t),
-    before = new DurableQueue(
+    before = new MessageQueue(
       paths.queue,
       () => undefined,
       () => SNOWFLAKE_EPOCH + 10,
     ),
     first = await before.enqueue("first"),
-    after = new DurableQueue(
+    after = new MessageQueue(
       paths.queue,
       () => undefined,
       () => SNOWFLAKE_EPOCH + 5,
@@ -73,7 +73,7 @@ test("[QUEUE-5B7C2E91] persisted Snowflake state prevents reuse after restart an
 
 test("[QUEUE-31A6D84F] only one oldest message is in flight and completion exposes the next", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   await queue.enqueue("first");
   await queue.enqueue("second");
   const first = await queue.claim();
@@ -85,7 +85,7 @@ test("[QUEUE-31A6D84F] only one oldest message is in flight and completion expos
 
 test("[QUEUE-A19D6F43] queue snapshots show stable IDs, text, delivery order, and in-flight state", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   const a = await queue.enqueue("a"),
     b = await queue.enqueue("b");
   await queue.claim();
@@ -101,7 +101,7 @@ test("[QUEUE-A19D6F43] queue snapshots show stable IDs, text, delivery order, an
 test("[QUEUE-C84E1A70] editing preserves message identity and position and persists before notification", async (t) => {
   const paths = await fixture(t),
     events: unknown[] = [],
-    queue = new DurableQueue(paths.queue, (e) => events.push(e));
+    queue = new MessageQueue(paths.queue, (e) => events.push(e));
   const a = await queue.enqueue("old"),
     b = await queue.enqueue("later");
   const edited = await queue.edit(a.id, "new");
@@ -113,7 +113,7 @@ test("[QUEUE-C84E1A70] editing preserves message identity and position and persi
       [b.id, "later"],
     ],
   );
-  const restored = new DurableQueue(paths.queue);
+  const restored = new MessageQueue(paths.queue);
   await restored.load();
   assert.equal(restored.snapshot()[0]?.text, "new");
   assert.equal((events.at(-1) as { type: string }).type, "edited");
@@ -121,12 +121,12 @@ test("[QUEUE-C84E1A70] editing preserves message identity and position and persi
 
 test("[QUEUE-2F6B9D04] deletion persists and deleted messages are never claimable", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   const deleted = await queue.enqueue("remove"),
     kept = await queue.enqueue("keep");
   await queue.delete(deleted.id);
   assert.equal((await queue.claim())?.id, kept.id);
-  const restored = new DurableQueue(paths.queue);
+  const restored = new MessageQueue(paths.queue);
   await restored.load();
   assert.equal(
     restored.snapshot().some((m) => m.id === deleted.id),
@@ -143,7 +143,7 @@ Given a message is in flight with Pi
 */
 test("[QUEUE-D31A7C68] claimed messages reject edits and deletion without changing the turn", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   const item = await queue.enqueue("original");
   await queue.claim();
   await assert.rejects(queue.edit(item.id, "changed"), /in flight/);
@@ -153,7 +153,7 @@ test("[QUEUE-D31A7C68] claimed messages reject edits and deletion without changi
 
 test("[QUEUE-8E42F5B1] queue ownership is independent of terminal attachment", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   await queue.enqueue("durable");
   assert.equal(queue.snapshot().length, 1);
 });
@@ -171,14 +171,14 @@ Given queued messages were acknowledged before the coordinator stopped or crashe
 */
 test("[QUEUE-F0C937AD] restart recovery retains acknowledged edits, deletions, and order and requeues in-flight work", async (t) => {
   const paths = await fixture(t),
-    before = new DurableQueue(paths.queue);
+    before = new MessageQueue(paths.queue);
   const a = await before.enqueue("a"),
     b = await before.enqueue("b"),
     c = await before.enqueue("c");
   await before.delete(b.id);
   await before.edit(c.id, "edited");
   await before.claim();
-  const after = new DurableQueue(paths.queue);
+  const after = new MessageQueue(paths.queue);
   await after.load();
   assert.deepEqual(
     after.snapshot().map((m) => [m.id, m.text, m.status]),
@@ -218,7 +218,7 @@ test("[QUEUE-F0C937AD] restart recovery preserves legacy UUID and ULID IDs", asy
       ],
     })}\n`,
   );
-  const queue = new DurableQueue(paths.queue);
+  const queue = new MessageQueue(paths.queue);
   await queue.load();
   assert.deepEqual(
     queue.snapshot().map(({ id, status }) => ({ id, status })),
@@ -231,7 +231,7 @@ test("[QUEUE-F0C937AD] restart recovery preserves legacy UUID and ULID IDs", asy
 
 test("[QUEUE-947D3AC0] unknown and deleted IDs are refused without changing state", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue);
+    queue = new MessageQueue(paths.queue);
   const item = await queue.enqueue("x");
   await queue.delete(item.id);
   await assert.rejects(queue.edit(item.id, "y"), /not queued/);
@@ -250,7 +250,7 @@ test("[QUEUE-3C8E71B4] mutations are not acknowledged or broadcast when persiste
   const paths = await fixture(t),
     events: unknown[] = [],
     blocker = join(paths.root, "blocked"),
-    queue = new DurableQueue(join(blocker, "queue.json"), (e) =>
+    queue = new MessageQueue(join(blocker, "queue.json"), (e) =>
       events.push(e),
     );
   await writeFile(blocker, "not a directory");

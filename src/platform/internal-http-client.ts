@@ -4,7 +4,7 @@ import {
   componentIdentity,
   deploymentId,
   internalHeaders,
-  readComponentState,
+  readComponentRecord,
 } from "./component-identity.ts";
 import { IntegralError } from "./errors.ts";
 
@@ -12,7 +12,7 @@ export async function componentEndpoint(
   paths: IntegralPaths,
   component: Component,
 ): Promise<string> {
-  const state = await readComponentState(paths, component);
+  const state = await readComponentRecord(paths, component);
   if (!state)
     throw new IntegralError(
       `${component} is not running; run integral server start`,

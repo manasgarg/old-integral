@@ -9,10 +9,10 @@ import {
 } from "../../stores/occurrence-store.ts";
 import type { IntegralPaths } from "../../platform/deployment-paths.ts";
 import {
-  nodeHttpServerRuntime,
-  nodeIntervalRuntime,
-  type HttpServerRuntime,
-  type IntervalRuntime,
+  nodeHttpServers,
+  nodeIntervalTimers,
+  type HttpServers,
+  type IntervalTimers,
 } from "../../platform/timers-and-servers.ts";
 import { ScheduleStore } from "../../stores/schedule-store.ts";
 import type {
@@ -30,16 +30,16 @@ import { readJsonObject, writeJson } from "../../platform/json-http.ts";
 import type { Logger } from "../../platform/logging.ts";
 
 export interface SchedulerDependencies {
-  servers: HttpServerRuntime;
-  intervals: IntervalRuntime;
+  servers: HttpServers;
+  intervals: IntervalTimers;
   internalFetch: typeof internalFetch;
   nextCronInstant: typeof nextCronInstant;
   now(): number;
 }
 
 const productionDependencies: SchedulerDependencies = {
-  servers: nodeHttpServerRuntime,
-  intervals: nodeIntervalRuntime,
+  servers: nodeHttpServers,
+  intervals: nodeIntervalTimers,
   internalFetch,
   nextCronInstant,
   now: Date.now,

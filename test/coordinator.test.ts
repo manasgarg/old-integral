@@ -14,7 +14,7 @@ import { Logger } from "../src/platform/logging.ts";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { DurableQueue } from "../src/stores/message-queue.ts";
+import { MessageQueue } from "../src/stores/message-queue.ts";
 import {
   ConversationStore,
   ModelSelectionStore,
@@ -216,7 +216,7 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     config = await loadConfig(paths, {}),
     coordinator = new Coordinator(paths, config),
     directory = join(paths.channels, "discord-test"),
-    queue = new DurableQueue(join(directory, "queue.json")),
+    queue = new MessageQueue(join(directory, "queue.json")),
     conversation = new ConversationStore(join(directory, "conversation.jsonl")),
     modelSelection = new ModelSelectionStore(join(directory, "model.json")),
     discordReplies: string[] = [],
@@ -844,7 +844,7 @@ test("[DISCORD-A9DA6034] gateway health incidents notify Discord once and recove
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     directory = join(paths.channels, "discord-health"),
-    queue = new DurableQueue(join(directory, "queue.json")),
+    queue = new MessageQueue(join(directory, "queue.json")),
     conversation = new ConversationStore(join(directory, "conversation.jsonl")),
     modelSelection = new ModelSelectionStore(join(directory, "model.json")),
     discordReplies: string[] = [],
@@ -928,7 +928,7 @@ test("[FAILURE-F93D8325] coordinator claims only work whose selected model conne
     config = await loadConfig(paths, {}),
     coordinator = new Coordinator(paths, config),
     activeDirectory = join(paths.channels, "active-model"),
-    activeQueue = new DurableQueue(join(activeDirectory, "queue.json")),
+    activeQueue = new MessageQueue(join(activeDirectory, "queue.json")),
     activeConversation = new ConversationStore(
       join(activeDirectory, "conversation.jsonl"),
     ),

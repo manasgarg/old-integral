@@ -83,7 +83,7 @@ function immutableTask(task: ScheduledTask): unknown {
   };
 }
 
-export class DurableTaskQueue {
+export class TaskQueue {
   private data: TaskFile = { tasks: [], outbox: [] };
   private readonly operations = new SerialExecutor();
 

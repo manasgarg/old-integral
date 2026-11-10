@@ -19,17 +19,17 @@ import {
   pathsFor,
   type IntegralPaths,
 } from "../src/platform/deployment-paths.ts";
-import { DurableQueue } from "../src/stores/message-queue.ts";
+import { MessageQueue } from "../src/stores/message-queue.ts";
 import {
   ConversationStore,
   ModelSelectionStore,
 } from "../src/stores/conversation-store.ts";
-import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
+import { nodeHttpServers } from "../src/platform/timers-and-servers.ts";
 import {
   deploymentId,
-  writeComponentState,
+  writeComponentRecord,
 } from "../src/platform/component-identity.ts";
-import { DurableTaskQueue } from "../src/stores/task-queue.ts";
+import { TaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 // These tests drive both command surfaces against one real in-process
@@ -89,7 +89,7 @@ async function startHarness(t: test.TestContext): Promise<Harness> {
           server.listen(0, "127.0.0.1", resolve);
         });
       },
-      close: nodeHttpServerRuntime.close,
+      close: nodeHttpServers.close,
     },
     intervals: { setInterval: () => undefined, clearInterval() {} },
     defer: () => undefined,
@@ -106,7 +106,7 @@ async function startHarness(t: test.TestContext): Promise<Harness> {
   t.after(() => coordinator.stop());
   coordinator.events.on("event", (event: ClientEvent) => events.push(event));
   const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "coordinator",
     deploymentId: deploymentId(paths),
     endpoint,
@@ -690,9 +690,9 @@ test("[CLI-FCE41B12] [CLI-D1B5816E] queue and task operations change the same du
     assert.equal(run.output(line).stdout, "");
   }
 
-  const queue = new DurableQueue(h.paths.queue),
+  const queue = new MessageQueue(h.paths.queue),
     conversation = new ConversationStore(h.paths.conversation),
-    tasks = new DurableTaskQueue(h.paths);
+    tasks = new TaskQueue(h.paths);
   await Promise.all([queue.load(), conversation.load(), tasks.load()]);
   assert.deepEqual(
     queue.snapshot().map((item) => [item.id, item.text]),

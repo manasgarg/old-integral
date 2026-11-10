@@ -2,7 +2,7 @@ import type { EffectiveConfig } from "../../stores/config.ts";
 import {
   discoverPiModels,
   discoverPiVersion,
-  ensureContainerImage,
+  ensureManagedPiImage,
 } from "../docker/managed-image.ts";
 import { DEFAULT_PI_IMAGE } from "../../platform/constants.ts";
 import { listConnections } from "../../stores/connection-store.ts";
@@ -46,7 +46,7 @@ export interface ModelCatalogDependencies {
 
 const productionDependencies: ModelCatalogDependencies = {
   ensureRuntime: ensurePiRuntime,
-  ensureImage: ensureContainerImage,
+  ensureImage: ensureManagedPiImage,
   discoverModels: discoverPiModels,
   discoverVersion: discoverPiVersion,
 };
