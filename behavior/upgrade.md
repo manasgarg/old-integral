@@ -180,7 +180,7 @@ Given deploy has installed a release
 		Then it writes a systemd user unit named `integral.service`
 			And the unit runs `<release-root>/current/bin/integral.js server start`
 			And the unit sets `INTEGRAL_HOME` to the production deployment home
-			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH`
+			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH` without `node_modules` directories
 			And deploy reloads systemd before starting the service
 	When the integral server exits unexpectedly
 		Then systemd starts it again
@@ -246,6 +246,10 @@ Given the deployment is stopped and backed up
 			And runs `integral doctor`
 			And appends a record to `<release-root>/deploy-log.jsonl` with both releases, both formats, the backup, the times, and the result
 			And reports success
+	When every component runs the new release at the end of the health wait
+		And the gateway's only problem is a connection it could not authorize or reach
+		Then deploy continues as though the release were healthy
+			And reports each connection problem so the developer can reconnect it
 ```
 
 ## UPGRADE-7F1EFAD0 — Roll back a failed upgrade automatically

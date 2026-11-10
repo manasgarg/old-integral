@@ -18,6 +18,7 @@ import {
   checkReadyToDeploy,
   deploy,
   DeployError,
+  deploymentHealth,
   readDeployLog,
   rehearseUpgrade,
   rollbackDeploy,
@@ -26,6 +27,7 @@ import {
   type CommandOptions,
   type CommandResult,
   type DeployHost,
+  type DeploymentHealth,
   type DeploySettings,
 } from "../scripts/deploy.ts";
 import { CURRENT_DEPLOYMENT_FORMAT } from "../src/stores/deployment-format.ts";
@@ -71,6 +73,7 @@ class FakeDeployHost implements DeployHost {
   startResults: CommandResult[] = [];
   outsideServiceRunning = false;
   healthy = true;
+  connectionProblems: string[] | undefined;
   clock = Date.parse("2026-11-10T12:00:00.000Z");
   integral: IntegralHandler = (_release, home, args) =>
     args[0] === "migrate" ? migrateHome(home) : ok(statusJson(args));
@@ -103,10 +106,13 @@ class FakeDeployHost implements DeployHost {
     throw new Error(`unexpected command ${command}`);
   }
 
-  async deploymentStatus(): Promise<"healthy" | "degraded" | "stopped"> {
-    if (this.outsideServiceRunning) return "healthy";
-    if (!this.serviceActive) return "stopped";
-    return this.healthy ? "healthy" : "degraded";
+  async deploymentStatus(): Promise<DeploymentHealth> {
+    if (this.outsideServiceRunning) return { state: "healthy" };
+    if (!this.serviceActive) return { state: "stopped" };
+    if (this.healthy) return { state: "healthy" };
+    return this.connectionProblems
+      ? { state: "degraded", connectionProblems: this.connectionProblems }
+      : { state: "degraded" };
   }
 
   async sleep(ms: number): Promise<void> {
@@ -386,7 +392,7 @@ Given deploy has installed a release
 		Then it writes a systemd user unit named `integral.service`
 			And the unit runs `<release-root>/current/bin/integral.js server start`
 			And the unit sets `INTEGRAL_HOME` to the production deployment home
-			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH`
+			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH` without `node_modules` directories
 			And deploy reloads systemd before starting the service
 	When the integral server exits unexpectedly
 		Then systemd starts it again
@@ -429,7 +435,10 @@ test("[UPGRADE-1F1E078F] deploy runs the production release as an enabled system
 
 test("[UPGRADE-1F1E078F] the service PATH starts with the Node.js that ran deploy and keeps deploy's PATH", () => {
   assert.equal(
-    servicePath("/opt/node/26/bin/node", "/usr/bin:/opt/node/26/bin::/bin"),
+    servicePath(
+      "/opt/node/26/bin/node",
+      "/w/node_modules/.bin:/usr/bin:/opt/node/26/bin::/bin:/n/lib/node_modules/npm/node-gyp-bin",
+    ),
     "/opt/node/26/bin:/usr/bin:/bin",
   );
   assert.equal(
@@ -710,6 +719,10 @@ Given the deployment is stopped and backed up
 			And runs `integral doctor`
 			And appends a record to `<release-root>/deploy-log.jsonl` with both releases, both formats, the backup, the times, and the result
 			And reports success
+	When every component runs the new release at the end of the health wait
+		And the gateway's only problem is a connection it could not authorize or reach
+		Then deploy continues as though the release were healthy
+			And reports each connection problem so the developer can reconnect it
 */
 test("[UPGRADE-03673EA9] deploy migrates, switches, starts, checks health and doctor, and logs the result", async (t) => {
   const { settings, host } = await scenario(t);
@@ -718,7 +731,7 @@ test("[UPGRADE-03673EA9] deploy migrates, switches, starts, checks health and do
   const status = host.deploymentStatus.bind(host);
   host.deploymentStatus = async () => {
     const result = await status();
-    healthChecks.push(result);
+    healthChecks.push(result.state);
     return result;
   };
 
@@ -751,6 +764,85 @@ test("[UPGRADE-03673EA9] deploy migrates, switches, starts, checks health and do
   assert.ok(
     host.reports.some((line) => line === `deployed release ${COMMIT}\n`),
   );
+});
+
+test("[UPGRADE-03673EA9] deploy reports connection problems instead of rolling back for them", async (t) => {
+  const { settings, host } = await scenario(t);
+  await withPreviousRelease(settings, host);
+  host.healthy = false;
+  host.connectionProblems = ["OAuth refresh failed for anthropic"];
+
+  assert.equal(await deploy(settings, host), 0);
+
+  assert.equal(
+    await readlink(join(settings.releaseRoot, "current")),
+    join("releases", COMMIT),
+  );
+  assert.ok(host.events.includes("integral doctor"));
+  assert.ok(
+    host.reports.some((line) =>
+      line.includes("  OAuth refresh failed for anthropic\n"),
+    ),
+  );
+  assert.equal((await readDeployLog(settings)).at(-1)?.result, "deployed");
+});
+
+test("[UPGRADE-03673EA9] only a connection degradation on a consistent release counts as a connection problem", () => {
+  const component = {
+      status: "ready",
+      fingerprint: "f",
+      connectionGeneration: 1,
+    },
+    status = {
+      overall: "degraded" as const,
+      components: {
+        coordinator: component,
+        scheduler: component,
+        gateway: { ...component, status: "degraded" },
+        runner: component,
+      },
+    },
+    gateway = {
+      component: "gateway" as const,
+      deploymentId: "d",
+      endpoint: "http://127.0.0.1:1",
+      pid: 1,
+      status: "degraded" as const,
+      fingerprint: "f",
+      connectionGeneration: 1,
+      startedAt: "",
+      error:
+        "OAuth refresh failed for anthropic\nOAuth refresh failed for openai-codex",
+      degradation: "connection" as const,
+    };
+
+  assert.deepEqual(deploymentHealth(status, [gateway]), {
+    state: "degraded",
+    connectionProblems: [
+      "OAuth refresh failed for anthropic",
+      "OAuth refresh failed for openai-codex",
+    ],
+  });
+  assert.deepEqual(
+    deploymentHealth(status, [{ ...gateway, degradation: "configuration" }]),
+    { state: "degraded" },
+  );
+  assert.deepEqual(
+    deploymentHealth(
+      {
+        ...status,
+        components: {
+          ...status.components,
+          runner: { ...component, fingerprint: "old" },
+        },
+      },
+      [gateway],
+    ),
+    { state: "degraded" },
+  );
+  assert.deepEqual(deploymentHealth({ ...status, overall: "healthy" }, []), {
+    state: "healthy",
+  });
 });
 
 /* @covers UPGRADE-7F1EFAD0

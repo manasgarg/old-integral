@@ -22,7 +22,7 @@ import {
 } from "../src/services/launcher.ts";
 import { nodeHttpServers } from "../src/platform/timers-and-servers.ts";
 import type { Component } from "../src/platform/constants.ts";
-import { requireActiveModelConnection } from "../src/services/runner/runner.ts";
+import { requireUsableModelConnection } from "../src/services/runner/runner.ts";
 
 /* @covers SERVER-DF5FD52E
 Given a server component is running for a deployment
@@ -422,7 +422,7 @@ Given the Docker daemon cannot be reached
 		Then that component may become healthy without Docker
 */
 /* @covers CONNECTION-20778353
-Given no active model connection is configured
+Given no model connection with a usable credential is configured
 	When the user runs `integral server start`
 		Then the server exits non-zero
 			And does not accept chat sessions
@@ -462,6 +462,29 @@ test("[SERVER-F886D80C] [SERVER-FE2BB5CF] [CONNECTION-20778353] runner startup p
   }
 });
 
+/* @covers CONNECTION-D3A3EDE9
+Given a model connection has a usable credential
+	And integral has marked it degraded
+	When the user runs `integral server start`
+		Then the server is not refused because the connection is degraded
+			And the gateway can retry the connection and clear the mark
+*/
+test("[CONNECTION-D3A3EDE9] startup accepts a degraded model connection and refuses one without a credential", () => {
+  const degraded = {
+    name: "anthropic",
+    kind: "model",
+    provider: "anthropic",
+    auth: "oauth",
+    state: "degraded",
+  } as const;
+  const disabled = { ...degraded, state: "DISABLED (no secret)" } as const;
+  assert.doesNotThrow(() => requireUsableModelConnection([degraded]));
+  assert.throws(
+    () => requireUsableModelConnection([disabled]),
+    /no model connection with a usable credential/,
+  );
+});
+
 test("[SERVER-F886D80C] [CONNECTION-20778353] startup requires one active model connection but accepts several without selecting one", () => {
   const connection = {
     name: "anthropic",
@@ -471,12 +494,12 @@ test("[SERVER-F886D80C] [CONNECTION-20778353] startup requires one active model 
     state: "active",
   } as const;
   assert.throws(
-    () => requireActiveModelConnection([]),
-    /no active model connection.*integral connection add/,
+    () => requireUsableModelConnection([]),
+    /no model connection with a usable credential.*integral connection add/,
   );
-  assert.doesNotThrow(() => requireActiveModelConnection([connection]));
+  assert.doesNotThrow(() => requireUsableModelConnection([connection]));
   assert.doesNotThrow(() =>
-    requireActiveModelConnection([
+    requireUsableModelConnection([
       connection,
       { ...connection, name: "second" },
     ]),

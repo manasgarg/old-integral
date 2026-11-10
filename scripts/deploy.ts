@@ -16,6 +16,8 @@ import { basename, delimiter, dirname, join, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CURRENT_DEPLOYMENT_FORMAT } from "../src/stores/deployment-format.ts";
 import { RELEASE_STAMP_PATH } from "../src/platform/release-identity.ts";
+import type { ComponentRecord } from "../src/platform/component-identity.ts";
+import type { DeploymentStatus } from "../src/services/launcher.ts";
 
 export interface CommandResult {
   code: number;
@@ -29,6 +31,42 @@ export interface CommandOptions {
   timeoutMs?: number;
 }
 
+export interface DeploymentHealth {
+  state: "healthy" | "degraded" | "stopped";
+  /**
+   * Present when every component runs the same release and the only problem
+   * is a connection the gateway could not authorize or reach. A rollback
+   * cannot fix that, so deploy reports it rather than rolling back.
+   */
+  connectionProblems?: string[];
+}
+
+export function deploymentHealth(
+  status: DeploymentStatus,
+  records: ReadonlyArray<ComponentRecord | undefined>,
+): DeploymentHealth {
+  if (status.overall !== "degraded") return { state: status.overall };
+
+  const running = Object.values(status.components),
+    degraded = records.filter((record) => record?.status === "degraded");
+  const onlyConnections =
+    running.every((component) => component.status !== "stopped") &&
+    new Set(running.map((component) => component.fingerprint)).size === 1 &&
+    new Set(running.map((component) => component.connectionGeneration)).size ===
+      1 &&
+    degraded.length > 0 &&
+    degraded.every((record) => record?.degradation === "connection");
+
+  return onlyConnections
+    ? {
+        state: "degraded",
+        connectionProblems: degraded.flatMap((record) =>
+          (record?.error ?? "connection problem").split("\n"),
+        ),
+      }
+    : { state: "degraded" };
+}
+
 /** Everything deploy does outside the filesystem goes through here. */
 export interface DeployHost {
   run(
@@ -37,7 +75,7 @@ export interface DeployHost {
     options?: CommandOptions,
   ): Promise<CommandResult>;
   /** Whether integral's components for `home` are running, from their own records. */
-  deploymentStatus(home: string): Promise<"healthy" | "degraded" | "stopped">;
+  deploymentStatus(home: string): Promise<DeploymentHealth>;
   sleep(ms: number): Promise<void>;
   now(): Date;
   report(line: string): void;
@@ -72,8 +110,11 @@ export function servicePath(
   const entries = [
     dirname(nodeExecutable),
     ...(deployPath ?? "").split(delimiter),
-  ];
-  return [...new Set(entries.filter((entry) => entry !== ""))].join(delimiter);
+  ].filter(
+    // `npm run` adds the worktree's `node_modules/.bin` directories.
+    (entry) => entry !== "" && !entry.split(sep).includes("node_modules"),
+  );
+  return [...new Set(entries)].join(delimiter);
 }
 
 export function defaultDeploySettings(
@@ -529,7 +570,7 @@ async function requireOnlyServiceRunning(
   const active = await serviceActive(settings, host);
   if (
     !active &&
-    (await host.deploymentStatus(settings.deploymentHome)) !== "stopped"
+    (await host.deploymentStatus(settings.deploymentHome)).state !== "stopped"
   )
     throw new DeployError(
       `integral is running for ${settings.deploymentHome} but not as ${unitName(settings)}; stop that integral server first`,
@@ -603,9 +644,17 @@ async function waitUntilHealthy(
 ): Promise<boolean> {
   const deadline = host.now().getTime() + settings.healthTimeoutMs;
   for (;;) {
-    if ((await host.deploymentStatus(settings.deploymentHome)) === "healthy")
+    const health = await host.deploymentStatus(settings.deploymentHome);
+    if (health.state === "healthy") return true;
+    if (host.now().getTime() >= deadline) {
+      if (!health.connectionProblems) return false;
+      host.report(
+        `integral is running, but these connections need attention:\n${health.connectionProblems
+          .map((problem) => `  ${problem}\n`)
+          .join("")}`,
+      );
       return true;
-    if (host.now().getTime() >= deadline) return false;
+    }
     await host.sleep(settings.pollIntervalMs);
   }
 }
