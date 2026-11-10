@@ -1454,25 +1454,26 @@ test("[CHAT-888AFAE0] asynchronous events redraw the active prompt and preserve 
 });
 
 /* @covers BOX-E1F472A1
-Given integral begins Pi-specific OAuth or opens the model chooser
-	When the npm registry reports a newer `latest` Pi version
-		Then integral installs that exact version under deployment runtime state
-			And uses that exact version when the model chooser builds the default Pi image
+Given integral pins one exact Pi version
+	And integral begins Pi-specific OAuth or opens the model chooser
+	When no valid runtime for the pinned version is installed
+		Then integral installs exactly the pinned version under deployment runtime state
+			And uses the pinned version when the model chooser builds the default Pi image
 			And the chooser discovers providers and models from that image
 			And records the version and immutable image identity when the user selects a model
-	When the npm registry reports the same version as the installed runtime
-		Then integral reuses the installed host runtime
+	When a valid runtime for the pinned version is already installed
+		Then integral reuses the installed host runtime without querying the npm registry
 			And the model chooser reuses the matching image when it is available
 			And distinguishes managed images built from different Integral image recipes
 			And does not reinstall Pi
-	When the npm registry cannot be reached
-		And the previously installed Pi runtime and any image required by the operation are valid
-		Then integral reuses the installed runtime
-			And warns that it could not check for a newer Pi version
-	When the npm registry cannot be reached
-		And no valid installed Pi runtime exists
+	When installing the pinned version fails
 		Then the Pi-dependent operation exits non-zero
-			And explains that no cached Pi runtime is available
+			And explains that the pinned Pi version could not be installed
+			And does not fall back to another installed Pi version
+Given integral provides its default Pi image recipe
+	When the recipe or a default image build selects a Pi version
+		Then it selects the pinned Pi version
+			And never installs a floating `latest` Pi version
 Given a conversation selection records a Pi version and immutable image identity
 	When the runner provisions or reuses a Pi container
 		Then it uses that immutable image identity

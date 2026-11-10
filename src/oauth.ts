@@ -60,7 +60,6 @@ export async function runModelOAuth(
   } = { ensure: ensurePiRuntime, load: loadPiRuntimeModule },
 ): Promise<string> {
   const resolution = await runtime.ensure(paths);
-  if (resolution.warning) ui.show(`Warning: ${resolution.warning}`);
   const module = await runtime.load(resolution);
   const manualAbort = new AbortController();
   let credential: unknown;

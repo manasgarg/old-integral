@@ -836,14 +836,12 @@ export class Coordinator {
     choices: ModelChoice[];
     current: ModelChoice | null;
     piVersion?: string;
-    warning?: string;
   }> {
     const catalog = await this.modelCatalog();
     return {
       choices: catalog.choices,
       current: this.modelSelection.get() ?? null,
       ...(catalog.piVersion ? { piVersion: catalog.piVersion } : {}),
-      ...(catalog.warning ? { warning: catalog.warning } : {}),
     };
   }
   async selectConversationModel(

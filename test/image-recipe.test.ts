@@ -18,6 +18,7 @@ import {
   validateImageDockerfile,
 } from "../src/image-recipe.ts";
 import { loadConfig } from "../src/config.ts";
+import { PI_VERSION } from "../src/constants.ts";
 import type { IntegralPaths } from "../src/paths.ts";
 import { fixture } from "./helpers.ts";
 
@@ -32,7 +33,7 @@ test("[BOX-6A91C3E7] the host-managed image recipe is projected as an isolated w
   assert.equal(projection.checkout, join(sessionHome, "image"));
   assert.match(
     await readFile(join(projection.checkout, "Dockerfile"), "utf8"),
-    /PI_VERSION=latest/,
+    new RegExp(`ARG PI_VERSION=${PI_VERSION.replaceAll(".", "\\.")}\\n`),
   );
   assert.equal(
     (
@@ -89,7 +90,10 @@ test("[REPO-7B0E2F4A] an image recipe proposal is validated and quarantined unti
 test("[CLI-5D8A1C72] direct Dockerfile commits retain the foundational boundary", async (t) => {
   const paths = await fixture(t),
     source = await imageRecipeDockerfile(paths),
-    updated = source.replace("ARG PI_VERSION=latest", "ARG PI_VERSION=0.85.0"),
+    updated = source.replace(
+      `ARG PI_VERSION=${PI_VERSION}`,
+      "ARG PI_VERSION=0.85.0",
+    ),
     committed = await commitImageDockerfile(paths, updated, "operator");
   assert.notEqual(committed.prior, committed.landed);
   assert.match(await imageRecipeDockerfile(paths), /PI_VERSION=0\.85\.0/);
@@ -110,7 +114,7 @@ test("[CLI-5D8A1C72] a Dockerfile saved by an editor with a final newline is acc
   const paths = await fixture(t),
     source = await imageRecipeDockerfile(paths);
   assert.match(source, /^WORKDIR \/home\/pi$(?![\s\S])/m);
-  const edited = `${source.replace("ARG PI_VERSION=latest", "ARG PI_VERSION=0.85.0")}\n`;
+  const edited = `${source.replace(`ARG PI_VERSION=${PI_VERSION}`, "ARG PI_VERSION=0.85.0")}\n`;
   await validateImageDockerfile(edited);
   const committed = await commitImageDockerfile(paths, edited, "operator");
   assert.notEqual(committed.prior, committed.landed);

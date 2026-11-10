@@ -27,7 +27,6 @@ export interface ModelCatalog {
   choices: ModelChoice[];
   piVersion?: string;
   piImage?: string;
-  warning?: string;
 }
 
 export type ModelCatalogProgress = (
@@ -79,7 +78,6 @@ export async function listModelChoices(
   const runtime = await dependencies.ensureRuntime(paths);
   progress?.("runtime.ready", "Pi runtime is ready", {
     pi_version: runtime.version,
-    cached: Boolean(runtime.warning),
   });
   progress?.(
     "image.resolve",
@@ -148,7 +146,6 @@ export async function listModelChoices(
     choices,
     piVersion,
     piImage: image,
-    ...(runtime.warning ? { warning: runtime.warning } : {}),
   };
 }
 

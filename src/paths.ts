@@ -15,7 +15,6 @@ export interface IntegralPaths {
   conversation: string;
   modelSelection: string;
   piRuntime: string;
-  piRuntimeState: string;
   containerPackages: string;
   imageRecipe: string;
   imageAudit: string;
@@ -95,7 +94,6 @@ export function pathsFor(root: string): IntegralPaths {
     conversation: join(data, "conversation.jsonl"),
     modelSelection: join(data, "conversation-model.json"),
     piRuntime: join(data, "pi-runtime"),
-    piRuntimeState: join(state, "pi-runtime.json"),
     containerPackages: join(data, "container-packages.json"),
     imageRecipe: join(data, "image-recipe.git"),
     imageAudit: join(data, "image-audit.jsonl"),
