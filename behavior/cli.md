@@ -23,7 +23,7 @@ Given integral is installed
 	When the user runs `integral version`
 		Then the command prints the integral version
 			And prints the Node.js version
-			And reports that Pi is resolved to the latest runtime version when needed
+			And prints the pinned Pi version
 			And exits successfully
 	When the user runs `integral --version` or `integral -V`
 		Then the command prints the same implementation versions

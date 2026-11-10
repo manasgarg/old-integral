@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { main } from "../src/cli.ts";
+import { PI_VERSION } from "../src/constants.ts";
 
 async function capture(
   args: string[],
@@ -73,7 +74,7 @@ Given integral is installed
 	When the user runs `integral version`
 		Then the command prints the integral version
 			And prints the Node.js version
-			And reports that Pi is resolved to the latest runtime version when needed
+			And prints the pinned Pi version
 			And exits successfully
 	When the user runs `integral --version` or `integral -V`
 		Then the command prints the same implementation versions
@@ -90,5 +91,6 @@ test("[CLI-04301CCA] version reports integral, Node, and Pi versions", async () 
       "m",
     ),
   );
-  assert.match(result.stdout, /Pi runtime: latest \(resolved when needed\)/);
+  assert.ok(result.stdout.split("\n").includes(`Pi runtime: ${PI_VERSION}`));
+  assert.doesNotMatch(result.stdout, /latest/);
 });

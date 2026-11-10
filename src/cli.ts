@@ -5,7 +5,12 @@ import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { loadConfig, initConfig } from "./config.ts";
 import type { EffectiveConfig } from "./config.ts";
-import { INTEGRAL_VERSION, COMPONENTS, type Component } from "./constants.ts";
+import {
+  INTEGRAL_VERSION,
+  COMPONENTS,
+  PI_VERSION,
+  type Component,
+} from "./constants.ts";
 import {
   CATALOG,
   listConnections,
@@ -290,7 +295,7 @@ export async function main(args: string[]): Promise<number> {
         return 0;
       }
       process.stdout.write(
-        `integral ${INTEGRAL_VERSION}\nNode.js ${process.versions.node}\nPi runtime: latest (resolved when needed)\n`,
+        `integral ${INTEGRAL_VERSION}\nNode.js ${process.versions.node}\nPi runtime: ${PI_VERSION}\n`,
       );
       return 0;
     }
@@ -1426,7 +1431,6 @@ interface ModelMenu {
   choices: ModelChoice[];
   current: ModelSelection | null;
   piVersion?: string;
-  warning?: string;
 }
 
 async function chooseConversationModel(
@@ -1441,7 +1445,6 @@ async function chooseConversationModel(
     new URL("/integral/models", endpoint),
     fetcher,
   )) as ModelMenu;
-  if (menu.warning) writeOutput(`Warning: ${menu.warning}\n`);
   if (!menu.choices.length)
     throw new IntegralError(
       "no provider and model choices are available; run integral connection add",

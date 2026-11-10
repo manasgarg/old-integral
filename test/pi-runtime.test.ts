@@ -1,21 +1,20 @@
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import { PI_VERSION } from "../src/constants.ts";
 import {
   ensurePiRuntime,
   type PiPackageOperations,
 } from "../src/pi-runtime.ts";
 import { fixture } from "./helpers.ts";
 
-function fakeOperations(version: string, calls: string[]): PiPackageOperations {
+function fakeOperations(calls: string[]): PiPackageOperations {
   return {
-    latestVersion() {
-      calls.push(`latest:${version}`);
-      return version;
-    },
     install(prefix, selected) {
       calls.push(`install:${selected}`);
+
       const root = join(
         prefix,
         "node_modules",
@@ -31,43 +30,44 @@ function fakeOperations(version: string, calls: string[]): PiPackageOperations {
   };
 }
 
-test("[BOX-E1F472A1] the latest Pi version is installed once and then reused from deployment runtime state", async (t) => {
+test("[BOX-E1F472A1] the pinned Pi version is installed once and then reused from deployment runtime state", async (t) => {
   const paths = await fixture(t),
     calls: string[] = [],
-    operations = fakeOperations("1.2.3", calls);
+    operations = fakeOperations(calls);
+
   const first = await ensurePiRuntime(paths, operations),
     second = await ensurePiRuntime(paths, operations);
-  assert.equal(first.version, "1.2.3");
+
+  assert.equal(first.version, PI_VERSION);
+  assert.equal(second.version, PI_VERSION);
   assert.equal(second.packageRoot, first.packageRoot);
-  assert.deepEqual(calls, ["latest:1.2.3", "install:1.2.3", "latest:1.2.3"]);
+  assert.deepEqual(calls, [`install:${PI_VERSION}`]);
 });
 
-test("[BOX-E1F472A1] registry failure reuses a valid cached Pi runtime with a warning", async (t) => {
+test("[BOX-E1F472A1] a failed install of the pinned Pi version fails clearly without falling back to another installed version", async (t) => {
   const paths = await fixture(t);
-  await ensurePiRuntime(paths, fakeOperations("1.2.3", []));
-  const cached = await ensurePiRuntime(paths, {
-    latestVersion() {
-      throw new Error("offline");
-    },
-    install() {
-      assert.fail("cached runtime must not be reinstalled");
-    },
-  });
-  assert.equal(cached.version, "1.2.3");
-  assert.match(cached.warning!, /could not check.*cached Pi 1\.2\.3/i);
-});
+  await ensurePiRuntime(paths, fakeOperations([]), "1.0.0");
 
-test("[BOX-E1F472A1] registry failure without a valid cached Pi runtime fails clearly", async (t) => {
-  const paths = await fixture(t);
   await assert.rejects(
     ensurePiRuntime(paths, {
-      latestVersion() {
+      install() {
         throw new Error("offline");
       },
-      install() {
-        assert.fail("install is unreachable");
-      },
     }),
-    /no cached Pi runtime is available/,
+    new RegExp(
+      `cannot install pinned Pi ${PI_VERSION.replaceAll(".", "\\.")}: offline`,
+    ),
   );
+});
+
+test("[BOX-E1F472A1] the default image recipe installs the pinned Pi version, never latest", async () => {
+  const dockerfile = await readFile(
+    new URL("../../Dockerfile.pi", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(dockerfile, /^ARG PI_VERSION=(.+)$/m);
+  assert.equal(dockerfile.match(/^ARG PI_VERSION=(.+)$/m)?.[1], PI_VERSION);
+  assert.match(PI_VERSION, /^\d+\.\d+\.\d+$/);
+  assert.doesNotMatch(dockerfile, /latest/);
 });

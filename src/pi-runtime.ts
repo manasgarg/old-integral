@@ -2,42 +2,23 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PI_PACKAGE } from "./constants.ts";
+import { PI_PACKAGE, PI_VERSION } from "./constants.ts";
 import { IntegralError } from "./errors.ts";
-import { atomicWrite, ensureDir, readText } from "./fs.ts";
+import { ensureDir } from "./fs.ts";
 import type { IntegralPaths } from "./paths.ts";
 
 export interface PiRuntimeResolution {
   version: string;
   packageRoot: string;
-  warning?: string;
-}
-
-interface PiRuntimeState {
-  version: string;
 }
 
 export interface PiPackageOperations {
-  latestVersion(): string;
   install(prefix: string, version: string): void;
 }
 
 const versionPattern = /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/;
 
 const productionOperations: PiPackageOperations = {
-  latestVersion() {
-    const result = spawnSync(
-      process.platform === "win32" ? "npm.cmd" : "npm",
-      ["view", PI_PACKAGE, "version", "--json"],
-      { encoding: "utf8", env: process.env },
-    );
-    if (result.status !== 0)
-      throw new Error(result.stderr.trim() || "npm registry request failed");
-    const parsed = JSON.parse(result.stdout) as unknown;
-    if (typeof parsed !== "string" || !versionPattern.test(parsed))
-      throw new Error("npm registry returned an invalid Pi version");
-    return parsed;
-  },
   install(prefix, version) {
     const result = spawnSync(
       process.platform === "win32" ? "npm.cmd" : "npm",
@@ -52,10 +33,9 @@ const productionOperations: PiPackageOperations = {
       ],
       { encoding: "utf8", env: process.env },
     );
+
     if (result.status !== 0)
-      throw new IntegralError(
-        `cannot install Pi ${version}: ${result.stderr.trim() || "npm failed"}`,
-      );
+      throw new Error(result.stderr.trim() || "npm failed");
   },
 };
 
@@ -78,58 +58,35 @@ async function installedVersion(prefix: string): Promise<string | undefined> {
   }
 }
 
-async function cachedState(
-  paths: IntegralPaths,
-): Promise<PiRuntimeState | undefined> {
-  try {
-    const raw = await readText(paths.piRuntimeState);
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Partial<PiRuntimeState>;
-    if (
-      typeof parsed.version !== "string" ||
-      !versionPattern.test(parsed.version)
-    )
-      return undefined;
-    const prefix = versionRoot(paths, parsed.version);
-    return (await installedVersion(prefix)) === parsed.version
-      ? { version: parsed.version }
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
+/**
+ * Installs the pinned Pi version under deployment runtime state, or reuses it
+ * when it is already installed. Never resolves a floating version and never
+ * falls back to another installed version.
+ */
 export async function ensurePiRuntime(
   paths: IntegralPaths,
   operations: PiPackageOperations = productionOperations,
+  version: string = PI_VERSION,
 ): Promise<PiRuntimeResolution> {
-  const cached = await cachedState(paths);
-  let version: string;
-  try {
-    version = operations.latestVersion();
-  } catch (error) {
-    if (!cached)
-      throw new IntegralError(
-        `cannot check for the latest Pi version and no cached Pi runtime is available: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    return {
-      version: cached.version,
-      packageRoot: packageRoot(versionRoot(paths, cached.version)),
-      warning: `could not check for a newer Pi version; using cached Pi ${cached.version}`,
-    };
-  }
   if (!versionPattern.test(version))
-    throw new IntegralError(
-      `npm registry returned an invalid Pi version: ${version}`,
-    );
+    throw new IntegralError(`invalid pinned Pi version: ${version}`);
+
   const prefix = versionRoot(paths, version);
-  if ((await installedVersion(prefix)) !== version) {
-    await ensureDir(prefix);
+  if ((await installedVersion(prefix)) === version)
+    return { version, packageRoot: packageRoot(prefix) };
+
+  await ensureDir(prefix);
+  try {
     operations.install(prefix, version);
-    if ((await installedVersion(prefix)) !== version)
-      throw new IntegralError(`Pi ${version} installation is incomplete`);
+  } catch (error) {
+    throw new IntegralError(
+      `cannot install pinned Pi ${version}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  await atomicWrite(paths.piRuntimeState, `${JSON.stringify({ version })}\n`);
+
+  if ((await installedVersion(prefix)) !== version)
+    throw new IntegralError(`Pi ${version} installation is incomplete`);
+
   return { version, packageRoot: packageRoot(prefix) };
 }
 

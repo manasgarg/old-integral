@@ -9,7 +9,7 @@ import {
 import { validateConnection } from "../src/connections.ts";
 import { fixture } from "./helpers.ts";
 
-test("[BOX-E1F472A1] model OAuth loads Pi from the refreshed deployment runtime", async (t) => {
+test("[BOX-E1F472A1] model OAuth loads Pi from the pinned deployment runtime", async (t) => {
   const paths = await fixture(t),
     shown: string[] = [],
     calls: string[] = [],
@@ -22,7 +22,6 @@ test("[BOX-E1F472A1] model OAuth loads Pi from the refreshed deployment runtime"
         ensure: async () => ({
           version: "1.2.3",
           packageRoot: "/runtime/pi",
-          warning: "offline; using cache",
         }),
         load: async (resolution) => {
           calls.push(`${resolution.version}:${resolution.packageRoot}`);
@@ -50,8 +49,7 @@ test("[BOX-E1F472A1] model OAuth loads Pi from the refreshed deployment runtime"
       },
     );
   assert.deepEqual(calls, ["1.2.3:/runtime/pi", "login"]);
-  assert.match(shown[0]!, /Warning: offline; using cache/);
-  assert.equal(shown[1], "authorizing");
+  assert.deepEqual(shown, ["authorizing"]);
   assert.equal(JSON.parse(serialized).access, "access");
 });
 
