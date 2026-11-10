@@ -21,6 +21,7 @@ import {
   readDeployLog,
   rehearseUpgrade,
   rollbackDeploy,
+  servicePath,
   serviceUnit,
   type CommandOptions,
   type CommandResult,
@@ -214,6 +215,7 @@ async function scenario(t: { after(fn: () => unknown): void }) {
     systemdUnitDirectory: join(root, "systemd"),
     serviceName: "integral",
     nodeExecutable: "/usr/bin/node-for-integral",
+    servicePath: "/usr/bin:/opt/tools/bin",
     drainTimeoutMs: 10_000,
     healthTimeoutMs: 10_000,
     stepTimeoutMs: 60_000,
@@ -384,6 +386,7 @@ Given deploy has installed a release
 		Then it writes a systemd user unit named `integral.service`
 			And the unit runs `<release-root>/current/bin/integral.js server start`
 			And the unit sets `INTEGRAL_HOME` to the production deployment home
+			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH`
 			And deploy reloads systemd before starting the service
 	When the integral server exits unexpectedly
 		Then systemd starts it again
@@ -412,6 +415,7 @@ test("[UPGRADE-1F1E078F] deploy runs the production release as an enabled system
     unit,
     new RegExp(`^Environment=INTEGRAL_HOME=${settings.deploymentHome}$`, "m"),
   );
+  assert.match(unit, /^Environment="PATH=\/usr\/bin:\/opt\/tools\/bin"$/m);
   assert.match(unit, /^Restart=on-failure$/m);
   assert.match(unit, /^WantedBy=default\.target$/m);
   assert.doesNotMatch(unit, /StandardOutput|StandardError/);
@@ -421,6 +425,17 @@ test("[UPGRADE-1F1E078F] deploy runs the production release as an enabled system
     start = host.events.indexOf("systemctl start integral.service");
   assert.ok(reload >= 0 && enable > reload && start > enable);
   assert.ok(host.reports.some((line) => line.includes("integral.service")));
+});
+
+test("[UPGRADE-1F1E078F] the service PATH starts with the Node.js that ran deploy and keeps deploy's PATH", () => {
+  assert.equal(
+    servicePath("/opt/node/26/bin/node", "/usr/bin:/opt/node/26/bin::/bin"),
+    "/opt/node/26/bin:/usr/bin:/bin",
+  );
+  assert.equal(
+    servicePath("/opt/node/26/bin/node", undefined),
+    "/opt/node/26/bin",
+  );
 });
 
 /* @covers UPGRADE-E93D63FA

@@ -180,6 +180,7 @@ Given deploy has installed a release
 		Then it writes a systemd user unit named `integral.service`
 			And the unit runs `<release-root>/current/bin/integral.js server start`
 			And the unit sets `INTEGRAL_HOME` to the production deployment home
+			And the unit sets `PATH` to the directory of the Node.js that ran deploy followed by deploy's own `PATH`
 			And deploy reloads systemd before starting the service
 	When the integral server exits unexpectedly
 		Then systemd starts it again
