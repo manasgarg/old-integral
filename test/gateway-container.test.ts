@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { X509Certificate } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -10,6 +11,7 @@ import {
   OAUTH_SENTINEL,
   parseProxyAuthorization,
   SENTINEL,
+  WEB_CONNECTION_NAME,
 } from "../src/gateway-policy.ts";
 import {
   buildContainerSpec,
@@ -21,21 +23,82 @@ import {
   managedPiImage,
   newSessionIdentity,
   parsePiModelList,
+  writeDiscordExtension,
   writeMcpExtension,
   writePiCredential,
   writeResourceExtension,
   writeTaskExtension,
+  writeWebExtension,
 } from "../src/container.ts";
 import { loadConfig } from "../src/config.ts";
-import { saveConnection, validateConnection } from "../src/connections.ts";
+import {
+  listConnections,
+  saveConnection,
+  validateConnection,
+} from "../src/connections.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
+import { certificateFor, ensureCa } from "../src/ca.ts";
 import { Logger } from "../src/logging.ts";
-import { deploymentId, writeComponentState } from "../src/state.ts";
+import {
+  deploymentId,
+  readComponentState,
+  writeComponentState,
+} from "../src/state.ts";
 import { fixture } from "./helpers.ts";
 import {
   cleanupResourceProjection,
   prepareResourceProjection,
 } from "../src/resources.ts";
+
+/* @covers ENV-F19A64B2
+Given integral provisions a Pi container
+	When a cached host certificate is expired or will expire within 24 hours
+		Then integral renews the certificate before using it for HTTPS interception
+			And keeps the existing host private key
+			And leaves the previous certificate usable until its replacement is complete
+*/
+test("[ENV-F19A64B2] gateway renews expired and expiring cached host certificates without replacing their key", async (t) => {
+  const paths = await fixture(t),
+    ca = await ensureCa(paths),
+    first = await certificateFor(paths, "chatgpt.com", ca),
+    firstKey = await readFile(first.key),
+    firstCertificate = await readFile(first.cert),
+    firstParsed = new X509Certificate(firstCertificate),
+    afterExpiry = Date.parse(firstParsed.validTo) + 1;
+
+  await assert.rejects(
+    certificateFor(
+      paths,
+      "chatgpt.com",
+      { ...ca, key: join(paths.ca, "missing-ca.key") },
+      { now: () => afterExpiry },
+    ),
+  );
+  assert.deepEqual(await readFile(first.cert), firstCertificate);
+  assert.deepEqual(await readFile(first.key), firstKey);
+
+  const expired = await certificateFor(paths, "chatgpt.com", ca, {
+      now: () => afterExpiry,
+    }),
+    expiredReplacement = await readFile(expired.cert),
+    expiredReplacementParsed = new X509Certificate(expiredReplacement),
+    expiring = await certificateFor(paths, "chatgpt.com", ca, {
+      now: () =>
+        Date.parse(expiredReplacementParsed.validTo) - 12 * 60 * 60 * 1000,
+    }),
+    expiringReplacement = await readFile(expiring.cert),
+    expiringReplacementParsed = new X509Certificate(expiringReplacement),
+    caCertificate = new X509Certificate(await readFile(ca.cert));
+
+  assert.notDeepEqual(expiredReplacement, firstCertificate);
+  assert.notDeepEqual(expiringReplacement, expiredReplacement);
+  assert.deepEqual(await readFile(expiring.key), firstKey);
+  assert.equal(
+    expiringReplacementParsed.checkHost("chatgpt.com"),
+    "chatgpt.com",
+  );
+  assert.equal(expiringReplacementParsed.verify(caCertificate.publicKey), true);
+});
 
 test("[BOX-E1F472A1] managed Pi image identity changes with its build recipe", () => {
   const first = managedPiImage("1.2.3", [Buffer.from("first recipe")]),
@@ -43,6 +106,69 @@ test("[BOX-E1F472A1] managed Pi image identity changes with its build recipe", (
 
   assert.notEqual(first, second);
   assert.match(first, /^integral-pi:0\.1\.0-recipe-[a-f0-9]{12}-pi-1\.2\.3$/);
+});
+
+test("[WEB-2ED07A71] every session receives a self-contained web extension", async (t) => {
+  const paths = await fixture(t);
+  await writeWebExtension(paths.root);
+  const extensionPath = join(
+      paths.root,
+      ".integral",
+      "extensions",
+      "integral-web.mjs",
+    ),
+    extension = (await import(`${pathToFileURL(extensionPath).href}?fixture`))
+      .default as (api: { registerTool(tool: { name: string }): void }) => void,
+    tools: string[] = [];
+  extension({ registerTool: (tool) => tools.push(tool.name) });
+  assert.deepEqual(tools, ["web_search", "fetch_pages"]);
+  assert.ok((await stat(extensionPath)).size > 100_000);
+});
+
+/* @covers DISCORD-41A4A8BD
+Given an active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it registers `discord_send` for Pi
+			And describes that the tool sends text to the one configured Discord DM
+			And does not expose the bot token or accept Discord identity parameters
+Given no active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it does not register `discord_send`
+*/
+test("[DISCORD-41A4A8BD] only sessions with an active Discord connection receive the governed send tool", async (t) => {
+  const paths = await fixture(t),
+    connection = validateConnection({
+      name: "discord",
+      kind: "channel",
+      provider: "discord",
+      auth: "key",
+      application_id: "100000000000000001",
+      bot_user_id: "100000000000000002",
+      user_id: "100000000000000003",
+      channel_id: "100000000000000004",
+    });
+  await writeDiscordExtension(paths.root, [connection]);
+  const extensionPath = join(
+      paths.root,
+      ".integral",
+      "extensions",
+      "integral-discord.ts",
+    ),
+    source = await readFile(extensionPath, "utf8");
+  assert.match(source, /name: "discord_send"/);
+  assert.match(source, /one configured Discord DM/);
+  assert.match(source, /Type\.Object\(\{ text: Type\.String/);
+  for (const secretOrIdentity of [
+    "100000000000000001",
+    "100000000000000002",
+    "100000000000000003",
+    "100000000000000004",
+  ])
+    assert.doesNotMatch(source, new RegExp(secretOrIdentity));
+
+  await rm(extensionPath);
+  await writeDiscordExtension(paths.root, []);
+  await assert.rejects(stat(extensionPath), { code: "ENOENT" });
 });
 
 test("[BOX-40521095] managed Pi image identity includes the governed package set", () => {
@@ -88,6 +214,195 @@ test("[GATEWAY-3F299566] gateway health identifies deployment and publishes the 
     status: "degraded",
     error: "invalid connection",
   });
+});
+
+/* @covers CONNECTION-512D9A25
+Given the selected connection type supports the requested authentication method
+	When an expired OAuth credential cannot be refreshed
+		Then the gateway excludes its credential from request injection
+			And marks the affected connection degraded at the authorization stage
+	When the same failed OAuth credential is observed before its retry delay expires
+		Then the gateway keeps the connection degraded without contacting the provider again
+	When the retry delay expires and the same OAuth credential still fails
+		Then the gateway retries once and increases the delay before its next retry
+	When the OAuth credential is replaced during a retry delay
+		Then the gateway attempts the replacement immediately
+			And returns the connection to active when refresh succeeds
+*/
+test("[CONNECTION-512D9A25] OAuth refresh failure backs off until retry or credential replacement", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    credential = JSON.stringify({
+      type: "oauth",
+      access: "expired-access",
+      refresh: "expired-refresh",
+      expires: 0,
+    });
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "oauth",
+    }),
+    credential,
+  );
+  await writeComponentState(paths, {
+    component: "gateway",
+    deploymentId: deploymentId(paths),
+    endpoint: "http://127.0.0.1:7310",
+    pid: process.pid,
+    status: "ready",
+    fingerprint: config.fingerprint,
+    connectionGeneration: 1,
+    startedAt: "now",
+  });
+  let now = 1_000,
+    refreshCalls = 0;
+  const healthNotifications: Record<string, unknown>[] = [];
+  const gateway = new Gateway(
+    paths,
+    config,
+    new Logger({
+      component: "gateway",
+      deploymentId: deploymentId(paths),
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      async refreshOAuth() {
+        refreshCalls++;
+        const current = await readFile(
+          join(paths.credentials, "anthropic"),
+          "utf8",
+        );
+        if (current === credential) throw new Error("refresh token expired");
+        return { access: "fresh-access", serialized: current };
+      },
+      async internalFetch(_paths, caller, target, path, init) {
+        assert.equal(caller, "gateway");
+        assert.equal(target, "coordinator");
+        assert.equal(path, "/integral/internal/gateway-health-notification");
+        if (typeof init?.body !== "string")
+          throw new Error("expected serialized gateway health");
+        healthNotifications.push(
+          JSON.parse(init.body) as Record<string, unknown>,
+        );
+        return new Response(null, { status: 204 });
+      },
+      now: () => now,
+    },
+  );
+
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 1);
+  assert.equal(
+    (await readComponentState(paths, "gateway"))?.degradation,
+    "connection",
+  );
+  assert.deepEqual(
+    (await listConnections(paths)).map((connection) => [
+      connection.name,
+      connection.state,
+      connection.availabilityReason,
+    ]),
+    [["anthropic", "degraded", "authorization"]],
+  );
+
+  now += 29_999;
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 1);
+
+  now++;
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 2);
+
+  now += 59_999;
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 2);
+
+  const replacement = JSON.stringify({
+    type: "oauth",
+    access: "replacement-access",
+    refresh: "replacement-refresh",
+    expires: 0,
+  });
+  await writeFile(join(paths.credentials, "anthropic"), replacement);
+  await gateway.reload(true);
+  assert.equal(refreshCalls, 3);
+  assert.equal(
+    (await readComponentState(paths, "gateway"))?.degradation,
+    undefined,
+  );
+  assert.deepEqual(
+    (await listConnections(paths)).map((connection) => [
+      connection.name,
+      connection.state,
+      connection.availabilityReason,
+    ]),
+    [["anthropic", "active", undefined]],
+  );
+  assert.deepEqual(healthNotifications, [
+    { status: "degraded", error: "refresh token expired" },
+    { status: "ready" },
+  ]);
+});
+
+/* @covers SERVER-CBD35885
+Given a coordinator refresh or gateway connection reload is still running
+	When another periodic interval becomes due
+		Then Integral does not start overlapping maintenance for that component
+			And records how many intervals were coalesced when the active maintenance finishes
+			And a failed maintenance pass is reported without stopping later passes
+Given periodic component maintenance is healthy
+	When the active pass completes and a later interval becomes due
+		Then Integral starts one later maintenance pass normally
+			And does not retain a duplicate invocation from a coalesced interval
+*/
+test("[SERVER-CBD35885] [LOG-D079FCFE] gateway reload is single-flight and reports coalesced intervals", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    gateway = new Gateway(
+      paths,
+      config,
+      new Logger({
+        component: "gateway",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  let release!: () => void,
+    reloadRuns = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (gateway as any).performReload = async () => {
+    reloadRuns++;
+    await pending;
+  };
+
+  const first = gateway.reload(false);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = gateway.reload(false);
+  assert.equal(reloadRuns, 1);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(reloadRuns, 1);
+  const event = lines
+    .map((line) => JSON.parse(line))
+    .find((candidate) => candidate.event === "gateway.reload_coalesced");
+  assert.equal(event.coalesced_intervals, 1);
+  assert.equal(typeof event.elapsed_ms, "number");
+  (gateway as any).performReload = async () => {
+    reloadRuns++;
+  };
+  await gateway.reload(false);
+  assert.equal(reloadRuns, 2);
 });
 
 test("[SERVER-8A31D6C4] gateway lifecycle can run against controlled CA, listener, and interval boundaries", async (t) => {
@@ -1098,15 +1413,28 @@ test("[SCHEDULE-930581F7] task outcome declarations derive execution identity fr
 /* @covers GATEWAY-EB8D96FE
 Given an authenticated chat container is active
 	When it requests a destination outside every active connection boundary
+		And the request does not match the built-in credential-free web GET boundary
 		Then the gateway returns HTTP 403
 			And states that policy denied the request
 			And does not contact the requested upstream
 	When it requests an HTTPS tunnel
 		Then the gateway accepts `CONNECT` only on port 443
-			And refuses the tunnel before interception unless an active HTTPS connection can match its host and port
+			And refuses the tunnel before interception unless an active HTTPS connection or the built-in web GET boundary can match its host and port
 			And still applies method and path policy to each intercepted request
 */
-test("[GATEWAY-EB8D96FE] CONNECT admits only the exact configured HTTPS host and port, including non-default ports", () => {
+/* @covers WEB-65AA5DDC
+Given an authenticated Pi session uses `web_search` or `fetch_pages`
+	When the tool makes an HTTP or HTTPS GET request
+		Then the request uses the session-authenticated Integral gateway
+			And the gateway permits the destination without requiring a configured connection
+			And attributes and logs the request to the session
+			And does not inject a credential through the built-in web boundary
+			And evaluates every redirected request through the same boundary
+	When the session attempts a non-GET request through the built-in web boundary
+		Then the gateway denies the request
+			And does not contact the requested upstream
+*/
+test("[GATEWAY-EB8D96FE] [WEB-65AA5DDC] CONNECT admits configured ports and the standard web HTTPS port", () => {
   const connection = validateConnection({
     name: "local-tls",
     kind: "http",
@@ -1116,9 +1444,85 @@ test("[GATEWAY-EB8D96FE] CONNECT admits only the exact configured HTTPS host and
   const candidates = [{ connection, credential: undefined }];
   assert.equal(allowsConnect(candidates, "service.test", 8443), true);
   assert.equal(allowsConnect(candidates, "SERVICE.TEST", 8443), true);
-  assert.equal(allowsConnect(candidates, "service.test", 443), false);
+  assert.equal(allowsConnect(candidates, "service.test", 443), true);
+  assert.equal(allowsConnect(candidates, "other.test", 443), true);
   assert.equal(allowsConnect(candidates, "other.test", 8443), false);
   assert.equal(allowsConnect(candidates, "service.test", 0), false);
+});
+
+test("[WEB-65AA5DDC] anonymous web forwarding is attributed without proxy credentials", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    logs: string[] = [];
+  let forwarded:
+    | { target: string; method: string | undefined; authorization: unknown }
+    | undefined;
+  const gateway = new Gateway(
+      paths,
+      config,
+      new Logger({
+        component: "gateway",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => logs.push(line),
+      }),
+      {
+        request(target, options, respond) {
+          const headers = options.headers as
+            Record<string, unknown> | undefined;
+          forwarded = {
+            target: target.toString(),
+            method: options.method,
+            authorization: headers?.authorization,
+          };
+          const request = new PassThrough(),
+            response = Readable.from(["page body"]) as IncomingMessage;
+          response.statusCode = 200;
+          response.headers = { "content-type": "text/plain" };
+          queueMicrotask(() => respond(response));
+          return request as any;
+        },
+      },
+    ),
+    request = Readable.from([]) as unknown as IncomingMessage,
+    response = new PassThrough() as unknown as ServerResponse;
+  request.method = "GET";
+  request.headers = {
+    "proxy-authorization": "Basic hidden",
+  };
+  (response as any).writeHead = () => response;
+  await (
+    gateway as unknown as {
+      forward(
+        req: IncomingMessage,
+        res: ServerResponse,
+        target: URL,
+        sessionId: string,
+      ): Promise<void>;
+    }
+  ).forward(
+    request,
+    response,
+    new URL("https://public.example/article"),
+    "session-web",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(forwarded, {
+    target: "https://public.example/article",
+    method: "GET",
+    authorization: undefined,
+  });
+  const decision = logs.find((line) => line.includes("gateway.decision"));
+  assert.ok(decision);
+  for (const expected of [
+    '"verdict":"allow"',
+    '"connection":"integral-web"',
+    '"session_id":"session-web"',
+    '"host":"public.example"',
+  ])
+    assert.match(decision, new RegExp(expected));
+  assert.doesNotMatch(decision, /Basic hidden/);
 });
 
 /* @covers GATEWAY-A2BBBBE8
@@ -1129,6 +1533,7 @@ Given an authenticated chat container is active
 	When Pi sends the request through the gateway
 		Then the gateway establishes a verified upstream TLS connection
 			And replaces the managed sentinel with the connection's real credential when authentication requires it
+			And removes any other managed sentinel authentication header
 			And refuses a caller-supplied credential that is not the integral sentinel
 			And forwards the upstream response to Pi
 			And does not log the real credential
@@ -1159,6 +1564,14 @@ test("[GATEWAY-A2BBBBE8] a matching connection injects its host credential only 
     ).headers.authorization,
     "Bearer real-secret",
   );
+  const oauthAlias = decideRequest(
+    "POST",
+    new URL("https://api.test/v1/messages/1"),
+    { "x-api-key": OAUTH_SENTINEL },
+    [{ connection, credential: "real-secret" }],
+  );
+  assert.equal(oauthAlias.headers.authorization, "Bearer real-secret");
+  assert.equal(oauthAlias.headers["x-api-key"], undefined);
 });
 
 test("[CONNECTION-12C87631] GitHub API and smart HTTP receive host-specific authentication", () => {
@@ -1193,15 +1606,34 @@ test("[CONNECTION-12C87631] GitHub API and smart HTTP receive host-specific auth
   assert.equal(allowsConnect(candidates, "github.com", 22), false);
   assert.equal(
     allowsConnect(candidates, "objects.githubusercontent.com", 443),
-    false,
+    true,
+  );
+  const web = decideRequest(
+    "GET",
+    new URL("https://outside.test/"),
+    { "proxy-authorization": "hidden", authorization: "caller-value" },
+    candidates,
+  );
+  assert.equal(web.connection.name, WEB_CONNECTION_NAME);
+  assert.equal(web.headers["proxy-authorization"], undefined);
+  assert.equal(web.headers.authorization, "caller-value");
+  assert.equal(
+    decideRequest(
+      "GET",
+      new URL("https://redirected.test/final"),
+      {},
+      candidates,
+    ).connection.name,
+    WEB_CONNECTION_NAME,
   );
   assert.throws(
-    () => decideRequest("GET", new URL("https://evil.test/"), {}, candidates),
+    () =>
+      decideRequest("POST", new URL("https://outside.test/"), {}, candidates),
     /policy denied/,
   );
 });
 
-test("[GATEWAY-EB8D96FE] destinations, methods, paths, schemes, and ports outside active boundaries are denied", () => {
+test("[GATEWAY-EB8D96FE] non-GET methods, unsupported schemes, and nonstandard web ports outside active boundaries are denied", () => {
   const connection = validateConnection({
     name: "api",
     kind: "http",
@@ -1213,10 +1645,8 @@ test("[GATEWAY-EB8D96FE] destinations, methods, paths, schemes, and ports outsid
     ["POST", "https://api.test:8443/v1"],
     ["GET", "https://other.test:8443/v1"],
     ["GET", "http://api.test:8443/v1"],
-    ["GET", "https://api.test/v2"],
-    ["GET", "https://api.test/v1"],
+    ["GET", "ftp://other.test/v1"],
   ] as const) {
-    if (url.endsWith(":8443/v1") && method === "GET") continue;
     assert.throws(
       () =>
         decideRequest(method, new URL(url), {}, [
@@ -1225,6 +1655,132 @@ test("[GATEWAY-EB8D96FE] destinations, methods, paths, schemes, and ports outsid
       /policy denied/,
     );
   }
+});
+
+/* @covers DISCORD-41A4A8BD
+Given an active Discord connection is configured for the deployment
+	When Pi calls `discord_send` with non-empty text
+		Then the authenticated gateway resolves the active Discord connection
+			And asks the coordinator to send the text only to that connection's configured DM
+			And records successful delivery in the Discord conversation's history
+Given a provisioned session has `discord_send`
+	And its Discord connection becomes unavailable before a call
+	When Pi calls `discord_send`
+		Then Integral reports the delivery failure
+			And does not fall back to another channel or destination
+*/
+test("[DISCORD-41A4A8BD] authenticated Pi Discord calls use only the configured DM and fail closed when it is unavailable", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    connection = validateConnection({
+      name: "discord",
+      kind: "channel",
+      provider: "discord",
+      auth: "key",
+      application_id: "100000000000000001",
+      bot_user_id: "100000000000000002",
+      user_id: "100000000000000003",
+      channel_id: "100000000000000004",
+    }),
+    forwarded: Array<{
+      target: string;
+      path: string;
+      body?: Record<string, unknown>;
+    }> = [];
+  await saveConnection(paths, connection, "discord-secret");
+  const gateway = new Gateway(
+    paths,
+    config,
+    new Logger({
+      component: "gateway",
+      deploymentId: deploymentId(paths),
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      async internalFetch(_paths, _caller, target, path, init) {
+        forwarded.push({
+          target,
+          path,
+          ...(typeof init?.body === "string"
+            ? { body: JSON.parse(init.body) as Record<string, unknown> }
+            : {}),
+        });
+        return new Response(null, { status: 204 });
+      },
+    },
+  );
+  await gateway.reload(true);
+  gateway.sessions.set("session-token", "session-1");
+
+  async function invoke(text: string): Promise<{
+    status: number;
+    body: string;
+  }> {
+    let body = "",
+      status = 200;
+    const request = Readable.from([
+        Buffer.from(JSON.stringify({ text })),
+      ]) as unknown as IncomingMessage,
+      response = {
+        setHeader() {},
+        writeHead(value: number) {
+          status = value;
+          return response;
+        },
+        end(value?: string) {
+          body = value ?? "";
+          return response;
+        },
+      } as unknown as ServerResponse;
+    request.url = "/integral/discord";
+    request.method = "POST";
+    request.headers = {
+      "content-type": "application/json",
+      "proxy-authorization": `Basic ${Buffer.from("integral:session-token").toString("base64")}`,
+    };
+    await (
+      gateway as unknown as {
+        route(req: IncomingMessage, res: ServerResponse): Promise<void>;
+      }
+    ).route(request, response);
+    return { status, body };
+  }
+
+  assert.deepEqual(await invoke("Retrospective repaired."), {
+    status: 200,
+    body: '{"delivered":true}',
+  });
+  assert.deepEqual(
+    forwarded.filter(
+      (request) => request.path === "/integral/internal/channel-notification",
+    ),
+    [
+      {
+        target: "coordinator",
+        path: "/integral/internal/channel-notification",
+        body: {
+          provider: "discord",
+          conversationId: "discord:100000000000000004",
+          userId: "100000000000000003",
+          channelId: "100000000000000004",
+          text: "Retrospective repaired.",
+        },
+      },
+    ],
+  );
+
+  (gateway as unknown as { candidates: unknown[] }).candidates = [];
+  const unavailable = await invoke("Do not reroute this.");
+  assert.equal(unavailable.status, 503);
+  assert.match(unavailable.body, /active Discord connection not found/);
+  assert.equal(
+    forwarded.filter(
+      (request) => request.path === "/integral/internal/channel-notification",
+    ).length,
+    1,
+  );
 });
 
 /* @covers GATEWAY-123EDBDF
@@ -1303,7 +1859,7 @@ Given the host shell contains provider keys, tokens, or credential variables
 			And does not copy them into the container
 			And requires credentials to enter through `integral connection add`
 */
-test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] container environment is a managed allowlist with authenticated proxy and CA trust", async (t) => {
+test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] [WEB-2ED07A71] container environment is a managed allowlist with authenticated proxy, CA trust, and web tools", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     model = validateConnection({
@@ -1340,6 +1896,10 @@ test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] container envi
   assert.equal(spec.environment.NODE_USE_ENV_PROXY, "1");
   assert.equal("INTEGRAL_HOME" in spec.environment, false);
   assert.equal("AWS_SECRET_ACCESS_KEY" in spec.environment, false);
+  assert.deepEqual(spec.args.slice(-2), [
+    "--extension",
+    "/home/pi/.integral/extensions/integral-web.mjs",
+  ]);
 });
 
 test("[ENV-7B2D40AC] integral-managed environment names cannot be delegated to connection configuration", () => {
@@ -1569,6 +2129,7 @@ Given the coordinator, runner, and gateway are healthy
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
+			And omits API-key environment variables when the selected model connection uses OAuth
 			And restores conversational context from the durable conversation record
 			And sends the claimed message as a Pi `prompt` command
 */
@@ -2082,6 +2643,7 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
     true,
   );
   assert.equal(spec.args.includes("--api-key"), false);
+  assert.equal("OPENAI_API_KEY" in spec.environment, false);
   assert.equal(spec.environment.PI_CODING_AGENT_DIR, "/home/pi/.pi/agent");
   assert.deepEqual(
     spec.mounts.find(
@@ -2093,6 +2655,23 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
       readonly: true,
     },
   );
+  const anthropicSpec = buildContainerSpec({
+    config,
+    selectedModel: "claude-haiku-4-5",
+    gatewayUrl: "http://host.integral.internal:7310",
+    caCert: "/ca",
+    caBundle: "/bundle",
+    sessionHome: paths.root,
+    ...newSessionIdentity(),
+    model: validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "oauth",
+    }),
+    mcp: [],
+  });
+  assert.equal("ANTHROPIC_API_KEY" in anthropicSpec.environment, false);
 });
 
 /* @covers FAILURE-A4C19E72
@@ -2127,6 +2706,9 @@ Given Pi is processing a chat turn
 	When Pi ends the final attempt
 		Then integral completes the turn with the accumulated final-attempt text
 			And publishes that text as the assistant response
+	When Pi ends the final attempt with a provider error
+		Then integral reports the provider error instead of an empty assistant response
+			And durably returns the interrupted message to the queue
 */
 test("[FAILURE-BE6D295B] Pi automatic retries do not complete the chat turn early", () => {
   assert.deepEqual(
@@ -2147,6 +2729,34 @@ test("[FAILURE-BE6D295B] Pi automatic retries do not complete the chat turn earl
       JSON.stringify({ type: "agent_end", willRetry: false }),
     ),
     { type: "complete" },
+  );
+  const failed = {
+    role: "assistant",
+    stopReason: "error",
+    errorMessage: '401 {"type":"authentication_error"}',
+  };
+  assert.deepEqual(
+    interpretPiProtocol(
+      JSON.stringify({
+        type: "agent_end",
+        messages: [failed],
+        willRetry: true,
+      }),
+    ),
+    { type: "ignored" },
+  );
+  assert.deepEqual(
+    interpretPiProtocol(
+      JSON.stringify({
+        type: "agent_end",
+        messages: [failed],
+        willRetry: false,
+      }),
+    ),
+    {
+      type: "rejected",
+      error: 'Pi provider failed: 401 {"type":"authentication_error"}',
+    },
   );
 });
 

@@ -78,6 +78,15 @@ Given an enabled schedule reaches its next execution instant
 			And calculates the next recurring instant using the schedule's IANA timezone and defined daylight-saving behavior
 ```
 
+## SCHEDULE-7A46ABEF — Keep future recurring evaluation bounded
+
+```text
+Given an unchanged recurring schedule already has a calculated future instant
+	When the scheduler evaluates the schedule again before that instant is due
+		Then it reuses the calculated instant without scanning the intervening timezone minutes again
+			And leaves the event loop available for coordinator, gateway, runner, and channel work
+```
+
 ## SCHEDULE-52697825 — Dispatch an occurrence idempotently
 
 ```text
@@ -176,6 +185,7 @@ Given the coordinator has durably completed a task or terminally failed a recurr
 	When scheduler acknowledgement is unavailable or its response is lost
 		Then the coordinator retains the acknowledgement in a durable outbox
 			And retries the same execution ID and outcome after component restart
+			And does not redeliver a Discord notification already recorded as delivered
 			And the scheduler applies repeated identical acknowledgements without changing the recorded outcome
 			And neither component causes the task to execute again because acknowledgement was repeated
 ```

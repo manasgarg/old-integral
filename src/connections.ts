@@ -78,6 +78,7 @@ export async function markConnectionDegraded(
   name: string,
   stage: ConnectionHealthStage,
 ): Promise<void> {
+  if ((await connectionHealth(paths, name)) === stage) return;
   await atomicWrite(
     connectionHealthFile(paths, name),
     `${JSON.stringify({ stage, updatedAt: new Date().toISOString() })}\n`,
@@ -87,7 +88,9 @@ export async function markConnectionDegraded(
 export async function clearConnectionDegraded(
   paths: IntegralPaths,
   name: string,
+  stage?: ConnectionHealthStage,
 ): Promise<void> {
+  if (stage && (await connectionHealth(paths, name)) !== stage) return;
   await rm(connectionHealthFile(paths, name), { force: true });
 }
 
@@ -836,6 +839,26 @@ export async function listConnections(
       } satisfies ListedConnection;
     }),
   );
+}
+export async function activeModelConnectionNames(
+  paths: IntegralPaths,
+): Promise<string[]> {
+  const loaded = await loadConnections(paths);
+  if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
+  const names = await Promise.all(
+    loaded.connections
+      .filter((connection) => connection.kind === "model")
+      .map(async (connection) => {
+        const [health, credential] = await Promise.all([
+          connectionHealth(paths, connection.name),
+          credentialFor(paths, connection.name),
+        ]);
+        return !health && usableCredential(connection, credential)
+          ? connection.name
+          : undefined;
+      }),
+  );
+  return names.filter((name): name is string => name !== undefined);
 }
 function usableCredential(
   connection: Connection,

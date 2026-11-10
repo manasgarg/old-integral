@@ -167,6 +167,10 @@ Given integral provisions a Pi container
 			And does not mount the CA private key into the container
 	When the gateway intercepts an allowed HTTPS host for the first time
 		Then integral creates and caches a host certificate signed by the deployment CA
+	When a cached host certificate is expired or will expire within 24 hours
+		Then integral renews the certificate before using it for HTTPS interception
+			And keeps the existing host private key
+			And leaves the previous certificate usable until its replacement is complete
 ```
 
 ## ENV-7B2D40AC — Protect integral-managed container variables

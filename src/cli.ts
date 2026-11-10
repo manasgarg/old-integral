@@ -414,7 +414,9 @@ async function showConnections(
                   availabilityReason: availabilityReason ?? null,
                   restorationPossible,
                 }
-              : {}),
+              : availabilityReason
+                ? { availabilityReason }
+                : {}),
           }),
         ),
         null,
@@ -426,7 +428,7 @@ async function showConnections(
       const isHostResource =
         row.kind === "host-repo" || row.kind === "host-store";
       writeOutput(
-        `${row.name}\t${row.provider ?? row.kind}\t${row.auth}\t${row.state}${isHostResource ? `\t${row.availabilityReason ?? "-"}\trestorable=${row.restorationPossible ? "yes" : "no"}\thost-path=${row.path}\tpi-mount=${row.mount}` : ""}\n`,
+        `${row.name}\t${row.provider ?? row.kind}\t${row.auth}\t${row.state}\t${row.availabilityReason ?? "-"}${isHostResource ? `\trestorable=${row.restorationPossible ? "yes" : "no"}\thost-path=${row.path}\tpi-mount=${row.mount}` : ""}\n`,
       );
     }
 }
@@ -1144,7 +1146,7 @@ export function createTalkTerminal(overrides?: {
       moveCursor: (stream: TalkOutput, horizontal: number, vertical = 0) =>
         moveCursor(stream as NodeJS.WriteStream, horizontal, vertical),
     },
-    clock = overrides?.clock ?? {
+    clock: TalkTerminalClock = overrides?.clock ?? {
       setInterval: globalThis.setInterval,
       clearInterval: globalThis.clearInterval,
     };

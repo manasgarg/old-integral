@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { EffectiveConfig } from "./config.ts";
 import {
+  activeModelConnectionNames,
   credentialFor,
   clearConnectionDegraded,
   listConnections,
@@ -16,9 +17,11 @@ import {
   freshSessionHome,
   newSessionIdentity,
   writeMcpExtension,
+  writeDiscordExtension,
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
+  writeWebExtension,
   writePiCredential,
   type ContainerBackend,
   type McpSidecarSpec,
@@ -39,6 +42,7 @@ import {
   componentIdentity,
   deploymentId,
   readComponentState,
+  type ComponentState,
   verifyInternal,
 } from "./state.ts";
 import { updateComponentState } from "./state.ts";
@@ -85,10 +89,12 @@ export interface RunnerDependencies {
   freshSessionHome: typeof freshSessionHome;
   newSessionIdentity: typeof newSessionIdentity;
   writeMcpExtension: typeof writeMcpExtension;
+  writeDiscordExtension: typeof writeDiscordExtension;
   discoverRemoteMcp: typeof discoverRemoteMcp;
   writeEmailExtension: typeof writeEmailExtension;
   writeTaskExtension: typeof writeTaskExtension;
   writeResourceExtension: typeof writeResourceExtension;
+  writeWebExtension: typeof writeWebExtension;
   ensurePiProfileRepository: typeof ensurePiProfileRepository;
   prepareResourceProjection: typeof prepareResourceProjection;
   cleanupResourceProjection: typeof cleanupResourceProjection;
@@ -104,6 +110,7 @@ const systemClock: RunnerClock = {
     setTimeout(() => void callback(), milliseconds),
   clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),
 };
+const SLOW_RUNNER_STAGE_MS = 30_000;
 
 const productionDependencies: RunnerDependencies = {
   containers: dockerContainerBackend,
@@ -114,10 +121,12 @@ const productionDependencies: RunnerDependencies = {
   freshSessionHome,
   newSessionIdentity,
   writeMcpExtension,
+  writeDiscordExtension,
   discoverRemoteMcp,
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
+  writeWebExtension,
   ensurePiProfileRepository,
   prepareResourceProjection,
   cleanupResourceProjection,
@@ -148,6 +157,13 @@ async function recordResourceProjection(
       commit: initialHead,
     })),
   });
+}
+
+function gatewayAllowsClaims(state: ComponentState | undefined): boolean {
+  return (
+    state?.status === "ready" ||
+    (state?.status === "degraded" && state.degradation === "connection")
+  );
 }
 
 export class Runner {
@@ -205,6 +221,84 @@ export class Runner {
         else await markConnectionDegraded(this.paths, connection, "sidecar");
       },
     );
+  }
+
+  private workLogContext(
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      ...(this.currentMessageId ? { message_id: this.currentMessageId } : {}),
+      ...(this.currentConversationId
+        ? { conversation_id: this.currentConversationId }
+        : {}),
+      ...(this.currentTask
+        ? {
+            execution_id: this.currentTask.id,
+            ...(this.currentTask.attemptId
+              ? { attempt_id: this.currentTask.attemptId }
+              : {}),
+          }
+        : {}),
+      ...extra,
+    };
+  }
+
+  private async observeStage<T>(
+    stage: string,
+    operation: () => Promise<T> | T,
+    context: Record<string, unknown> = {},
+  ): Promise<T> {
+    const started = this.dependencies.now(),
+      details = this.workLogContext({ stage, ...context });
+    let slowReported = false;
+    this.logger.event("debug", "runner.stage_started", "runner stage started", {
+      ...details,
+    });
+    const slowTimer = this.dependencies.clock.setTimeout(() => {
+      slowReported = true;
+      this.logger.event(
+        "warn",
+        "runner.stage_slow",
+        "runner stage exceeded the slow-operation threshold",
+        {
+          ...details,
+          elapsed_ms: this.dependencies.now() - started,
+          threshold_ms: SLOW_RUNNER_STAGE_MS,
+        },
+      );
+    }, SLOW_RUNNER_STAGE_MS);
+    try {
+      const result = await operation();
+      const elapsed = this.dependencies.now() - started;
+      if (!slowReported && elapsed >= SLOW_RUNNER_STAGE_MS)
+        this.logger.event(
+          "warn",
+          "runner.stage_slow",
+          "runner stage exceeded the slow-operation threshold",
+          {
+            ...details,
+            elapsed_ms: elapsed,
+            threshold_ms: SLOW_RUNNER_STAGE_MS,
+          },
+        );
+      this.logger.event(
+        "debug",
+        "runner.stage_completed",
+        "runner stage completed",
+        { ...details, elapsed_ms: elapsed },
+      );
+      return result;
+    } catch (error) {
+      this.logger.event(
+        "warn",
+        "runner.stage_failed",
+        error instanceof Error ? error.message : String(error),
+        { ...details, elapsed_ms: this.dependencies.now() - started },
+      );
+      throw error;
+    } finally {
+      this.dependencies.clock.clearTimeout(slowTimer);
+    }
   }
   async start(): Promise<http.Server> {
     await this.dependencies.ensurePiProfileRepository(this.paths, this.config);
@@ -376,7 +470,7 @@ export class Runner {
         !coordinatorState ||
         !gatewayState ||
         coordinatorState.status !== "ready" ||
-        gatewayState.status !== "ready" ||
+        !gatewayAllowsClaims(gatewayState) ||
         coordinatorState.fingerprint !== this.config.fingerprint ||
         gatewayState.fingerprint !== this.config.fingerprint ||
         coordinatorState.connectionGeneration !== generation ||
@@ -384,12 +478,13 @@ export class Runner {
       )
         return;
       await this.ensureGatewayListener();
+      const modelConnections = await activeModelConnectionNames(this.paths);
       const claimed = await this.dependencies.internalFetch(
         this.paths,
         "runner",
         "coordinator",
         "/integral/internal/tasks/claim",
-        { method: "POST", body: "{}" },
+        { method: "POST", body: JSON.stringify({ modelConnections }) },
       );
       if (!claimed.ok)
         throw new IntegralError(`task claim failed: ${claimed.status}`);
@@ -716,7 +811,7 @@ export class Runner {
         !coordinatorState ||
         !gatewayState ||
         coordinatorState.status !== "ready" ||
-        gatewayState.status !== "ready" ||
+        !gatewayAllowsClaims(gatewayState) ||
         coordinatorState.fingerprint !== this.config.fingerprint ||
         gatewayState.fingerprint !== this.config.fingerprint ||
         coordinatorState.connectionGeneration !== generation ||
@@ -735,12 +830,13 @@ export class Runner {
         ),
       );
       if (!gateway.ok) throw new IntegralError("gateway unavailable");
+      const modelConnections = await activeModelConnectionNames(this.paths);
       const response = await this.dependencies.internalFetch(
         this.paths,
         "runner",
         "coordinator",
         "/integral/internal/claim",
-        { method: "POST", body: "{}" },
+        { method: "POST", body: JSON.stringify({ modelConnections }) },
       );
       if (!response.ok)
         throw new IntegralError(`claim failed: ${response.status}`);
@@ -764,6 +860,12 @@ export class Runner {
       this.currentMessageId = item.id;
       this.currentConversationId = conversationId;
       this.steeredMessageIds = [];
+      this.logger.event(
+        "info",
+        "runner.turn_claimed",
+        "runner received claimed conversation message",
+        this.workLogContext({ attempt: item.attempts }),
+      );
       if (!selection)
         throw new IntegralError(
           "conversation has no selected model connection and model",
@@ -773,12 +875,14 @@ export class Runner {
       if (continuation && this.pi) await this.destroyPi("selection-changed");
       if (this.pi && (await this.mcpCatalogChanged()))
         await this.destroyPi("selection-changed");
-      await this.ensurePi(
-        body.context,
-        selection,
-        sessionGeneration,
-        continuation,
-        item.origin,
+      await this.observeStage("ensure-pi-session", () =>
+        this.ensurePi(
+          body.context,
+          selection,
+          sessionGeneration,
+          continuation,
+          item!.origin,
+        ),
       );
       this.piConversationId = conversationId;
       const activeRun = this.piRun;
@@ -797,7 +901,23 @@ export class Runner {
         },
       );
       turnStarted = this.dependencies.now();
-      const answer = await this.pi!.prompt(item.text);
+      this.logger.event(
+        "info",
+        "runner.turn_started",
+        "started Pi conversation turn",
+        this.workLogContext({
+          session_id: this.pi!.spec.sessionId,
+          run_id: activeRun?.runId,
+        }),
+      );
+      const answer = await this.observeStage(
+        "pi-prompt",
+        () => this.pi!.prompt(item!.text),
+        {
+          session_id: this.pi!.spec.sessionId,
+          run_id: activeRun?.runId,
+        },
+      );
       await this.piRun?.output(answer, this.dependencies.now() - turnStarted);
       this.piTurnCount++;
       const completed = await this.dependencies.internalFetch(
@@ -816,6 +936,16 @@ export class Runner {
       );
       if (!completed.ok)
         throw new IntegralError(`completion failed: ${completed.status}`);
+      this.logger.event(
+        "info",
+        "runner.turn_completed",
+        "completed Pi conversation turn",
+        this.workLogContext({
+          session_id: this.pi!.spec.sessionId,
+          run_id: activeRun?.runId,
+          elapsed_ms: this.dependencies.now() - turnStarted,
+        }),
+      );
       this.currentMessageId = undefined;
       this.currentConversationId = undefined;
     } catch (error) {
@@ -899,48 +1029,71 @@ export class Runner {
     origin?: QueuedMessage["origin"],
   ): Promise<void> {
     if (this.pi) return;
-    const resolvedImage = await this.dependencies.containers.ensureImage(
-      this.config,
-      selection.piVersion,
-      { expectedImage: selection.piImage },
+    this.logger.event(
+      "info",
+      "runner.provision_started",
+      "started provisioning a Pi conversation session",
+      this.workLogContext(),
+    );
+    const resolvedImage = await this.observeStage("resolve-image", () =>
+      this.dependencies.containers.ensureImage(
+        this.config,
+        selection.piVersion,
+        { expectedImage: selection.piImage },
+      ),
     );
     if (resolvedImage !== selection.piImage)
       throw new IntegralError(
         `selected Pi image ${selection.piImage} is unavailable; run /model to refresh the runtime selection`,
       );
     const { spec, identity, resources, catalogs, sidecars } =
-      await this.preparePiEnvironment(selection, selection.piImage);
+      await this.observeStage("prepare-environment", () =>
+        this.preparePiEnvironment(selection, selection.piImage),
+      );
     if (context.length)
       spec.args.push("--append-system-prompt", renderContext(context));
     const parent = continuation?.originRunId
         ? undefined
         : await this.runs.latestFinalized("interactive"),
-      recorder = await this.runs.begin({
-        kind: "interactive",
-        sessionId: identity.sessionId,
-        model: selection,
-        config: this.config,
-        ...(continuation?.originRunId
-          ? { parentRunId: continuation.originRunId }
-          : parent
-            ? { parentRunId: parent.runId }
-            : {}),
-        ...(continuation
-          ? {
-              parentSessionId: continuation.originSessionId,
-              approvalId: continuation.approvalId,
-            }
-          : {}),
-        sensitiveValues: [identity.sessionToken],
-      });
-    await recordResourceProjection(recorder, resources);
+      recorder = await this.observeStage(
+        "record-run",
+        () =>
+          this.runs.begin({
+            kind: "interactive",
+            sessionId: identity.sessionId,
+            model: selection,
+            config: this.config,
+            ...(continuation?.originRunId
+              ? { parentRunId: continuation.originRunId }
+              : parent
+                ? { parentRunId: parent.runId }
+                : {}),
+            ...(continuation
+              ? {
+                  parentSessionId: continuation.originSessionId,
+                  approvalId: continuation.approvalId,
+                }
+              : {}),
+            sensitiveValues: [identity.sessionToken],
+          }),
+        { session_id: identity.sessionId },
+      );
+    await this.observeStage(
+      "record-resources",
+      () => recordResourceProjection(recorder, resources),
+      { session_id: identity.sessionId, run_id: recorder.runId },
+    );
     if (context.length)
       await recorder.event("host", "runtime-context", {
         text: renderContext(context),
       });
     let historyView: string | undefined, pi: PiRuntime | undefined;
     try {
-      historyView = await this.runs.createHistoryView(recorder);
+      historyView = await this.observeStage(
+        "create-history-view",
+        () => this.runs.createHistoryView(recorder),
+        { session_id: identity.sessionId, run_id: recorder.runId },
+      );
       spec.mounts.push(
         {
           source: historyView,
@@ -974,35 +1127,48 @@ export class Runner {
         },
         (event) => recorder.protocol(event),
       );
-      const registered = await this.dependencies.internalFetch(
-        this.paths,
-        "runner",
-        "gateway",
-        "/integral/internal/session",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            token: identity.sessionToken,
-            sessionId: identity.sessionId,
-            runId: recorder.runId,
-            conversationId: this.currentConversationId ?? "terminal",
-            ...(origin
-              ? {
-                  origin: {
-                    ...origin,
-                    conversationId: this.currentConversationId ?? "terminal",
-                  },
-                }
-              : {}),
-          }),
-        },
+      const registered = await this.observeStage(
+        "register-gateway-session",
+        () =>
+          this.dependencies.internalFetch(
+            this.paths,
+            "runner",
+            "gateway",
+            "/integral/internal/session",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                token: identity.sessionToken,
+                sessionId: identity.sessionId,
+                runId: recorder.runId,
+                conversationId: this.currentConversationId ?? "terminal",
+                ...(origin
+                  ? {
+                      origin: {
+                        ...origin,
+                        conversationId:
+                          this.currentConversationId ?? "terminal",
+                      },
+                    }
+                  : {}),
+              }),
+            },
+          ),
+        { session_id: identity.sessionId, run_id: recorder.runId },
       );
       if (!registered.ok)
         throw new IntegralError(
           `gateway session unavailable: ${registered.status}`,
         );
-      await this.mcpSidecars.start(spec, catalogs, sidecars);
-      await pi.start();
+      await this.observeStage(
+        "start-mcp-sidecars",
+        () => this.mcpSidecars.start(spec, catalogs, sidecars),
+        { session_id: identity.sessionId, run_id: recorder.runId },
+      );
+      await this.observeStage("start-pi", () => pi!.start(), {
+        session_id: identity.sessionId,
+        run_id: recorder.runId,
+      });
       this.pi = pi;
       this.piSelection = { ...selection };
       this.piSessionGeneration = sessionGeneration;
@@ -1016,25 +1182,39 @@ export class Runner {
         ]),
       );
       this.piTurnCount = 0;
-      await this.dependencies.internalFetch(
-        this.paths,
-        "runner",
-        "coordinator",
-        "/integral/internal/session",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            sessionId: identity.sessionId,
-            state: "started",
-            conversationId: this.currentConversationId ?? "terminal",
-            ...(continuation
-              ? {
-                  parentSessionId: continuation.originSessionId,
-                  approvalId: continuation.approvalId,
-                }
-              : {}),
-          }),
-        },
+      await this.observeStage(
+        "publish-session-started",
+        () =>
+          this.dependencies.internalFetch(
+            this.paths,
+            "runner",
+            "coordinator",
+            "/integral/internal/session",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                sessionId: identity.sessionId,
+                state: "started",
+                conversationId: this.currentConversationId ?? "terminal",
+                ...(continuation
+                  ? {
+                      parentSessionId: continuation.originSessionId,
+                      approvalId: continuation.approvalId,
+                    }
+                  : {}),
+              }),
+            },
+          ),
+        { session_id: identity.sessionId, run_id: recorder.runId },
+      );
+      this.logger.event(
+        "info",
+        "runner.provision_completed",
+        "completed provisioning a Pi conversation session",
+        this.workLogContext({
+          session_id: identity.sessionId,
+          run_id: recorder.runId,
+        }),
       );
     } catch (error) {
       await recorder.failure("provisioning-failure", error);
@@ -1059,11 +1239,19 @@ export class Runner {
       model = selectModel(all, selection),
       mcp = active.filter((connection) => connection.kind === "mcp"),
       email = active.filter((connection) => connection.kind === "email"),
+      discord = active.filter(
+        (connection) =>
+          connection.kind === "channel" && connection.provider === "discord",
+      ),
       identity = this.dependencies.newSessionIdentity(),
       ca = await this.dependencies.ensureCa(this.paths),
       sessionHomes = join(this.paths.state, "session-homes");
     await ensureDir(sessionHomes);
-    const home = await this.dependencies.freshSessionHome(sessionHomes);
+    const home = await this.observeStage(
+      "create-session-home",
+      () => this.dependencies.freshSessionHome(sessionHomes),
+      { session_id: identity.sessionId },
+    );
     const catalogs: McpCatalog[] = [],
       stdio: Array<{
         connection: Connection;
@@ -1125,16 +1313,29 @@ export class Runner {
         );
       }
     }
-    const resources = await this.dependencies.prepareResourceProjection(
-      this.paths,
-      this.config,
-      home,
-      identity.sessionId,
+    const resources = await this.observeStage(
+      "prepare-resources",
+      () =>
+        this.dependencies.prepareResourceProjection(
+          this.paths,
+          this.config,
+          home,
+          identity.sessionId,
+        ),
+      { session_id: identity.sessionId },
     );
-    await this.dependencies.writeMcpExtension(home, catalogs);
-    await this.dependencies.writeEmailExtension(home, email);
-    await this.dependencies.writeResourceExtension(home, resources);
-    await this.dependencies.writePiCredential(home, model);
+    await this.observeStage(
+      "write-session-files",
+      async () => {
+        await this.dependencies.writeMcpExtension(home, catalogs);
+        await this.dependencies.writeDiscordExtension(home, discord);
+        await this.dependencies.writeEmailExtension(home, email);
+        await this.dependencies.writeResourceExtension(home, resources);
+        await this.dependencies.writeWebExtension(home);
+        await this.dependencies.writePiCredential(home, model);
+      },
+      { session_id: identity.sessionId },
+    );
     const gatewayUrl = new URL(await componentEndpoint(this.paths, "gateway"));
     gatewayUrl.hostname = "host.integral.internal";
     const sidecars: McpSidecarSpec[] = stdio.map(
@@ -1167,6 +1368,7 @@ export class Runner {
     for (const extension of [
       "integral-mcp.ts",
       "integral-resources.ts",
+      ...(discord.length ? ["integral-discord.ts"] : []),
       ...(email.length ? ["integral-email.ts"] : []),
     ])
       spec.args.push(

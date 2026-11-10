@@ -26,6 +26,7 @@ Given the coordinator, runner, and gateway are healthy
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
+			And omits API-key environment variables when the selected model connection uses OAuth
 			And restores conversational context from the durable conversation record
 			And sends the claimed message as a Pi `prompt` command
 ```
@@ -215,4 +216,25 @@ Given Integral owns a dedicated governed Git repository for the deployment's Pi 
 	When a later Pi session starts from an activated recipe
 		Then its projected image-recipe checkout identifies the exact active commit and host-managed foundational image reference
 			And Pi can propose a rollback or further change through the same approval-gated path
+```
+
+## BOX-62AC107F — Move the image recipe to a new foundational image
+
+```text
+Given Integral owns the deployment's governed Pi image-recipe repository
+	And the running Integral release bundles a foundational image reference that differs from the one the active recipe uses
+	When the active Dockerfile uses a foundational image reference that an earlier Integral release bundled
+		And Integral next uses the image-recipe repository
+		Then Integral commits a change that replaces only that foundational image reference with the current one
+			And records the change as made by Integral with the prior and resulting commits, tree digest, and both foundational image references
+			And does not create an approval request or build an image
+			And keeps the selected image until a later approved or operator rebuild
+			And gives later sessions, proposals, and rebuilds the updated recipe
+	When the active Dockerfile uses a foundational image reference that no Integral release bundled
+		And Integral next uses the image-recipe repository
+		Then Integral leaves the recipe unchanged
+			And continues to reject builds and proposals that do not retain the current foundational image reference
+	When an image proposal or rebuild request is bound to the recipe commit from before the move
+		Then Integral rejects it without building
+			And leaves the active recipe and selected image unchanged
 ```

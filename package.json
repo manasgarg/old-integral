@@ -14,11 +14,11 @@
     "behavior"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=26"
   },
   "scripts": {
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test:coverage && npm run behavior:coverage && npm run package:check",
-    "build": "tsc",
+    "build": "tsc && esbuild src/web-extension.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/src/integral-web.mjs",
     "prepare": "npm run build",
     "behavior:coverage": "node scripts/check-behavior-coverage.ts",
     "format": "prettier --write .",
@@ -34,17 +34,23 @@
     "test:coverage": "npm run build && node --experimental-test-coverage --test --test-concurrency=1 --test-coverage-include=dist/src/**/*.js --test-coverage-lines=50 --test-coverage-branches=75 --test-coverage-functions=60 dist/test/*.test.js"
   },
   "dependencies": {
-    "discord.js": "14.22.1",
-    "smol-toml": "1.4.2"
+    "defuddle": "0.19.6",
+    "discord.js": "14.28.1",
+    "linkedom": "0.18.15",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@types/node": "24.10.1",
-    "eslint": "10.8.0",
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
-    "prettier": "3.9.6",
-    "publint": "0.3.22",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.65.0"
+    "prettier": "3.9.10",
+    "publint": "0.3.25",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

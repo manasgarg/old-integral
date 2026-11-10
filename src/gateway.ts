@@ -7,9 +7,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { Connection } from "./connections.ts";
 import {
+  clearConnectionDegraded,
   connectionBoundaries,
   credentialFor,
   loadConnections,
+  markConnectionDegraded,
 } from "./connections.ts";
 import type { IntegralPaths } from "./paths.ts";
 import type { EffectiveConfig } from "./config.ts";
@@ -77,20 +79,32 @@ function modelBoundary(connection: Connection): Connection {
   };
 }
 
+const OAUTH_RETRY_INITIAL_MS = 30_000;
+const OAUTH_RETRY_MAX_MS = 15 * 60_000;
+interface OAuthRefreshBackoff {
+  credentialHash: string;
+  error: string;
+  delayMs: number;
+  nextAttemptAt: number;
+}
+
 export function allowsConnect(
   candidates: CredentialedConnection[],
   host: string,
   port: number,
 ): boolean {
   if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
-  return candidates.some(({ connection }) => {
-    return connectionBoundaries(connection).some(
-      (url) =>
-        url.protocol === "https:" &&
-        url.hostname.toLowerCase() === host.toLowerCase() &&
-        Number(url.port || 443) === port,
-    );
-  });
+  return (
+    port === 443 ||
+    candidates.some(({ connection }) => {
+      return connectionBoundaries(connection).some(
+        (url) =>
+          url.protocol === "https:" &&
+          url.hostname.toLowerCase() === host.toLowerCase() &&
+          Number(url.port || 443) === port,
+      );
+    })
+  );
 }
 
 export class Gateway {
@@ -106,9 +120,13 @@ export class Gateway {
   private token = "";
   private candidates: CredentialedConnection[] = [];
   private refreshTimer: unknown;
+  private reloadWork: Promise<void> | undefined;
+  private reloadCoalesced = 0;
   private lastConnectionHash: string | undefined;
   private lastGeneration = 0;
   private sawInvalidConnections = false;
+  private lastHealthNotification: string | undefined;
+  private readonly oauthRefreshBackoff = new Map<string, OAuthRefreshBackoff>();
   private readonly resourceLocks = new Map<
     string,
     {
@@ -139,7 +157,7 @@ export class Gateway {
       "127.0.0.1",
     );
     this.refreshTimer = this.dependencies.intervals.setInterval(
-      () => void this.reload(false),
+      () => void this.reload(false).catch(() => undefined),
       500,
     );
     return server;
@@ -153,34 +171,112 @@ export class Gateway {
     return server;
   }
   async reload(strict = false): Promise<void> {
+    if (this.reloadWork) {
+      this.reloadCoalesced++;
+      return this.reloadWork;
+    }
+    const started = this.dependencies.now(),
+      work = this.performReload(strict);
+    this.reloadWork = work;
+    let failed = false;
+    try {
+      await work;
+    } catch (error) {
+      failed = true;
+      this.logger.event(
+        "warn",
+        "gateway.reload_failed",
+        error instanceof Error ? error.message : String(error),
+        {
+          elapsed_ms: this.dependencies.now() - started,
+          coalesced_intervals: this.reloadCoalesced,
+        },
+      );
+      throw error;
+    } finally {
+      this.reloadWork = undefined;
+      const coalesced = this.reloadCoalesced;
+      this.reloadCoalesced = 0;
+      if (coalesced && !failed) {
+        this.logger.event(
+          "warn",
+          "gateway.reload_coalesced",
+          "gateway connection reload exceeded its interval",
+          {
+            elapsed_ms: this.dependencies.now() - started,
+            coalesced_intervals: coalesced,
+          },
+        );
+      }
+    }
+  }
+
+  private async performReload(strict: boolean): Promise<void> {
     const loaded = await loadConnections(this.paths);
     if (strict && loaded.errors.length)
       throw new IntegralError(loaded.errors.join("\n"));
-    const credentialErrors: string[] = [];
+    const credentialErrors: string[] = [],
+      activeConnectionNames = new Set(
+        loaded.connections.map((connection) => connection.name),
+      );
+    for (const name of this.oauthRefreshBackoff.keys())
+      if (!activeConnectionNames.has(name))
+        this.oauthRefreshBackoff.delete(name);
     this.candidates = await Promise.all(
       loaded.connections.map(async (connection) => {
         const raw = await credentialFor(this.paths, connection.name);
         let credential = raw,
           injectedHeaders: Record<string, string> | undefined;
-        if (raw && oauthAccess(raw))
-          try {
-            const refreshed = await this.dependencies.refreshOAuth(
-              this.paths,
-              connection,
-              raw,
-            );
-            credential = refreshed.access;
-            if (refreshed.serialized !== raw)
-              await atomicWrite(
-                join(this.paths.credentials, connection.name),
-                refreshed.serialized,
-              );
-          } catch (error) {
+        if (raw && oauthAccess(raw)) {
+          const credentialHash = createHash("sha256").update(raw).digest("hex"),
+            previous = this.oauthRefreshBackoff.get(connection.name),
+            sameFailedCredential = previous?.credentialHash === credentialHash;
+          if (
+            sameFailedCredential &&
+            this.dependencies.now() < previous.nextAttemptAt
+          ) {
             credential = undefined;
-            credentialErrors.push(
-              error instanceof Error ? error.message : String(error),
-            );
-          }
+            credentialErrors.push(previous.error);
+          } else
+            try {
+              const refreshed = await this.dependencies.refreshOAuth(
+                this.paths,
+                connection,
+                raw,
+              );
+              credential = refreshed.access;
+              if (refreshed.serialized !== raw)
+                await atomicWrite(
+                  join(this.paths.credentials, connection.name),
+                  refreshed.serialized,
+                );
+              this.oauthRefreshBackoff.delete(connection.name);
+              await clearConnectionDegraded(
+                this.paths,
+                connection.name,
+                "authorization",
+              );
+            } catch (error) {
+              credential = undefined;
+              const message =
+                  error instanceof Error ? error.message : String(error),
+                delayMs = sameFailedCredential
+                  ? Math.min(previous.delayMs * 2, OAUTH_RETRY_MAX_MS)
+                  : OAUTH_RETRY_INITIAL_MS;
+              this.oauthRefreshBackoff.set(connection.name, {
+                credentialHash,
+                error: message,
+                delayMs,
+                nextAttemptAt: this.dependencies.now() + delayMs,
+              });
+              await markConnectionDegraded(
+                this.paths,
+                connection.name,
+                "authorization",
+              );
+              credentialErrors.push(message);
+            }
+        } else this.oauthRefreshBackoff.delete(connection.name);
         if (raw && connection.provider === "openai-codex")
           try {
             const accountId = (JSON.parse(raw) as { accountId?: unknown })
@@ -223,18 +319,45 @@ export class Gateway {
       this.sawInvalidConnections = false;
     }
     this.lastGeneration = generation;
-    const errors = [...loaded.errors, ...credentialErrors];
-    await updateComponentState(
-      this.paths,
-      "gateway",
-      errors.length
-        ? {
-            connectionGeneration: generation,
-            status: "degraded",
-            error: errors.join("\n"),
-          }
-        : { connectionGeneration: generation, status: "ready" },
-    );
+    const errors = [...loaded.errors, ...credentialErrors],
+      error = errors.length ? errors.join("\n") : undefined,
+      status: "ready" | "degraded" = error ? "degraded" : "ready",
+      health = {
+        connectionGeneration: generation,
+        status,
+        ...(error ? { error } : {}),
+        ...(error
+          ? {
+              degradation: loaded.errors.length
+                ? ("configuration" as const)
+                : ("connection" as const),
+            }
+          : {}),
+      };
+    await updateComponentState(this.paths, "gateway", health);
+    await this.publishHealthNotification(status, error);
+  }
+  private async publishHealthNotification(
+    status: "ready" | "degraded",
+    error?: string,
+  ): Promise<void> {
+    const signature = JSON.stringify({ status, error });
+    if (signature === this.lastHealthNotification) return;
+    try {
+      const response = await this.dependencies.internalFetch(
+        this.paths,
+        "gateway",
+        "coordinator",
+        "/integral/internal/gateway-health-notification",
+        {
+          method: "POST",
+          body: JSON.stringify({ status, ...(error ? { error } : {}) }),
+        },
+      );
+      if (response.ok) this.lastHealthNotification = signature;
+    } catch {
+      /* The next gateway reload retries after the coordinator becomes available. */
+    }
   }
   private authenticate(req: IncomingMessage): string | undefined {
     const token = parseProxyAuthorization(req.headers["proxy-authorization"]);
@@ -408,6 +531,79 @@ export class Gateway {
         });
         res.end(responseBody);
       } catch (error) {
+        respondError(res, error);
+      }
+      return;
+    }
+    if (req.url === "/integral/discord" && req.method === "POST") {
+      const requestId = randomUUID();
+      try {
+        const body = await bodyJson(req, 110_000),
+          text = stringValue(body.text);
+        if (!text.trim())
+          throw new IntegralError("Discord message text is required", 400);
+        const candidates = this.candidates.filter(
+          ({ connection, credential }) =>
+            connection.kind === "channel" &&
+            connection.provider === "discord" &&
+            Boolean(credential),
+        );
+        if (candidates.length !== 1)
+          throw new IntegralError(
+            candidates.length
+              ? "only one Discord connection may be active"
+              : "active Discord connection not found",
+            503,
+          );
+        const connection = candidates[0]!.connection;
+        if (!connection.userId || !connection.channelId)
+          throw new IntegralError("Discord connection is incomplete", 503);
+        const upstream = await this.dependencies.internalFetch(
+          this.paths,
+          "gateway",
+          "coordinator",
+          "/integral/internal/channel-notification",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              provider: "discord",
+              conversationId: `discord:${connection.channelId}`,
+              userId: connection.userId,
+              channelId: connection.channelId,
+              text,
+            }),
+          },
+        );
+        const responseBody = await upstream.text();
+        if (!upstream.ok)
+          throw new IntegralError(
+            responseBody.trim() || "Discord delivery failed",
+            upstream.status,
+          );
+        this.logger.event(
+          "info",
+          "gateway.discord",
+          "Discord message delivered",
+          {
+            verdict: "allow",
+            connection: connection.name,
+            session_id: sessionId,
+            request_id: requestId,
+          },
+        );
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ delivered: true }));
+      } catch (error) {
+        this.logger.event(
+          "warn",
+          "gateway.discord_failed",
+          error instanceof Error ? error.message : String(error),
+          {
+            verdict: "deny",
+            session_id: sessionId,
+            request_id: requestId,
+          },
+        );
         respondError(res, error);
       }
       return;
@@ -1259,6 +1455,7 @@ export interface GatewayDependencies {
     response: (message: http.IncomingMessage) => void,
   ): http.ClientRequest;
   internalFetch: typeof internalFetch;
+  now(): number;
 }
 
 const productionDependencies: GatewayDependencies = {
@@ -1270,6 +1467,7 @@ const productionDependencies: GatewayDependencies = {
   executeEmail,
   callRemoteMcp,
   internalFetch,
+  now: Date.now,
   request(target, options, response) {
     return (target.protocol === "https:" ? https : http).request(
       target,

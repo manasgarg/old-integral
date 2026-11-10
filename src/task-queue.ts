@@ -62,6 +62,7 @@ export interface TaskOutboxEntry {
   scheduleId?: string;
   result?: string;
   origin?: ConversationOriginRoute;
+  notificationDeliveredAt?: string;
 }
 
 interface TaskFile {
@@ -176,7 +177,9 @@ export class DurableTaskQueue {
     });
   }
 
-  async claim(): Promise<ScheduledTask | undefined> {
+  async claim(
+    eligible: (task: ScheduledTask) => boolean = () => true,
+  ): Promise<ScheduledTask | undefined> {
     return this.operations.run(async () => {
       if (
         this.data.tasks.some(
@@ -187,9 +190,10 @@ export class DurableTaskQueue {
       const now = this.now(),
         task = this.data.tasks.find(
           (item) =>
-            item.state === "queued" ||
-            (item.state === "retry-wait" &&
-              Date.parse(item.nextAttemptAt ?? "") <= now),
+            eligible(item) &&
+            (item.state === "queued" ||
+              (item.state === "retry-wait" &&
+                Date.parse(item.nextAttemptAt ?? "") <= now)),
         );
       if (!task) return undefined;
       task.state = "claimed";
@@ -436,6 +440,17 @@ export class DurableTaskQueue {
       );
       if (index < 0) return;
       this.data.outbox.splice(index, 1);
+      await this.persist();
+    });
+  }
+
+  async markOutboxNotificationDelivered(executionId: string): Promise<void> {
+    return this.operations.run(async () => {
+      const item = this.data.outbox.find(
+        (candidate) => candidate.executionId === executionId,
+      );
+      if (!item || item.notificationDeliveredAt) return;
+      item.notificationDeliveredAt = new Date(this.now()).toISOString();
       await this.persist();
     });
   }

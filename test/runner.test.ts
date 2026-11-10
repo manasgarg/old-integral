@@ -11,6 +11,7 @@ import type {
 import { loadConfig } from "../src/config.ts";
 import {
   listConnections,
+  markConnectionDegraded,
   saveConnection,
   validateConnection,
 } from "../src/connections.ts";
@@ -32,6 +33,19 @@ function emptyProjection(sessionId: string): ResourceProjection {
     mounts: [],
     unavailable: [],
   };
+}
+
+function discordConnection() {
+  return validateConnection({
+    name: "discord",
+    kind: "channel",
+    provider: "discord",
+    auth: "key",
+    application_id: "100000000000000001",
+    bot_user_id: "100000000000000002",
+    user_id: "100000000000000003",
+    channel_id: "100000000000000004",
+  });
 }
 
 function profileProjection(sessionId: string): ResourceProjection {
@@ -94,9 +108,70 @@ class ManualClock implements RunnerClock {
   }
 }
 
+/* @covers LOG-D079FCFE
+Given the runner claims a conversation message that requires a new Pi session
+	When it prepares resources, records the run, registers the gateway session, starts sidecars, starts Pi, and begins the prompt
+		Then it emits stable start, completion, slow-stage, and failure events at the appropriate log levels
+			And includes the applicable message, conversation, session, and run IDs
+			And includes elapsed time and a non-secret stage name
+			And does not include conversation text, credentials, or raw protocol payloads
+*/
+test("[LOG-D079FCFE] runner reports slow provisioning stages with correlated safe context", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    clock = new ManualClock(),
+    lines: string[] = [];
+  let now = 0,
+    release!: () => void;
+  const runner = new Runner(
+    paths,
+    config,
+    new Logger({
+      component: "runner",
+      deploymentId: "test",
+      level: "trace",
+      format: "json",
+      sink: (line) => lines.push(line),
+    }),
+    { clock, now: () => now },
+  );
+  (runner as any).currentMessageId = "message-1";
+  (runner as any).currentConversationId = "discord:channel-1";
+  const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    observed = (runner as any).observeStage(
+      "prepare-resources",
+      () => pending,
+      { session_id: "session-1", run_id: "run-1" },
+    ) as Promise<void>;
+  now = 31_000;
+  await clock.fire(30_000);
+  release();
+  await observed;
+
+  const events = lines.map((line) => JSON.parse(line));
+  assert.deepEqual(
+    events.map((event) => event.event),
+    ["runner.stage_started", "runner.stage_slow", "runner.stage_completed"],
+  );
+  assert.ok(
+    events.every(
+      (event) =>
+        event.message_id === "message-1" &&
+        event.conversation_id === "discord:channel-1" &&
+        event.session_id === "session-1" &&
+        event.run_id === "run-1" &&
+        event.stage === "prepare-resources",
+    ),
+  );
+  assert.equal(events[1].elapsed_ms, 31_000);
+  assert.doesNotMatch(lines.join(""), /conversation text|credential/i);
+});
+
 /* @covers FAILURE-3780301D
 Given the runner has not claimed its next message
-	When gateway state is missing or not ready
+	When gateway state is missing or has a deployment-wide configuration failure
 		Then the runner marks itself degraded
 			And does not claim new work
 			And does not fall back to direct internet access
@@ -150,6 +225,81 @@ test("[FAILURE-3780301D] runner degrades without claiming work when gateway stat
   const state = await readComponentState(paths, "runner");
   assert.equal(state?.status, "degraded");
   assert.match(state?.error ?? "", /configuration or connection generations/);
+});
+
+/* @covers FAILURE-F93D8325
+Given the gateway is reachable with one active model connection and one degraded model connection
+	When a conversation message selects the active model connection
+		Then the runner may claim and process the message while gateway health is partially degraded
+*/
+test("[FAILURE-F93D8325] runner claims healthy-model work during connection-local gateway degradation", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    deployment = deploymentId(paths);
+  for (const name of ["healthy", "broken"])
+    await saveConnection(
+      paths,
+      validateConnection({
+        name,
+        kind: "model",
+        provider: "anthropic",
+        auth: "key",
+      }),
+      `${name}-credential`,
+    );
+  await markConnectionDegraded(paths, "broken", "authorization");
+  for (const component of ["coordinator", "runner"] as const)
+    await writeComponentState(paths, {
+      component,
+      deploymentId: deployment,
+      endpoint: "http://127.0.0.1:1",
+      pid: process.pid,
+      status: "ready",
+      fingerprint: config.fingerprint,
+      connectionGeneration: 2,
+      startedAt: "now",
+    });
+  await writeComponentState(paths, {
+    component: "gateway",
+    deploymentId: deployment,
+    endpoint: "http://127.0.0.1:1",
+    pid: process.pid,
+    status: "degraded",
+    degradation: "connection",
+    error: "broken authorization",
+    fingerprint: config.fingerprint,
+    connectionGeneration: 2,
+    startedAt: "now",
+  });
+  let claimBody: Record<string, unknown> | undefined;
+  const runner = new Runner(
+    paths,
+    config,
+    new Logger({
+      component: "runner",
+      deploymentId: deployment,
+      level: "error",
+      format: "json",
+      sink: () => undefined,
+    }),
+    {
+      clock: new ManualClock(),
+      fetch: async () => new Response("ok"),
+      async internalFetch(_paths, _caller, target, path, init) {
+        if (target === "gateway") return new Response(null, { status: 204 });
+        assert.equal(path, "/integral/internal/claim");
+        if (typeof init?.body !== "string")
+          throw new Error("expected serialized claim filter");
+        claimBody = JSON.parse(init.body) as Record<string, unknown>;
+        return Response.json({ context: [] });
+      },
+    },
+  );
+
+  await runner.runOnce();
+
+  assert.deepEqual(claimBody, { modelConnections: ["healthy"] });
+  assert.equal((await readComponentState(paths, "runner"))?.status, "ready");
 });
 
 test("[MCP-5751370A] [MCP-6F5CFA0E] runner detects validated catalog changes between turns and retains the active catalog on refresh failure", async (t) => {
@@ -263,6 +413,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
     }),
     "mail-secret",
   );
+  await saveConnection(paths, discordConnection(), "discord-secret");
   const deployment = deploymentId(paths);
   for (const component of ["coordinator", "gateway", "runner"] as const)
     await writeComponentState(paths, {
@@ -272,7 +423,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       pid: process.pid,
       status: "ready",
       fingerprint: config.fingerprint,
-      connectionGeneration: 2,
+      connectionGeneration: 3,
       startedAt: "now",
     });
   const recoveryDirectory = join(paths.recovery, "profile-id", "session-old-1");
@@ -397,6 +548,15 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
+      async writeDiscordExtension(home, connections) {
+        assert.equal(home, "/test/session");
+        assert.deepEqual(
+          connections.map((connection) => connection.name),
+          ["discord"],
+        );
+        calls.push("talk:discord-tools");
+      },
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/session");
         assert.deepEqual(
@@ -416,6 +576,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
 
   assert.equal(calls.filter((call) => call === "profile:ensure").length, 1);
   assert.equal(calls.filter((call) => call === "pi:create").length, 1);
+  assert.equal(calls.filter((call) => call === "talk:discord-tools").length, 1);
   assert.equal(calls.filter((call) => call === "talk:email-tools").length, 1);
   assert.ok(calls.includes("pi:prompt:hello"));
   assert.equal(spec?.image, "sha256:test-pi");
@@ -423,6 +584,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
   for (const extension of [
     "integral-mcp.ts",
     "integral-resources.ts",
+    "integral-discord.ts",
     "integral-email.ts",
   ])
     assert.ok(
@@ -632,6 +794,7 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
       writePiCredential: async () => undefined,
       listen: async () => undefined,
       close: async () => undefined,
@@ -859,6 +1022,7 @@ test("an approval continuation starts a replacement Pi session with parent linea
         }),
         writeMcpExtension: async () => undefined,
         writeResourceExtension: async () => undefined,
+        writeWebExtension: async () => undefined,
         writeEmailExtension: async () => undefined,
         writePiCredential: async () => undefined,
         prepareResourceProjection: async () => ({
@@ -1040,6 +1204,7 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
         }),
         writeMcpExtension: async () => undefined,
         writeResourceExtension: async () => undefined,
+        writeWebExtension: async () => undefined,
         writeEmailExtension: async () => undefined,
         writePiCredential: async () => undefined,
         listen: async () => undefined,
@@ -1119,6 +1284,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
     }),
     "mail-secret",
   );
+  await saveConnection(paths, discordConnection(), "discord-secret");
   for (const component of ["coordinator", "gateway"] as const)
     await writeComponentState(paths, {
       component,
@@ -1127,7 +1293,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       pid: process.pid,
       status: "ready",
       fingerprint: config.fingerprint,
-      connectionGeneration: 2,
+      connectionGeneration: 3,
       startedAt: "now",
     });
   const spec: ContainerSpec = {
@@ -1245,6 +1411,15 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       }),
       writeMcpExtension: async () => undefined,
       writeResourceExtension: async () => undefined,
+      writeWebExtension: async () => undefined,
+      async writeDiscordExtension(home, connections) {
+        assert.equal(home, "/test/task-home");
+        assert.deepEqual(
+          connections.map((connection) => connection.name),
+          ["discord"],
+        );
+        calls.push("task:discord-tools");
+      },
       async writeEmailExtension(home, connections) {
         assert.equal(home, "/test/task-home");
         assert.deepEqual(
@@ -1269,6 +1444,7 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
   assert.deepEqual(
     calls.filter((call) => call.startsWith("task:")),
     [
+      "task:discord-tools",
       "task:email-tools",
       "task:outcome-tools",
       "task:create",

@@ -15,6 +15,11 @@ import {
 } from "../src/queue.ts";
 import { join } from "node:path";
 import { ApprovalStore } from "../src/approval-store.ts";
+import {
+  componentIdentity,
+  deploymentId,
+  internalHeaders,
+} from "../src/state.ts";
 
 async function until(check: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -73,7 +78,134 @@ async function coordinatorGet(
   return { status, body: text ? (JSON.parse(text) as unknown) : undefined };
 }
 
-test("Discord host commands use shared model, queue, task, and approval state", async (t) => {
+async function coordinatorPost(
+  coordinator: Coordinator,
+  path: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: unknown }> {
+  const request = Readable.from([
+    JSON.stringify(body),
+  ]) as unknown as IncomingMessage;
+  request.url = path;
+  request.method = "POST";
+  request.headers = { "content-type": "application/json", ...headers };
+  let status = 200,
+    text = "";
+  const response = {
+    setHeader() {},
+    writeHead(value: number) {
+      status = value;
+      return response;
+    },
+    end(value?: string) {
+      text = value ?? "";
+      return response;
+    },
+  } as unknown as ServerResponse;
+  await (
+    coordinator as unknown as {
+      route(req: IncomingMessage, res: ServerResponse): Promise<void>;
+    }
+  ).route(request, response);
+  return { status, body: text ? (JSON.parse(text) as unknown) : undefined };
+}
+
+/* @covers LOG-D079FCFE
+Given the coordinator accepts, claims, completes, or releases conversation work
+	When it emits diagnostics for that transition
+		Then it includes the conversation and message IDs without conversation text
+*/
+test("[LOG-D079FCFE] coordinator logs queue transitions without conversation text", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    coordinator = new Coordinator(
+      paths,
+      config,
+      {},
+      new Logger({
+        component: "coordinator",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  await Promise.all([
+    coordinator.queue.load(),
+    coordinator.conversation.load(),
+    coordinator.modelSelection.load(),
+  ]);
+  const token = await componentIdentity(paths);
+  (coordinator as unknown as { token: string }).token = token;
+  await coordinator.modelSelection.set({
+    connection: "shared",
+    provider: "anthropic",
+    model: "claude",
+    piVersion: "1",
+    piImage: "image",
+  });
+  const secretText = "private conversation text",
+    first = await coordinator.queue.enqueue(secretText),
+    headers = internalHeaders("runner", token, deploymentId(paths));
+
+  const claimed = await coordinatorPost(
+    coordinator,
+    "/integral/internal/claim",
+    {},
+    headers,
+  );
+  assert.equal(claimed.status, 200);
+  await coordinatorPost(
+    coordinator,
+    `/integral/internal/work/${first.id}/complete`,
+    { text: "private assistant text" },
+    headers,
+  );
+  const second = await coordinator.queue.enqueue("another private message");
+  await coordinatorPost(coordinator, "/integral/internal/claim", {}, headers);
+  await coordinatorPost(
+    coordinator,
+    `/integral/internal/work/${second.id}/release`,
+    { reason: "private failure reason" },
+    headers,
+  );
+
+  const events = lines.map(
+    (line) => JSON.parse(line) as Record<string, unknown>,
+  );
+  for (const [eventName, messageId] of [
+    ["queue.message_claimed", first.id],
+    ["queue.message_completed", first.id],
+    ["queue.message_released", second.id],
+  ]) {
+    const event = events.find((candidate) => candidate.event === eventName);
+    assert.equal(event?.message_id, messageId);
+    assert.equal(event?.conversation_id, "terminal");
+  }
+  assert.doesNotMatch(lines.join(""), /private conversation text/);
+  assert.doesNotMatch(lines.join(""), /private assistant text/);
+  assert.doesNotMatch(lines.join(""), /another private message/);
+  assert.doesNotMatch(lines.join(""), /private failure reason/);
+});
+
+/* @covers DISCORD-6640EECF
+Given a task carries a Discord origin route
+	When the task succeeds or is cancelled
+		Then Integral does not emit an automatic Discord outcome notification
+			And retains the complete outcome in the durable task record
+	When the task fails and Integral emits its automatic Discord outcome notification
+		Then Integral identifies the task by its `Task: <title>.` prompt title when present
+			Or by a concise prompt description when no title is present
+			And never includes the internal task, execution, or schedule ID
+			And includes the failure timing and concise redacted recorded reason when available
+			And includes retry guidance when available
+			And sends the notification only to the stored Discord DM route
+			And records a successfully delivered notification in the same Discord conversation's history
+			And does not display the notification in the default terminal conversation or another channel
+*/
+test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared model, queue, task, and approval state", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     coordinator = new Coordinator(paths, config),
@@ -169,13 +301,20 @@ test("Discord host commands use shared model, queue, task, and approval state", 
   );
   assert.match(cancelledTask, /^cancelled {2}execution-1/);
 
+  const origin = {
+    provider: "discord" as const,
+    conversationId: scope.id,
+    externalId: "message-1",
+    userId: scope.discord.userId,
+    channelId: scope.discord.channelId,
+  };
   await coordinator.tasks.accept({
-    executionId: "execution-failed",
+    executionId: "execution-succeeded",
     scheduleId: "schedule-recurring",
     scheduleRevision: 2,
     triggerType: "recurring",
-    scheduledFor: "2026-08-23T11:00:00.000Z",
-    prompt: "prepare another report",
+    scheduledFor: "2026-08-23T10:30:00.000Z",
+    prompt: "Task: Successful report. prepare the report",
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T10:00:00.000Z",
@@ -186,13 +325,67 @@ test("Discord host commands use shared model, queue, task, and approval state", 
       piVersion: "1",
       piImage: "image",
     },
-    origin: {
-      provider: "discord",
-      conversationId: scope.id,
-      externalId: "message-1",
-      userId: scope.discord.userId,
-      channelId: scope.discord.channelId,
+    origin,
+  });
+  const successfulClaim = await coordinator.tasks.claim(),
+    successful = await coordinator.tasks.start(
+      successfulClaim!.executionId,
+      successfulClaim!.claimId!,
+    );
+  await coordinator.tasks.declareOutcome(
+    successful.executionId,
+    successful.attempts[0]!.attemptId,
+    "complete",
+    "report complete",
+  );
+  await coordinator.tasks.complete(
+    successful.executionId,
+    successful.attempts[0]!.attemptId,
+    "report complete",
+    0,
+  );
+  await coordinator.tasks.accept({
+    executionId: "execution-cancelled",
+    scheduleId: "schedule-once",
+    scheduleRevision: 1,
+    triggerType: "once",
+    scheduledFor: "2026-08-23T10:45:00.000Z",
+    prompt: "Task: Cancelled report. prepare the report",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T10:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
     },
+    origin,
+  });
+  await coordinator.tasks.cancel("execution-cancelled");
+  const repliesBeforeOutcomes = discordReplies.length;
+  await coordinator.flushTaskOutbox();
+  assert.equal(discordReplies.length, repliesBeforeOutcomes);
+
+  await coordinator.tasks.accept({
+    executionId: "execution-failed",
+    scheduleId: "schedule-recurring",
+    scheduleRevision: 2,
+    triggerType: "recurring",
+    scheduledFor: "2026-08-23T11:00:00.000Z",
+    prompt: "Task: Weekly source audit. prepare another report",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T10:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    origin,
   });
   const claim = await coordinator.tasks.claim(),
     running = await coordinator.tasks.start(
@@ -202,20 +395,75 @@ test("Discord host commands use shared model, queue, task, and approval state", 
   await coordinator.tasks.fail(
     running.executionId,
     running.attempts[0]!.attemptId,
-    "request failed at https://private-token@example.test/api",
+    "execution-failed request failed at https://private-token@example.test/api",
     1,
   );
   await coordinator.flushTaskOutbox();
   const failureNotice = discordReplies.find((text) =>
-    text.includes("execution-failed"),
+    text.includes("Weekly source audit"),
   );
   assert.match(failureNotice ?? "", /request failed/);
+  assert.match(failureNotice ?? "", /failed at \d{4}-\d{2}-\d{2}T/);
   assert.match(
     failureNotice ?? "",
     /https:\/\/\[redacted\]@example\.test\/api/,
   );
-  assert.match(failureNotice ?? "", /\/tasks show/);
-  assert.doesNotMatch(failureNotice ?? "", /\/status/);
+  assert.match(failureNotice ?? "", /before the next scheduled occurrence/);
+  assert.doesNotMatch(failureNotice ?? "", /execution-failed/);
+  assert.doesNotMatch(failureNotice ?? "", /schedule-recurring/);
+  const delivered = discordReplies.filter((text) =>
+    text.includes("Weekly source audit"),
+  ).length;
+  assert.equal(delivered, 1);
+  assert.ok(
+    coordinator.tasks
+      .outbox()
+      .find((entry) => entry.executionId === "execution-failed")
+      ?.notificationDeliveredAt,
+  );
+  await coordinator.flushTaskOutbox();
+  assert.equal(
+    discordReplies.filter((text) => text.includes("Weekly source audit"))
+      .length,
+    delivered,
+  );
+
+  await coordinator.tasks.accept({
+    executionId: "execution-untitled",
+    scheduleId: "schedule-recurring",
+    scheduleRevision: 2,
+    triggerType: "recurring",
+    scheduledFor: "2026-08-23T12:00:00.000Z",
+    prompt: "Prepare an untitled report. Include the current findings.",
+    state: "accepted",
+    dispatchAttempts: 1,
+    createdAt: "2026-08-23T11:00:00.000Z",
+    profile: {
+      connection: "shared",
+      provider: "anthropic",
+      model: "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    origin,
+  });
+  const untitledClaim = await coordinator.tasks.claim(),
+    untitled = await coordinator.tasks.start(
+      untitledClaim!.executionId,
+      untitledClaim!.claimId!,
+    );
+  await coordinator.tasks.fail(
+    untitled.executionId,
+    untitled.attempts[0]!.attemptId,
+    "report source unavailable",
+    1,
+  );
+  await coordinator.flushTaskOutbox();
+  const untitledNotice = discordReplies.find((text) =>
+    text.startsWith("Prepare an untitled report failed at "),
+  );
+  assert.match(untitledNotice ?? "", /report source unavailable/);
+  assert.doesNotMatch(untitledNotice ?? "", /execution-untitled/);
 
   const selection = {
     connection: "shared",
@@ -568,6 +816,209 @@ test("[BOX-40521095] package changes rebuild the selected exact Pi image and per
   assert.equal(recovered.revision, 2);
   assert.equal(builds.length, 3);
   assert.equal(builds[2]?.rebuild, false);
+});
+
+/* @covers DISCORD-A9DA6034
+Given the Discord listener and gateway are running
+	When the gateway becomes degraded with a recorded failure reason
+		Then the gateway reports the health incident to the coordinator
+			And the coordinator sends one plain-language alert directly to the configured Discord DM
+			And the alert identifies the gateway and a bounded redacted reason
+			And the alert explains that new messages remain queued
+			And the coordinator records the delivered alert in the Discord conversation history
+			And the notification does not enter or depend on the conversation queue
+	When the same degraded gateway state is observed again
+		Then the coordinator does not send a duplicate alert
+	When the gateway returns to ready after a delivered incident
+		Then the coordinator sends one direct recovery notification
+			And records the delivered recovery in the Discord conversation history
+			And permits a later gateway incident to produce a new alert
+*/
+test("[DISCORD-A9DA6034] gateway health incidents notify Discord once and recover durably", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    directory = join(paths.channels, "discord-health"),
+    queue = new DurableQueue(join(directory, "queue.json")),
+    conversation = new ConversationStore(join(directory, "conversation.jsonl")),
+    modelSelection = new ModelSelectionStore(join(directory, "model.json")),
+    discordReplies: string[] = [],
+    scope = {
+      id: "discord:100000000000000004",
+      queue,
+      conversation,
+      modelSelection,
+      discord: {
+        listener: {
+          async typing() {},
+          async reply(text: string) {
+            discordReplies.push(text);
+          },
+        },
+        ingress: {},
+        userId: "100000000000000003",
+        channelId: "100000000000000004",
+      },
+    };
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "anthropic",
+      kind: "model",
+      provider: "anthropic",
+      auth: "key",
+    }),
+    "actual-secret",
+  );
+  await Promise.all([queue.load(), conversation.load(), modelSelection.load()]);
+
+  const first = new Coordinator(paths, config) as any;
+  first.discordScope = scope;
+  await first.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+  await first.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+
+  assert.equal(discordReplies.length, 1);
+  assert.match(discordReplies[0]!, /gateway is degraded/i);
+  assert.match(discordReplies[0]!, /messages remain safely queued/i);
+  assert.doesNotMatch(discordReplies[0]!, /actual-secret|private stack/);
+  assert.equal(queue.snapshot().length, 0);
+  assert.equal(conversation.snapshot().length, 1);
+
+  const restarted = new Coordinator(paths, config) as any;
+  restarted.discordScope = scope;
+  await restarted.notifyGatewayHealth(
+    "degraded",
+    "OAuth refresh failed for anthropic using actual-secret\nprivate stack",
+  );
+  await restarted.notifyGatewayHealth("ready");
+  await restarted.notifyGatewayHealth("ready");
+  await restarted.notifyGatewayHealth("degraded", "another safe failure");
+
+  assert.equal(discordReplies.length, 3);
+  assert.match(discordReplies[1]!, /gateway has recovered/i);
+  assert.match(discordReplies[2]!, /another safe failure/);
+  assert.deepEqual(
+    conversation.snapshot().map((event) => event.type),
+    ["notification", "notification", "notification"],
+  );
+});
+
+/* @covers FAILURE-F93D8325
+Given the gateway is reachable with one active model connection and one degraded model connection
+	When a conversation message selects the degraded model connection
+		Then the coordinator leaves that message queued without increasing its delivery attempts
+			And work selecting an active model connection remains claimable
+	When a scheduled task selects the degraded model connection
+		Then the coordinator leaves that task queued without creating an attempt
+			And scheduled work selecting an active model connection remains claimable
+*/
+test("[FAILURE-F93D8325] coordinator claims only work whose selected model connection is active", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    coordinator = new Coordinator(paths, config),
+    activeDirectory = join(paths.channels, "active-model"),
+    activeQueue = new DurableQueue(join(activeDirectory, "queue.json")),
+    activeConversation = new ConversationStore(
+      join(activeDirectory, "conversation.jsonl"),
+    ),
+    activeSelection = new ModelSelectionStore(
+      join(activeDirectory, "model.json"),
+    ),
+    token = await componentIdentity(paths),
+    headers = internalHeaders("runner", token, deploymentId(paths));
+  await Promise.all([
+    coordinator.queue.load(),
+    coordinator.conversation.load(),
+    coordinator.modelSelection.load(),
+    coordinator.tasks.load(),
+    activeQueue.load(),
+    activeConversation.load(),
+    activeSelection.load(),
+  ]);
+  (coordinator as any).token = token;
+  await coordinator.modelSelection.set({
+    connection: "broken",
+    provider: "anthropic",
+    model: "claude",
+    piVersion: "1",
+    piImage: "image",
+  });
+  await activeSelection.set({
+    connection: "healthy",
+    provider: "openai-codex",
+    model: "gpt",
+    piVersion: "1",
+    piImage: "image",
+  });
+  (coordinator as any).scopes.set("active", {
+    id: "active",
+    queue: activeQueue,
+    conversation: activeConversation,
+    modelSelection: activeSelection,
+  });
+  const blockedMessage = await coordinator.queue.enqueue("blocked"),
+    activeMessage = await activeQueue.enqueue("processable"),
+    claimedMessage = await coordinatorPost(
+      coordinator,
+      "/integral/internal/claim",
+      { modelConnections: ["healthy"] },
+      headers,
+    );
+  assert.equal(
+    (claimedMessage.body as { message?: { id: string } }).message?.id,
+    activeMessage.id,
+  );
+  assert.deepEqual(
+    coordinator.queue
+      .snapshot()
+      .map((message) => [message.id, message.status, message.attempts]),
+    [[blockedMessage.id, "queued", 0]],
+  );
+
+  const occurrence = (executionId: string, connection: string) => ({
+    executionId,
+    scheduleId: `schedule-${executionId}`,
+    scheduleRevision: 1,
+    triggerType: "once" as const,
+    scheduledFor: "2026-09-01T10:00:00.000Z",
+    prompt: `run ${executionId}`,
+    profile: {
+      connection,
+      provider: connection === "healthy" ? "openai-codex" : "anthropic",
+      model: connection === "healthy" ? "gpt" : "claude",
+      piVersion: "1",
+      piImage: "image",
+    },
+    state: "pending" as const,
+    dispatchAttempts: 1,
+    createdAt: "2026-09-01T09:00:00.000Z",
+  });
+  await coordinator.tasks.accept(occurrence("blocked-task", "broken"));
+  await coordinator.tasks.accept(occurrence("active-task", "healthy"));
+  const claimedTask = await coordinatorPost(
+    coordinator,
+    "/integral/internal/tasks/claim",
+    { modelConnections: ["healthy"] },
+    headers,
+  );
+  assert.equal(
+    (claimedTask.body as { task?: { executionId: string } }).task?.executionId,
+    "active-task",
+  );
+  assert.deepEqual(
+    coordinator.tasks
+      .snapshot()
+      .map((task) => [task.executionId, task.state, task.attempts.length]),
+    [
+      ["blocked-task", "queued", 0],
+      ["active-task", "claimed", 0],
+    ],
+  );
 });
 
 test("a live Pi package request waits for an attached human and returns the durable result", async (t) => {
@@ -1036,6 +1487,83 @@ test("[SERVER-8A31D6C4] coordinator lifecycle can run against controlled listene
     "clear",
     "close",
   ]);
+});
+
+/* @covers SERVER-CBD35885
+Given a coordinator refresh or gateway connection reload is still running
+	When another periodic interval becomes due
+		Then Integral does not start overlapping maintenance for that component
+			And records how many intervals were coalesced when the active maintenance finishes
+			And a failed maintenance pass is reported without stopping later passes
+*/
+/* @covers LOG-D079FCFE
+Given periodic coordinator or gateway maintenance cannot keep up with its configured interval
+	When one or more interval invocations are coalesced or a pass fails
+		Then Integral emits one diagnostic for the completed or failed pass
+			And includes its elapsed time and coalesced interval count
+*/
+test("[SERVER-CBD35885] [LOG-D079FCFE] coordinator refresh is single-flight and reports coalesced intervals", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {}),
+    lines: string[] = [],
+    coordinator = new Coordinator(
+      paths,
+      config,
+      {},
+      new Logger({
+        component: "coordinator",
+        deploymentId: "test",
+        level: "trace",
+        format: "json",
+        sink: (line) => lines.push(line),
+      }),
+    );
+  let release!: () => void,
+    generationRuns = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  (coordinator as any).adoptGeneration = async () => {
+    generationRuns++;
+    await pending;
+  };
+  (coordinator as any).adoptExternalModelSelection = async () => undefined;
+  (coordinator as any).flushTaskOutbox = async () => undefined;
+  (coordinator as any).expireApprovals = async () => undefined;
+
+  const first = (coordinator as any).refresh() as Promise<void>;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = (coordinator as any).refresh() as Promise<void>;
+  assert.equal(generationRuns, 1);
+  release();
+  await Promise.all([first, second]);
+  assert.equal(generationRuns, 1);
+  const event = lines
+    .map((line) => JSON.parse(line))
+    .find((candidate) => candidate.event === "coordinator.refresh_coalesced");
+  assert.equal(event.coalesced_intervals, 1);
+  assert.equal(typeof event.elapsed_ms, "number");
+
+  let laterRuns = 0;
+  (coordinator as any).adoptGeneration = async () => {
+    laterRuns++;
+    if (laterRuns === 1) throw new Error("maintenance failed");
+  };
+  await assert.rejects(
+    (coordinator as any).refresh() as Promise<void>,
+    /maintenance failed/,
+  );
+  await ((coordinator as any).refresh() as Promise<void>);
+  assert.equal(laterRuns, 2);
+  assert.ok(
+    lines
+      .map((line) => JSON.parse(line))
+      .some(
+        (candidate) =>
+          candidate.event === "coordinator.refresh_failed" &&
+          candidate.coalesced_intervals === 0,
+      ),
+  );
 });
 
 /* @covers SERVER-EC7ACFFC

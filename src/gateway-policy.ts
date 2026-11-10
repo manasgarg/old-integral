@@ -3,6 +3,13 @@ import { connectionBoundaries, type Connection } from "./connections.ts";
 import { IntegralError } from "./errors.ts";
 
 export const SENTINEL = "integral-managed-credential";
+export const WEB_CONNECTION_NAME = "integral-web";
+const webConnection: Connection = {
+  name: WEB_CONNECTION_NAME,
+  kind: "http",
+  auth: "none",
+  methods: ["GET"],
+};
 export const OAUTH_SENTINEL = `e30.${Buffer.from(
   JSON.stringify({
     "https://api.openai.com/auth": { chatgpt_account_id: SENTINEL },
@@ -49,7 +56,12 @@ export function decideRequest(
       );
     }),
   );
-  if (!match)
+  const webFallback =
+    !match &&
+    method.toUpperCase() === "GET" &&
+    ((target.protocol === "http:" && normalizePort(target) === 80) ||
+      (target.protocol === "https:" && normalizePort(target) === 443));
+  if (!match && !webFallback)
     throw new IntegralError("policy denied the requested destination", 403);
   const clean: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(headers)) {
@@ -59,7 +71,7 @@ export function decideRequest(
     )
       clean[key] = value;
   }
-  if (match.connection.auth !== "none") {
+  if (match && match.connection.auth !== "none") {
     if (!match.credential)
       throw new IntegralError(
         `connection ${match.connection.name} has no usable credential; rotate or reconfigure it`,
@@ -72,6 +84,9 @@ export function decideRequest(
       !String(incoming).toLowerCase().includes(SENTINEL)
     )
       throw new IntegralError("gateway refused an unmanaged credential", 403);
+    for (const [name, value] of Object.entries(clean))
+      if (name !== header && String(value).toLowerCase().includes(SENTINEL))
+        delete clean[name];
     clean[header] =
       match.connection.provider === "github"
         ? target.hostname.toLowerCase() === "github.com"
@@ -81,7 +96,11 @@ export function decideRequest(
     for (const [name, value] of Object.entries(match.injectedHeaders ?? {}))
       clean[name.toLowerCase()] = value;
   }
-  return { connection: match.connection, url: target, headers: clean };
+  return {
+    connection: match?.connection ?? webConnection,
+    url: target,
+    headers: clean,
+  };
 }
 
 export function parseProxyAuthorization(

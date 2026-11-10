@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -170,9 +170,10 @@ export function buildContainerSpec(options: {
   };
   const provider = options.model.provider!;
   // Pi sees only a sentinel. The gateway swaps it for the host credential inside the allowed boundary.
-  environment[
-    provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
-  ] = SENTINEL;
+  if (options.model.auth !== "oauth" && options.model.auth !== "device-code")
+    environment[
+      provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
+    ] = SENTINEL;
   if (
     options.connections?.some((connection) => connection.provider === "github")
   )
@@ -189,6 +190,7 @@ export function buildContainerSpec(options: {
   if (options.model.auth !== "oauth" && options.model.auth !== "device-code")
     args.push("--api-key", SENTINEL);
   args.push("--model", options.selectedModel);
+  args.push("--extension", "/home/pi/.integral/extensions/integral-web.mjs");
   const mounts = [
     { source: options.caCert, target: caPath, readonly: true },
     { source: options.caBundle, target: bundlePath, readonly: true },
@@ -640,8 +642,18 @@ export default function (pi) {
   pi.registerTool({ name: "container_package_list", label: "List container packages", description: "List the governed Debian package set and current revision for the managed Pi image", parameters: Type.Object({}), async execute(_id, _params, signal) { return result(await schedule("/integral/control/container-packages", "GET", undefined, signal)); } });
   for (const operation of ["install", "upgrade"]) pi.registerTool({ name: "container_package_" + operation, label: operation + " container packages", description: operation + " Debian packages through Integral's governed immutable-image builder; the current container is replaced after this turn", parameters: Type.Object({ packages: Type.Array(Type.String()), expectedRevision: Type.Integer() }), async execute(_id, params, signal) { return result(await schedule("/integral/control/container-packages", "POST", { operation, packages: params.packages, expectedRevision: params.expectedRevision }, signal)); } });
 }
+
 `;
   await atomicWrite(join(directory, "integral-mcp.ts"), source);
+}
+
+export async function writeWebExtension(sessionHome: string): Promise<void> {
+  const directory = join(sessionHome, ".integral", "extensions"),
+    source = await readFile(
+      fileURLToPath(new URL("./integral-web.mjs", import.meta.url)),
+    );
+  await ensureDir(directory);
+  await atomicWrite(join(directory, "integral-web.mjs"), source);
 }
 
 export function mcpToolName(connection: string, tool: string): string {
@@ -682,6 +694,24 @@ const schemas = {
 export default function (pi) { for (const account of accounts) for (const capability of account.capabilities) pi.registerTool({ name: "email_" + account.toolName + "_" + capability, label: "Email " + account.name + " " + capability, description: capability + " email using the " + account.name + " account", parameters: schemas[capability], async execute(_id, params, signal) { const result = await call(account.name, capability, params, signal); return { content: [{ type: "text", text: JSON.stringify(result) }], details: { account: account.name, capability } }; } }); }
 `;
   await atomicWrite(join(directory, "integral-email.ts"), source);
+}
+
+export async function writeDiscordExtension(
+  sessionHome: string,
+  connections: Connection[],
+): Promise<void> {
+  if (!connections.length) return;
+  if (connections.length !== 1)
+    throw new IntegralError("only one Discord channel connection is supported");
+  const directory = join(sessionHome, ".integral", "extensions");
+  await ensureDir(directory);
+  const source = `import { request } from "node:http";
+import { Type } from "typebox";
+function endpoint() { const proxy = new URL(process.env.HTTP_PROXY); const authorization = "Basic " + Buffer.from(decodeURIComponent(proxy.username) + ":" + decodeURIComponent(proxy.password)).toString("base64"); proxy.username = ""; proxy.password = ""; proxy.pathname = "/integral/discord"; proxy.search = ""; return { url: proxy.toString(), authorization }; }
+function send(text, signal) { return new Promise((resolve, reject) => { const target = endpoint(), payload = JSON.stringify({ text }), chunks = []; let settled = false; const finish = (action) => { if (settled) return; settled = true; signal?.removeEventListener("abort", abort); action(); }, req = request(target.url, { agent: false, method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload), "proxy-authorization": target.authorization } }, (res) => { res.on("data", (chunk) => chunks.push(chunk)); res.on("end", () => finish(() => { const body = Buffer.concat(chunks).toString("utf8"); if ((res.statusCode || 500) < 200 || (res.statusCode || 500) >= 300) reject(new Error(body.trim() || "Discord delivery failed")); else resolve(body ? JSON.parse(body) : { delivered: true }); })); res.on("error", (error) => finish(() => reject(error))); }), abort = () => req.destroy(new Error("Discord delivery was cancelled")); signal?.addEventListener("abort", abort, { once: true }); req.on("error", (error) => finish(() => reject(error))); req.end(payload); }); }
+export default function (pi) { pi.registerTool({ name: "discord_send", label: "Send Discord message", description: "Send text to the deployment's one configured Discord DM", parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 100000 }) }), async execute(_id, params, signal) { const value = await send(params.text, signal); return { content: [{ type: "text", text: "Discord message sent." }], details: value }; } }); }
+`;
+  await atomicWrite(join(directory, "integral-discord.ts"), source);
 }
 
 export async function writeResourceExtension(

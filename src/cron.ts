@@ -73,19 +73,34 @@ export function parseCron(expression: string): ParsedCron {
   };
 }
 
+const FORMATTER_CACHE_LIMIT = 64;
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timezone: string): Intl.DateTimeFormat {
+  const cached = formatters.get(timezone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    minute: "numeric",
+    hour: "numeric",
+    hourCycle: "h23",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+    weekday: "short",
+  });
+  if (formatters.size >= FORMATTER_CACHE_LIMIT) {
+    const oldest = formatters.keys().next().value;
+    if (oldest !== undefined) formatters.delete(oldest);
+  }
+  formatters.set(timezone, formatter);
+  return formatter;
+}
+
 function partsAt(timestamp: number, timezone: string): Record<string, number> {
   let formatted: Intl.DateTimeFormatPart[];
   try {
-    formatted = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      minute: "numeric",
-      hour: "numeric",
-      hourCycle: "h23",
-      day: "numeric",
-      month: "numeric",
-      year: "numeric",
-      weekday: "short",
-    }).formatToParts(timestamp);
+    formatted = formatterFor(timezone).formatToParts(timestamp);
   } catch {
     throw new IntegralError(`invalid IANA timezone: ${timezone}`);
   }

@@ -35,7 +35,29 @@ export function interpretPiEvent(event: PiProtocolEvent): PiProtocolResult {
     if (delta?.type === "text_delta" && typeof delta.delta === "string")
       return { type: "text", text: delta.delta };
   }
+  if (
+    event.type === "agent_end" &&
+    event.willRetry !== true &&
+    Array.isArray(event.messages)
+  ) {
+    const messages = event.messages as unknown[];
+    const failed = messages.findLast(
+      (message): message is Record<string, unknown> =>
+        isRecord(message) &&
+        message.role === "assistant" &&
+        message.stopReason === "error",
+    );
+    if (failed && typeof failed.errorMessage === "string")
+      return {
+        type: "rejected",
+        error: `Pi provider failed: ${failed.errorMessage}`,
+      };
+  }
   return event.type === "agent_end" && event.willRetry !== true
     ? { type: "complete" }
     : { type: "ignored" };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

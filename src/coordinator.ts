@@ -32,7 +32,11 @@ import {
   type IntervalRuntime,
 } from "./runtime.ts";
 import { internalFetch } from "./http-client.ts";
-import { DurableTaskQueue, type ScheduledTask } from "./task-queue.ts";
+import {
+  DurableTaskQueue,
+  type ScheduledTask,
+  type TaskOutboxEntry,
+} from "./task-queue.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
 import type { ConversationOriginRoute } from "./schedule-types.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "./constants.ts";
@@ -95,6 +99,55 @@ interface ConversationScope {
     userId: string;
     channelId: string;
   };
+}
+
+interface DeliveredGatewayHealth {
+  status: "ready" | "degraded";
+  reason?: string;
+  deliveredAt: string;
+}
+
+function sameGatewayHealth(
+  previous: DeliveredGatewayHealth | undefined,
+  status: "ready" | "degraded",
+  reason?: string,
+): boolean {
+  return previous?.status === status && previous.reason === reason;
+}
+
+function modelConnectionFilter(value: unknown): Set<string> | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.some((connection) => typeof connection !== "string")
+  )
+    throw new IntegralError("modelConnections must be an array of names", 400);
+  return new Set(value);
+}
+
+function taskDescription(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  const titled = /^Task:\s*(.+?)(?:\.\s|$)/i.exec(normalized)?.[1]?.trim();
+  if (titled) return titled;
+  const sentence = /^(.+?)(?:\.\s|$)/.exec(normalized)?.[1] ?? normalized;
+  return sentence.slice(0, 160) || "Scheduled task";
+}
+
+function omitInternalTaskIdentifiers(
+  text: string,
+  entry: TaskOutboxEntry,
+): string {
+  let sanitized = text.replace(
+    /\b[A-F0-9]{64}\b/g,
+    "[internal identifier omitted]",
+  );
+  for (const identifier of [entry.taskId, entry.executionId, entry.scheduleId])
+    if (identifier)
+      sanitized = sanitized.replaceAll(
+        identifier,
+        "[internal identifier omitted]",
+      );
+  return sanitized;
 }
 
 export interface CoordinatorDependencies {
@@ -164,6 +217,9 @@ export class Coordinator {
   >();
   private token = "";
   private refreshTimer: unknown;
+  private refreshWork: Promise<void> | undefined;
+  private refreshCoalesced = 0;
+  private outboxFlush: Promise<void> | undefined;
   private catalogRefresh: unknown;
   private workChain: Promise<unknown> = Promise.resolve();
   private connectionGeneration: number | undefined;
@@ -215,7 +271,7 @@ export class Coordinator {
       ),
     );
     this.refreshTimer = this.dependencies.intervals.setInterval(
-      () => void this.refresh(),
+      () => void this.refresh().catch(() => undefined),
       500,
     );
     this.catalogRefresh = this.dependencies.defer(() => {
@@ -458,6 +514,66 @@ export class Coordinator {
       return false;
     }
   }
+  private async notifyGatewayHealth(
+    status: "ready" | "degraded",
+    error?: string,
+  ): Promise<boolean> {
+    const scope = this.discordScope;
+    if (!scope?.discord) return false;
+    const file = join(this.paths.state, "discord-gateway-health.json"),
+      raw = await readText(file);
+    let previous: DeliveredGatewayHealth | undefined;
+    if (raw)
+      try {
+        const parsed = JSON.parse(raw) as Partial<DeliveredGatewayHealth>;
+        if (
+          (parsed.status === "ready" || parsed.status === "degraded") &&
+          typeof parsed.deliveredAt === "string" &&
+          (parsed.reason === undefined || typeof parsed.reason === "string")
+        )
+          previous = parsed as DeliveredGatewayHealth;
+      } catch {
+        /* Replace malformed notification state after the next delivery. */
+      }
+    const secrets = await credentialSecretValues(this.paths),
+      reason =
+        status === "degraded"
+          ? redactText(
+              error?.split(/\r?\n/, 1)[0] ?? "No reason was recorded",
+              secrets,
+            )
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 300)
+          : undefined;
+    if (sameGatewayHealth(previous, status, reason)) return true;
+    if (!previous && status === "ready") {
+      await atomicWrite(
+        file,
+        `${JSON.stringify({ status, deliveredAt: new Date(this.dependencies.now()).toISOString() })}\n`,
+      );
+      return true;
+    }
+    const text =
+      status === "degraded"
+        ? `Integral cannot currently process new messages because its gateway is degraded. Reason: ${reason}. New messages remain safely queued. Run \`integral connection ls\` to see the affected connection.`
+        : "Integral's gateway has recovered. Queued messages can resume processing.";
+    if (!(await this.deliverDiscord(scope, text))) return false;
+    await scope.conversation.append({ type: "notification", text });
+    await atomicWrite(
+      file,
+      `${JSON.stringify({ status, ...(reason ? { reason } : {}), deliveredAt: new Date(this.dependencies.now()).toISOString() })}\n`,
+    );
+    this.logger?.event(
+      "info",
+      status === "degraded"
+        ? "gateway.health_notification_delivered"
+        : "gateway.recovery_notification_delivered",
+      "delivered gateway health notification",
+      { conversation_id: scope.id, gateway_status: status },
+    );
+    return true;
+  }
   private async submitDiscord(
     scope: ConversationScope,
     ingress: DiscordIngressStore,
@@ -483,6 +599,12 @@ export class Coordinator {
           origin,
         });
       await ingress.record(message.id);
+      this.logger?.event(
+        "info",
+        "discord.message_accepted",
+        "accepted Discord conversation message",
+        { message_id: item.id, conversation_id: scope.id },
+      );
       await scope.discord?.listener.typing(true).catch(() => undefined);
       if (!scope.modelSelection.get()) {
         await this.deliverDiscord(
@@ -519,12 +641,49 @@ export class Coordinator {
     });
   }
   private async refresh(): Promise<void> {
-    await Promise.all([
-      this.adoptGeneration(),
-      this.adoptExternalModelSelection(),
-      this.flushTaskOutbox(),
-      this.expireApprovals(),
-    ]);
+    if (this.refreshWork) {
+      this.refreshCoalesced++;
+      return this.refreshWork;
+    }
+    const started = this.dependencies.now(),
+      work = Promise.all([
+        this.adoptGeneration(),
+        this.adoptExternalModelSelection(),
+        this.flushTaskOutbox(),
+        this.expireApprovals(),
+      ]).then(() => undefined);
+    this.refreshWork = work;
+    let failed = false;
+    try {
+      await work;
+    } catch (error) {
+      failed = true;
+      this.logger?.event(
+        "warn",
+        "coordinator.refresh_failed",
+        error instanceof Error ? error.message : String(error),
+        {
+          elapsed_ms: this.dependencies.now() - started,
+          coalesced_intervals: this.refreshCoalesced,
+        },
+      );
+      throw error;
+    } finally {
+      this.refreshWork = undefined;
+      const coalesced = this.refreshCoalesced;
+      this.refreshCoalesced = 0;
+      if (coalesced && !failed) {
+        this.logger?.event(
+          "warn",
+          "coordinator.refresh_coalesced",
+          "coordinator maintenance exceeded its interval",
+          {
+            elapsed_ms: this.dependencies.now() - started,
+            coalesced_intervals: coalesced,
+          },
+        );
+      }
+    }
   }
   private async adoptExternalModelSelection(): Promise<void> {
     const previous = this.modelSelection.get();
@@ -539,21 +698,61 @@ export class Coordinator {
   }
 
   async flushTaskOutbox(): Promise<void> {
+    if (this.outboxFlush) return this.outboxFlush;
+    const work = this.flushTaskOutboxOnce();
+    this.outboxFlush = work;
+    try {
+      await work;
+    } finally {
+      this.outboxFlush = undefined;
+    }
+  }
+
+  private async flushTaskOutboxOnce(): Promise<void> {
     const outbox = this.tasks.outbox();
     if (!outbox.length) return;
     const secrets = await credentialSecretValues(this.paths);
     for (const entry of outbox) {
-      if (entry.origin) {
+      if (
+        entry.outcome === "failed" &&
+        entry.origin &&
+        !entry.notificationDeliveredAt
+      ) {
         const scope = this.scopes.get(entry.origin.conversationId);
         if (scope?.discord) {
-          const detail = entry.result
-            ? `: ${entry.result}`
-            : entry.error
-              ? `: ${redactText(entry.error, secrets).replace(/\s+/g, " ").trim().slice(0, 300)}`
-              : "";
-          const text = `Task ${entry.taskId ?? entry.executionId} ${entry.outcome}${detail}. Inspect the complete task record with /tasks show.`;
+          const task = this.tasks
+              .snapshot()
+              .find((candidate) => candidate.executionId === entry.executionId),
+            description = taskDescription(task?.prompt ?? "Scheduled task"),
+            reason = entry.error
+              ? redactText(entry.error, secrets)
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .slice(0, 300)
+              : "No failure reason was recorded",
+            failedAt = task?.completedAt ?? entry.createdAt,
+            retryGuidance =
+              task?.triggerType === "recurring"
+                ? " Correct the problem before the next scheduled occurrence."
+                : "",
+            text = omitInternalTaskIdentifiers(
+              `${description} failed at ${failedAt}: ${reason}.${retryGuidance}`,
+              entry,
+            );
           if (!(await this.deliverDiscord(scope, text))) continue;
           await scope.conversation.append({ type: "notification", text });
+          await this.tasks.markOutboxNotificationDelivered(entry.executionId);
+          this.logger?.event(
+            "info",
+            "task.notification_delivered",
+            "delivered task outcome notification",
+            {
+              execution_id: entry.executionId,
+              schedule_id: entry.scheduleId,
+              conversation_id: scope.id,
+              outcome: entry.outcome,
+            },
+          );
         }
       }
       const response = await this.dependencies
@@ -565,7 +764,30 @@ export class Coordinator {
           { method: "POST", body: JSON.stringify(entry) },
         )
         .catch(() => undefined);
-      if (response?.ok) await this.tasks.acknowledgeOutbox(entry.executionId);
+      if (response?.ok) {
+        await this.tasks.acknowledgeOutbox(entry.executionId);
+        this.logger?.event(
+          "debug",
+          "task.outbox_acknowledged",
+          "scheduler acknowledged task outcome",
+          {
+            execution_id: entry.executionId,
+            schedule_id: entry.scheduleId,
+            outcome: entry.outcome,
+          },
+        );
+      } else
+        this.logger?.event(
+          "warn",
+          "task.outbox_ack_failed",
+          "scheduler did not acknowledge task outcome",
+          {
+            execution_id: entry.executionId,
+            schedule_id: entry.scheduleId,
+            outcome: entry.outcome,
+            status: response?.status ?? "unavailable",
+          },
+        );
     }
   }
   private async adoptGeneration(): Promise<void> {
@@ -1385,7 +1607,15 @@ export class Coordinator {
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
-        json(res, 200, { task: await this.tasks.claim() });
+        const body = await bodyJson(req),
+          modelConnections = modelConnectionFilter(body.modelConnections);
+        json(res, 200, {
+          task: await this.tasks.claim(
+            modelConnections
+              ? (task) => modelConnections.has(task.profile.connection)
+              : undefined,
+          ),
+        });
         return;
       }
       const taskDeclaration = url.pathname.match(
@@ -1480,16 +1710,31 @@ export class Coordinator {
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
+        const body = await bodyJson(req),
+          modelConnections = modelConnectionFilter(body.modelConnections);
         const result = await this.exclusiveWork(async () => {
           for (const scope of this.scopes.values()) {
             const selection = scope.modelSelection.get();
             if (!selection) continue;
+            if (modelConnections && !modelConnections.has(selection.connection))
+              continue;
             const item = await scope.queue.claim();
             if (item) return { item, selection, scope };
           }
           const scope = this.scopes.get("terminal")!;
           return { item: undefined, selection: undefined, scope };
         });
+        if (result.item)
+          this.logger?.event(
+            "info",
+            "queue.message_claimed",
+            "runner claimed conversation message",
+            {
+              message_id: result.item.id,
+              conversation_id: result.scope.id,
+              attempt: result.item.attempts,
+            },
+          );
         json(res, 200, {
           message: result.item,
           selection: result.selection ?? null,
@@ -1523,6 +1768,24 @@ export class Coordinator {
         if (!(await this.deliverDiscord(scope, text)))
           throw new IntegralError("Discord notification delivery failed", 503);
         await scope.conversation.append({ type: "notification", text });
+        res.writeHead(204).end();
+        return;
+      }
+      if (
+        url.pathname === "/integral/internal/gateway-health-notification" &&
+        req.method === "POST"
+      ) {
+        if (!this.internal(req, "gateway")) return unauthorized(res);
+        const body = await bodyJson(req),
+          status = stringValue(body.status),
+          error = stringValue(body.error);
+        if (status !== "ready" && status !== "degraded")
+          throw new IntegralError("invalid gateway health status", 400);
+        if (!(await this.notifyGatewayHealth(status, error || undefined)))
+          throw new IntegralError(
+            "Discord gateway health notification delivery failed",
+            503,
+          );
         res.writeHead(204).end();
         return;
       }
@@ -1579,6 +1842,16 @@ export class Coordinator {
             : [];
           for (const steeredId of steered)
             await scope.queue.complete(steeredId);
+          this.logger?.event(
+            "info",
+            "queue.message_completed",
+            "completed conversation message",
+            {
+              message_id: id!,
+              conversation_id: scope.id,
+              steered_message_count: steered.length,
+            },
+          );
           if (scope.id === "terminal")
             this.broadcast("conversation.assistant", event);
           else await this.deliverDiscord(scope, event.text ?? "");
@@ -1593,6 +1866,16 @@ export class Coordinator {
               )
             : [];
           for (const steeredId of steered) await scope.queue.release(steeredId);
+          this.logger?.event(
+            "warn",
+            "queue.message_released",
+            "returned interrupted conversation message to the queue",
+            {
+              message_id: id!,
+              conversation_id: scope.id,
+              steered_message_count: steered.length,
+            },
+          );
           const event = await scope.conversation.append({
             type: "error",
             messageId: id!,

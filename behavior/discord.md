@@ -99,7 +99,8 @@ Given the Discord listener receives a message in the configured DM
 			And does not add or broadcast the message to the default terminal conversation
 			And Pi processes it with only the Discord conversation's history, selected model, session, and queue state
 			And Pi may use the deployment's governed connections without gaining access to another conversation
-			And Pi receives neither the Discord bot token nor a tool for sending Discord messages
+			And Pi never receives the Discord bot token or native Discord identities
+			And Pi receives only the host-controlled Discord tool when an active Discord connection exists
 Given Integral has already imported a Discord message ID
 	When Discord delivers that message again
 		Then Integral does not create another Discord conversation message or queue entry
@@ -120,6 +121,28 @@ Given a Discord message contains both non-empty text and an unsupported attachme
 	When Integral imports the message
 		Then Integral adds only the text to the conversation
 			And replies once that the attachment was not processed
+```
+
+## DISCORD-41A4A8BD — Give Pi a governed Discord send tool
+
+```text
+Given an active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it registers `discord_send` for Pi
+			And describes that the tool sends text to the one configured Discord DM
+			And does not expose the bot token or accept Discord identity parameters
+	When Pi calls `discord_send` with non-empty text
+		Then the authenticated gateway resolves the active Discord connection
+			And asks the coordinator to send the text only to that connection's configured DM
+			And records successful delivery in the Discord conversation's history
+Given no active Discord connection is configured for the deployment
+	When Integral provisions an interactive conversation or isolated scheduled-task attempt
+		Then it does not register `discord_send`
+Given a provisioned session has `discord_send`
+	And its Discord connection becomes unavailable before a call
+	When Pi calls `discord_send`
+		Then Integral reports the delivery failure
+			And does not fall back to another channel or destination
 ```
 
 ## DISCORD-5D67C2B9 — Present Discord replies safely
@@ -211,22 +234,13 @@ Given a Pi turn originated from the configured Discord DM
 			And does not allow Pi or task content to choose or replace that route
 			And sends a receipt containing the task ID, schedule when applicable, and a one-line prompt summary only to that Discord DM
 			And records the receipt in that Discord conversation's history
-Given a task carries a Discord origin route
-	When Integral emits a task progress, approval, completion, or failure notification
-		Then Integral identifies the task by its stable ID and current state
-			And summarizes the outcome or next required action in plain language
-			And a failure includes the concise redacted recorded reason when available
-			And tells the user to inspect the complete task record with `/tasks show`
-			And does not direct the user to `/status` for a task-specific failure reason
-			And sends the notification only to the stored Discord DM route
-			And records a successfully delivered notification in the same Discord conversation's history
-			And does not display the notification in the default terminal conversation or another channel
-	When the Discord delivery fails
-		Then Integral retains the task's original route
-			And reports the delivery failure without falling back to a terminal or another channel
 Given a task was created by the CLI, a schedule, or automation without a conversation origin
 	When Integral emits a task notification
 		Then Integral does not infer the configured Discord DM as its destination
+Given a task carries a Discord origin route
+	When the Discord delivery fails
+		Then Integral retains the task's original route
+			And reports the delivery failure without falling back to a terminal or another channel
 Given a governed request originates from the Discord conversation
 	When Integral asks the user for approval
 		Then it posts an ordinary bot message in the configured DM
@@ -236,6 +250,24 @@ Given a governed request originates from the Discord conversation
 	When the approval is approved, denied, stale, expired, or fails during execution
 		Then Integral posts the resulting state only in the configured DM
 			And includes the approval ID and a concise outcome
+```
+
+## DISCORD-6640EECF — Report only titled task failures automatically
+
+```text
+Given a task carries a Discord origin route
+	When the task succeeds or is cancelled
+		Then Integral does not emit an automatic Discord outcome notification
+			And retains the complete outcome in the durable task record
+	When the task fails and Integral emits its automatic Discord outcome notification
+		Then Integral identifies the task by its `Task: <title>.` prompt title when present
+			Or by a concise prompt description when no title is present
+			And never includes the internal task, execution, or schedule ID
+			And includes the failure timing and concise redacted recorded reason when available
+			And includes retry guidance when available
+			And sends the notification only to the stored Discord DM route
+			And records a successfully delivered notification in the same Discord conversation's history
+			And does not display the notification in the default terminal conversation or another channel
 ```
 
 ## DISCORD-89FAF039 — Handle Discord commands on the host
@@ -296,4 +328,23 @@ Given the core Integral server is healthy
 			And includes Discord listener health
 			And identifies the configured bot, user, and DM without printing credentials
 			And reports conversation-specific queue and session state with an unambiguous conversation label
+```
+
+## DISCORD-A9DA6034 — Report gateway health incidents directly
+
+```text
+Given the Discord listener and gateway are running
+	When the gateway becomes degraded with a recorded failure reason
+		Then the gateway reports the health incident to the coordinator
+			And the coordinator sends one plain-language alert directly to the configured Discord DM
+			And the alert identifies the gateway and a bounded redacted reason
+			And the alert explains that new messages remain queued
+			And the coordinator records the delivered alert in the Discord conversation history
+			And the notification does not enter or depend on the conversation queue
+	When the same degraded gateway state is observed again
+		Then the coordinator does not send a duplicate alert
+	When the gateway returns to ready after a delivered incident
+		Then the coordinator sends one direct recovery notification
+			And records the delivered recovery in the Discord conversation history
+			And permits a later gateway incident to produce a new alert
 ```
