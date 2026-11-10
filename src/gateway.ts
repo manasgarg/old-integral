@@ -13,7 +13,7 @@ import {
   loadConnections,
   markConnectionDegraded,
 } from "./connections.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import type { EffectiveConfig } from "./config.ts";
 import {
   decideRequest,
@@ -27,23 +27,27 @@ import {
   readComponentState,
   updateComponentState,
   verifyInternal,
-} from "./state.ts";
-import { IntegralError } from "./errors.ts";
-import type { Logger } from "./logging.ts";
+} from "./platform/component-identity.ts";
+import { IntegralError } from "./platform/errors.ts";
+import type { Logger } from "./platform/logging.ts";
 import { oauthAccess, refreshOAuth } from "./oauth.ts";
-import { acquireLock, atomicWrite } from "./fs.ts";
-import { readText } from "./fs.ts";
+import { acquireLock, atomicWrite } from "./platform/files.ts";
+import { readText } from "./platform/files.ts";
 import { join } from "node:path";
 import {
   nodeHttpServerRuntime,
   nodeIntervalRuntime,
   type HttpServerRuntime,
   type IntervalRuntime,
-} from "./runtime.ts";
+} from "./platform/timers-and-servers.ts";
 import { executeEmail, parseEmailOperation } from "./email.ts";
-import { internalFetch } from "./http-client.ts";
+import { internalFetch } from "./platform/internal-http-client.ts";
 import { callRemoteMcp } from "./mcp.ts";
-import { readJsonObject, readRequestBody, writeJson } from "./http-server.ts";
+import {
+  readJsonObject,
+  readRequestBody,
+  writeJson,
+} from "./platform/json-http.ts";
 import {
   createResource,
   discardRepositoryRecovery,

@@ -3,7 +3,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { PI_VERSION } from "../src/constants.ts";
+import { PI_VERSION } from "../src/platform/constants.ts";
+import { packageFile } from "../src/platform/package-files.ts";
 import {
   ensurePiRuntime,
   type PiPackageOperations,
@@ -61,10 +62,7 @@ test("[BOX-E1F472A1] a failed install of the pinned Pi version fails clearly wit
 });
 
 test("[BOX-E1F472A1] the default image recipe installs the pinned Pi version, never latest", async () => {
-  const dockerfile = await readFile(
-    new URL("../../Dockerfile.pi", import.meta.url),
-    "utf8",
-  );
+  const dockerfile = await readFile(packageFile("Dockerfile.pi"), "utf8");
 
   assert.match(dockerfile, /^ARG PI_VERSION=(.+)$/m);
   assert.equal(dockerfile.match(/^ARG PI_VERSION=(.+)$/m)?.[1], PI_VERSION);

@@ -1,19 +1,19 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { nextCronInstant } from "./cron.ts";
 import type { EffectiveConfig } from "./config.ts";
-import { IntegralError } from "./errors.ts";
-import { internalFetch } from "./http-client.ts";
+import { IntegralError } from "./platform/errors.ts";
+import { internalFetch } from "./platform/internal-http-client.ts";
 import {
   OccurrenceStore,
   type ScheduledOccurrence,
 } from "./occurrence-store.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   nodeHttpServerRuntime,
   nodeIntervalRuntime,
   type HttpServerRuntime,
   type IntervalRuntime,
-} from "./runtime.ts";
+} from "./platform/timers-and-servers.ts";
 import { ScheduleStore } from "./schedule-store.ts";
 import type {
   CreateSchedule,
@@ -21,9 +21,13 @@ import type {
   ScheduleTrigger,
   UpdateSchedule,
 } from "./schedule-types.ts";
-import { componentIdentity, deploymentId, verifyInternal } from "./state.ts";
-import { readJsonObject, writeJson } from "./http-server.ts";
-import type { Logger } from "./logging.ts";
+import {
+  componentIdentity,
+  deploymentId,
+  verifyInternal,
+} from "./platform/component-identity.ts";
+import { readJsonObject, writeJson } from "./platform/json-http.ts";
+import type { Logger } from "./platform/logging.ts";
 
 export interface SchedulerDependencies {
   servers: HttpServerRuntime;

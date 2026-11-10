@@ -38,12 +38,12 @@ import {
 } from "../src/connections.ts";
 import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
 import { certificateFor, ensureCa } from "../src/ca.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 import {
   deploymentId,
   readComponentState,
   writeComponentState,
-} from "../src/state.ts";
+} from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 import {
   cleanupResourceProjection,

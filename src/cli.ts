@@ -10,7 +10,7 @@ import {
   COMPONENTS,
   PI_VERSION,
   type Component,
-} from "./constants.ts";
+} from "./platform/constants.ts";
 import {
   CATALOG,
   listConnections,
@@ -23,12 +23,15 @@ import {
   type AuthMethod,
   type Connection,
 } from "./connections.ts";
-import { resolvePaths } from "./paths.ts";
-import { messageOf, IntegralError } from "./errors.ts";
+import { resolvePaths } from "./platform/deployment-paths.ts";
+import { messageOf, IntegralError } from "./platform/errors.ts";
 import { serverStatus, startComponents } from "./server.ts";
-import { componentEndpoint, verifiedFetch } from "./http-client.ts";
+import {
+  componentEndpoint,
+  verifiedFetch,
+} from "./platform/internal-http-client.ts";
 import { oauthAccess, runGenericOAuth, runModelOAuth } from "./oauth.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   discoverMcpAuthorization,
   discoverRemoteMcp,

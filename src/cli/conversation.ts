@@ -1,8 +1,11 @@
-import { IntegralError } from "../errors.ts";
-import { componentEndpoint, verifiedFetch } from "../http-client.ts";
+import { IntegralError } from "../platform/errors.ts";
+import {
+  componentEndpoint,
+  verifiedFetch,
+} from "../platform/internal-http-client.ts";
 import type { ModelSelection } from "../model-selection.ts";
-import type { IntegralPaths } from "../paths.ts";
-import { resolvePaths } from "../paths.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
+import { resolvePaths } from "../platform/deployment-paths.ts";
 import { fetchJson, requestJson } from "./http.ts";
 
 const STATUS_HELP = `Usage: integral status [--json]

@@ -15,14 +15,14 @@ import {
   saveConnection,
   validateConnection,
 } from "../src/connections.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 import { Runner, type RunnerClock } from "../src/runner.ts";
 import type { ResourceProjection } from "../src/resources.ts";
 import {
   deploymentId,
   readComponentState,
   writeComponentState,
-} from "../src/state.ts";
+} from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 
 function emptyProjection(sessionId: string): ResourceProjection {

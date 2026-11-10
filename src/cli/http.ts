@@ -1,4 +1,4 @@
-import { IntegralError } from "../errors.ts";
+import { IntegralError } from "../platform/errors.ts";
 
 export async function fetchJson(
   url: URL,

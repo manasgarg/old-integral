@@ -1,8 +1,8 @@
 import type { EffectiveConfig } from "../config.ts";
 import type { ContainerBackend, McpSidecarSpec } from "../container.ts";
-import type { Logger } from "../logging.ts";
+import type { Logger } from "../platform/logging.ts";
 import type { McpCatalog, McpRuntime } from "../mcp.ts";
-import { IntegralError } from "../errors.ts";
+import { IntegralError } from "../platform/errors.ts";
 
 export class McpSidecarManager {
   private readonly sessions = new Map<string, Map<string, McpRuntime>>();

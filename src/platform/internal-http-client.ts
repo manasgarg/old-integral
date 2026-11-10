@@ -1,11 +1,11 @@
 import type { Component } from "./constants.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./deployment-paths.ts";
 import {
   componentIdentity,
   deploymentId,
   internalHeaders,
   readComponentState,
-} from "./state.ts";
+} from "./component-identity.ts";
 import { IntegralError } from "./errors.ts";
 
 export async function componentEndpoint(

@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   spawn,
   spawnSync,
@@ -13,9 +12,9 @@ import { createInterface } from "node:readline";
 import type { EffectiveConfig } from "./config.ts";
 import type { Connection } from "./connections.ts";
 import type { ResourceProjection } from "./resources.ts";
-import { IntegralError } from "./errors.ts";
-import { atomicWrite, ensureDir } from "./fs.ts";
-import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./constants.ts";
+import { IntegralError } from "./platform/errors.ts";
+import { atomicWrite, ensureDir } from "./platform/files.ts";
+import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./platform/constants.ts";
 import { OAUTH_SENTINEL, SENTINEL } from "./gateway-policy.ts";
 import { DEFAULT_CONTAINER_PACKAGES } from "./container-packages.ts";
 import {
@@ -35,6 +34,7 @@ export {
   type PiProtocolEvent,
   type PiProtocolResult,
 } from "./container/pi-protocol.ts";
+import { packageFile } from "./platform/package-files.ts";
 
 export interface ContainerSpec {
   image: string;
@@ -691,9 +691,7 @@ export default function (pi) {
 
 export async function writeWebExtension(sessionHome: string): Promise<void> {
   const directory = join(sessionHome, ".integral", "extensions"),
-    source = await readFile(
-      fileURLToPath(new URL("./integral-web.mjs", import.meta.url)),
-    );
+    source = await readFile(packageFile("dist/src/integral-web.mjs"));
   await ensureDir(directory);
   await atomicWrite(join(directory, "integral-web.mjs"), source);
 }
@@ -898,12 +896,8 @@ export function managedPiImage(
   recipeInputs?: readonly Uint8Array[],
   systemPackages: readonly string[] = DEFAULT_CONTAINER_PACKAGES,
 ): string {
-  const dockerfile = fileURLToPath(
-      new URL("../../Dockerfile.pi", import.meta.url),
-    ),
-    modelBridge = fileURLToPath(
-      new URL("../../bin/integral-pi-models.mjs", import.meta.url),
-    ),
+  const dockerfile = packageFile("Dockerfile.pi"),
+    modelBridge = packageFile("bin/integral-pi-models.mjs"),
     inputs = recipeInputs ?? [
       readFileSync(dockerfile),
       readFileSync(modelBridge),
@@ -957,10 +951,8 @@ export function ensureContainerImage(
     return existing;
 
   if (config.runner.image === DEFAULT_PI_IMAGE) {
-    const dockerfile = fileURLToPath(
-      new URL("../../Dockerfile.pi", import.meta.url),
-    );
-    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const dockerfile = packageFile("Dockerfile.pi");
+    const root = packageFile(".");
 
     const result = spawnSync(
       "docker",

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import test from "node:test";
-import { IntegralError } from "../src/errors.ts";
-import { readJsonObject, readRequestBody } from "../src/http-server.ts";
+import { IntegralError } from "../src/platform/errors.ts";
+import { readJsonObject, readRequestBody } from "../src/platform/json-http.ts";
 
 function request(
   chunks: Array<string | Buffer>,

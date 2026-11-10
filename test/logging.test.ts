@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Logger, REDACTED, redact } from "../src/logging.ts";
+import { Logger, REDACTED, redact } from "../src/platform/logging.ts";
 
 /* @covers LOG-B7E30A19
 Given effective log format is `json`

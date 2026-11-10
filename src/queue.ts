@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { appendFile, open } from "node:fs/promises";
 import { dirname } from "node:path";
-import { atomicWrite, ensureDir, readText } from "./fs.ts";
-import { IntegralError } from "./errors.ts";
+import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
+import { IntegralError } from "./platform/errors.ts";
 import type { ModelSelection } from "./model-selection.ts";
-import { SerialExecutor } from "./persistence/serial-executor.ts";
+import { SerialExecutor } from "./platform/serial-executor.ts";
 
 export type QueueStatus = "queued" | "in-flight" | "steering";
 

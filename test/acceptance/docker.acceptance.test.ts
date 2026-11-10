@@ -15,7 +15,7 @@ import {
 } from "../../src/container.ts";
 import { loadConfig } from "../../src/config.ts";
 import { validateConnection } from "../../src/connections.ts";
-import { deploymentId } from "../../src/state.ts";
+import { deploymentId } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
 import { ensurePiRuntime } from "../../src/pi-runtime.ts";
 import {

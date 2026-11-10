@@ -16,9 +16,9 @@ import { promisify } from "node:util";
 import test from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { validateConnection } from "../src/connections.ts";
-import { readText } from "../src/fs.ts";
+import { readText } from "../src/platform/files.ts";
 import { Gateway } from "../src/gateway.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 import {
   addHostResource,
   cleanupResourceProjection,
@@ -40,7 +40,7 @@ import {
   PI_PROFILE_NAME,
   validateMountPath,
 } from "../src/resources.ts";
-import { deploymentId } from "../src/state.ts";
+import { deploymentId } from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 
 const run = promisify(execFile);

@@ -12,14 +12,20 @@ import {
 } from "../src/connections.ts";
 import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
 import { ApprovalStore } from "../src/approval-store.ts";
-import { pathsFor, type IntegralPaths } from "../src/paths.ts";
+import {
+  pathsFor,
+  type IntegralPaths,
+} from "../src/platform/deployment-paths.ts";
 import {
   ConversationStore,
   DurableQueue,
   ModelSelectionStore,
 } from "../src/queue.ts";
-import { nodeHttpServerRuntime } from "../src/runtime.ts";
-import { deploymentId, writeComponentState } from "../src/state.ts";
+import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
+import {
+  deploymentId,
+  writeComponentState,
+} from "../src/platform/component-identity.ts";
 import { DurableTaskQueue } from "../src/task-queue.ts";
 import { fixture } from "./helpers.ts";
 

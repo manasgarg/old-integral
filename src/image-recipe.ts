@@ -13,13 +13,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { EffectiveConfig } from "./config.ts";
-import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./constants.ts";
-import { IntegralError } from "./errors.ts";
-import { acquireLock, ensureDir } from "./fs.ts";
-import type { IntegralPaths } from "./paths.ts";
+import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./platform/constants.ts";
+import { IntegralError } from "./platform/errors.ts";
+import { acquireLock, ensureDir } from "./platform/files.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { packageFile } from "./platform/package-files.ts";
 
 const run = promisify(execFile);
 
@@ -90,7 +90,7 @@ interface FoundationalMigration {
 }
 
 function bundledDockerfile(): string {
-  return fileURLToPath(new URL("../../Dockerfile.pi", import.meta.url));
+  return packageFile("Dockerfile.pi");
 }
 
 export async function bundledFoundationalImage(): Promise<string> {
@@ -183,9 +183,7 @@ async function landFoundationalMigration(
 }
 
 function modelBridge(): string {
-  return fileURLToPath(
-    new URL("../../bin/integral-pi-models.mjs", import.meta.url),
-  );
+  return packageFile("bin/integral-pi-models.mjs");
 }
 
 export async function ensureImageRecipeRepository(

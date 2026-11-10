@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { atomicWrite, ensureDir, readText } from "./fs.ts";
+import { atomicWrite, ensureDir, readText } from "./files.ts";
 import { open } from "node:fs/promises";
 import type { Component } from "./constants.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./deployment-paths.ts";
 
 export interface ComponentState {
   component: Component;

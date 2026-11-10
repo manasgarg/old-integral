@@ -8,8 +8,8 @@ import {
   markConnectionDegraded,
   type Connection,
 } from "./connections.ts";
-import type { IntegralPaths } from "./paths.ts";
-import type { Logger } from "./logging.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import type { Logger } from "./platform/logging.ts";
 import {
   buildContainerSpec,
   dockerAvailable,
@@ -37,18 +37,21 @@ import {
   type ResourceProjection,
 } from "./resources.ts";
 import { ensureCa } from "./ca.ts";
-import { componentEndpoint, internalFetch } from "./http-client.ts";
+import {
+  componentEndpoint,
+  internalFetch,
+} from "./platform/internal-http-client.ts";
 import {
   componentIdentity,
   deploymentId,
   readComponentState,
   type ComponentState,
   verifyInternal,
-} from "./state.ts";
-import { updateComponentState } from "./state.ts";
-import { ensureDir, readText } from "./fs.ts";
+} from "./platform/component-identity.ts";
+import { updateComponentState } from "./platform/component-identity.ts";
+import { ensureDir, readText } from "./platform/files.ts";
 import { join } from "node:path";
-import { IntegralError } from "./errors.ts";
+import { IntegralError } from "./platform/errors.ts";
 import { oauthAccess } from "./oauth.ts";
 import {
   discoverRemoteMcp,
@@ -69,7 +72,7 @@ import {
   type RunRecorder,
   type RunTermination,
 } from "./run-store.ts";
-import { readJsonObject } from "./http-server.ts";
+import { readJsonObject } from "./platform/json-http.ts";
 import { McpSidecarManager } from "./runner/mcp-sidecars.ts";
 
 export interface RunnerClock {

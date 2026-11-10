@@ -1,7 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathsFor, type IntegralPaths } from "../src/paths.ts";
+import {
+  pathsFor,
+  type IntegralPaths,
+} from "../src/platform/deployment-paths.ts";
 
 export async function fixture(t: {
   after(fn: () => unknown): void;

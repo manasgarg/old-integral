@@ -32,9 +32,14 @@ import {
   saveConnection,
   type Connection,
 } from "./connections.ts";
-import { IntegralError } from "./errors.ts";
-import { acquireLock, atomicWrite, ensureDir, readText } from "./fs.ts";
-import type { IntegralPaths } from "./paths.ts";
+import { IntegralError } from "./platform/errors.ts";
+import {
+  acquireLock,
+  atomicWrite,
+  ensureDir,
+  readText,
+} from "./platform/files.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   IMAGE_RECIPE_ID,
   IMAGE_RECIPE_MOUNT,

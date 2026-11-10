@@ -18,8 +18,8 @@ import {
   validateImageDockerfile,
 } from "../src/image-recipe.ts";
 import { loadConfig } from "../src/config.ts";
-import { PI_VERSION } from "../src/constants.ts";
-import type { IntegralPaths } from "../src/paths.ts";
+import { PI_VERSION } from "../src/platform/constants.ts";
+import type { IntegralPaths } from "../src/platform/deployment-paths.ts";
 import { fixture } from "./helpers.ts";
 
 const run = promisify(execFile);

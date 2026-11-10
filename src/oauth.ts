@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
 import type { Connection } from "./connections.ts";
-import { IntegralError } from "./errors.ts";
-import type { IntegralPaths } from "./paths.ts";
+import { IntegralError } from "./platform/errors.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   ensurePiRuntime,
   loadPiRuntimeModule,
