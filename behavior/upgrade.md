@@ -2,28 +2,42 @@
 
 These behaviors cover how a deployment's durable data is versioned and
 migrated, how migrations are proven before they run, and how a new release of
-Integral replaces the running one. A deployment's data carries one deployment
-format number. Each release of Integral supports exactly one format, called
-its current format. Migrations only move a deployment forward. Going back to an
-older release means restoring the backup taken before the upgrade, never
-running a reverse migration.
+Integral replaces the running one. [`docs/upgrades.md`](../docs/upgrades.md)
+describes the whole workflow.
 
-`<release-root>` is where deploy keeps installed releases, the `current`
-symlink, backups, and the deploy log. It defaults to
-`$HOME/.local/share/integral` and sits outside the deployment home, so
-restoring a backup never overwrites the backups or the log.
+Terms used below:
+
+- **Deployment home**: the directory `INTEGRAL_HOME` names. Its `config/` and
+  `data/` hold everything a deployment keeps. The production deployment home
+  is `$HOME/.integral`.
+- **Release**: one installed build of Integral, identified by the Git commit
+  it was built from.
+- **Deployment format**: a whole number recorded in the deployment's data. It
+  says which layout the files under `data/` and `config/` follow. A release
+  that changes that layout raises the number.
+- **Current format**: the deployment format a release reads and writes. Each
+  release supports exactly one.
+- **Migration**: code in a release that rewrites a deployment's files from one
+  format to the next. Migrations only move forward. Going back to an older
+  release means restoring the backup taken before the upgrade.
+- **Release root**: `<release-root>`, where deploy keeps installed releases,
+  the `current` symlink to the active release, backups, and the deploy log. It
+  defaults to `$HOME/.local/share/integral` and sits outside the deployment
+  home, so restoring a backup never overwrites the backups or the log.
 
 ## UPGRADE-13E4E25F — Record the deployment format
 
 ```text
-Given a deployment home
-	When integral creates the deployment's data directory for the first time
+Given a deployment home whose `data/` directory does not exist yet
+	When integral creates `data/` for a new deployment
 		Then it writes `data/deployment-format.json` atomically
-			And records the current format
+			And records the release's current format as the deployment format
 			And records the release that wrote it
-	When the data directory exists without `data/deployment-format.json`
-		Then integral treats the deployment as format 0
-			And does not create the format file outside `integral migrate`
+Given a deployment home whose `data/` was created before deployment formats existed
+	When integral reads the deployment format
+		Then it finds no `data/deployment-format.json`
+			And treats the deployment format as 0
+			And leaves `integral migrate` as the only command that writes the format file for that deployment
 ```
 
 ## UPGRADE-687E186E — Refuse to run on an older deployment format
@@ -158,18 +172,21 @@ Given the commit passed the deploy checks
 		Then deploy reuses it without rebuilding
 ```
 
-## UPGRADE-1F1E078F — Run the deployment as a user service
+## UPGRADE-1F1E078F — Keep the production release running with systemd
 
 ```text
-Given a release is active
-	When the service manager starts integral
-		Then it runs `<release-root>/current/bin/integral.js server start`
-			And sets `INTEGRAL_HOME` explicitly to the production deployment home
-			And restarts it after an unexpected exit
-			And sends its output to the user journal
-	When deploy installs or updates the service definition
-		Then it does so before starting the new release
-			And reports the service's name
+Given deploy has installed a release
+	When deploy sets up the service
+		Then it writes a systemd user unit named `integral.service`
+			And the unit runs `<release-root>/current/bin/integral.js server start`
+			And the unit sets `INTEGRAL_HOME` to the production deployment home
+			And deploy reloads systemd before starting the service
+	When the integral server exits unexpectedly
+		Then systemd starts it again
+	When the user logs in after the machine restarts
+		Then systemd starts the integral server
+	When the integral server writes output
+		Then the user can read it with `journalctl --user -u integral`
 ```
 
 ## UPGRADE-E93D63FA — Rehearse the upgrade on a copy
@@ -179,13 +196,21 @@ Given the new release is installed
 	When deploy rehearses the upgrade
 		Then it copies the production deployment's `config/` and `data/` into a temporary deployment home
 			And runs the new release's `integral migrate` against the copy
-			And runs the new release's `integral doctor` against the copy
-			And removes the copy afterwards
+			And then runs the new release's `integral doctor` against the copy
 			And does this while the running release keeps serving
-	When the rehearsal fails
-		Then deploy stops before touching the running release or the deployment
-			And reports the failed migration or doctor finding
-			And keeps the failed copy for inspection and names its path
+	When the copy completes
+		And `integral migrate` exits successfully
+		And `integral doctor` exits successfully
+		Then the rehearsal succeeded
+			And deploy removes the copy
+	When the copy fails
+		Or `integral migrate` exits unsuccessfully
+		Or `integral doctor` exits unsuccessfully
+		Or a step runs longer than its bounded timeout
+		Then the rehearsal failed
+			And deploy stops before touching the running release or the deployment
+			And reports the failed step with its output
+			And keeps the copy for inspection and names its path
 ```
 
 ## UPGRADE-6C26AF47 — Stop and back up the deployment
