@@ -18,7 +18,7 @@ import {
   interpretPiEvent,
   type PiProtocolEvent,
 } from "../../domain/pi-rpc-protocol.ts";
-import { ensureContainerImage } from "./managed-image.ts";
+import { ensureManagedPiImage } from "./managed-image.ts";
 import { StdioMcpSidecar, type McpSidecarSpec } from "./mcp-sidecar.ts";
 
 export {
@@ -38,7 +38,7 @@ export interface ContainerSpec {
   gatewayAddress: string;
 }
 
-export interface PiRuntime {
+export interface PiSession {
   readonly spec: ContainerSpec;
   start(): Promise<void>;
   prompt(text: string): Promise<string>;
@@ -46,7 +46,7 @@ export interface PiRuntime {
   stop(): Promise<void>;
 }
 
-export interface TaskRuntime extends PiRuntime {
+export interface TaskPiSession extends PiSession {
   finish(): Promise<number>;
 }
 
@@ -68,14 +68,14 @@ export interface ContainerBackend {
     network: string,
     onStderr: (line: string) => void,
     onEvent?: (event: PiProtocolEvent) => void,
-  ): PiRuntime;
+  ): PiSession;
   createTaskPi(
     spec: ContainerSpec,
     config: EffectiveConfig,
     network: string,
     onStderr: (line: string) => void,
     onEvent?: (event: PiProtocolEvent) => void,
-  ): TaskRuntime;
+  ): TaskPiSession;
   createMcpSidecar?(
     spec: McpSidecarSpec,
     config: EffectiveConfig,
@@ -561,7 +561,7 @@ export class PiContainer {
 }
 
 export const dockerContainerBackend: ContainerBackend = {
-  ensureImage: ensureContainerImage,
+  ensureImage: ensureManagedPiImage,
   ensureNetwork: createLockedNetwork,
   networkGateway: dockerNetworkGateway,
   createPi(spec, config, network, onStderr, onEvent) {

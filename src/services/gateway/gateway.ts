@@ -28,8 +28,8 @@ import {
 import {
   componentIdentity,
   deploymentId,
-  readComponentState,
-  updateComponentState,
+  readComponentRecord,
+  updateComponentRecord,
   verifyInternal,
 } from "../../platform/component-identity.ts";
 import { IntegralError } from "../../platform/errors.ts";
@@ -39,10 +39,10 @@ import { acquireLock, atomicWrite } from "../../platform/files.ts";
 import { readText } from "../../platform/files.ts";
 import { join } from "node:path";
 import {
-  nodeHttpServerRuntime,
-  nodeIntervalRuntime,
-  type HttpServerRuntime,
-  type IntervalRuntime,
+  nodeHttpServers,
+  nodeIntervalTimers,
+  type HttpServers,
+  type IntervalTimers,
 } from "../../platform/timers-and-servers.ts";
 import { executeEmail, parseEmailOperation } from "../../integrations/email.ts";
 import { internalFetch } from "../../platform/internal-http-client.ts";
@@ -365,7 +365,7 @@ export class Gateway {
           : {}),
       };
 
-    await updateComponentState(this.paths, "gateway", health);
+    await updateComponentRecord(this.paths, "gateway", health);
     await this.publishHealthNotification(status, error);
   }
 
@@ -1608,8 +1608,8 @@ export class Gateway {
 }
 
 export interface GatewayDependencies {
-  servers: HttpServerRuntime;
-  intervals: IntervalRuntime;
+  servers: HttpServers;
+  intervals: IntervalTimers;
   ensureCa: typeof ensureCa;
   certificateFor: typeof certificateFor;
   refreshOAuth: typeof refreshOAuth;
@@ -1625,8 +1625,8 @@ export interface GatewayDependencies {
 }
 
 const productionDependencies: GatewayDependencies = {
-  servers: nodeHttpServerRuntime,
-  intervals: nodeIntervalRuntime,
+  servers: nodeHttpServers,
+  intervals: nodeIntervalTimers,
   ensureCa,
   certificateFor,
   refreshOAuth,
@@ -1649,7 +1649,7 @@ export async function gatewayHealth(paths: IntegralPaths): Promise<{
   status: "ready" | "degraded";
   error?: string;
 }> {
-  const state = await readComponentState(paths, "gateway");
+  const state = await readComponentRecord(paths, "gateway");
 
   return {
     component: "gateway",

@@ -54,8 +54,8 @@ import {
 import { Logger } from "../src/platform/logging.ts";
 import {
   deploymentId,
-  readComponentState,
-  writeComponentState,
+  readComponentRecord,
+  writeComponentRecord,
 } from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 import {
@@ -210,7 +210,7 @@ test("[GATEWAY-3F299566] gateway health identifies deployment and publishes the 
     deploymentId: deployment,
     status: "ready",
   });
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "gateway",
     deploymentId: deployment,
     endpoint: "http://127.0.0.1:7310",
@@ -261,7 +261,7 @@ test("[CONNECTION-512D9A25] OAuth refresh failure backs off until retry or crede
     }),
     credential,
   );
-  await writeComponentState(paths, {
+  await writeComponentRecord(paths, {
     component: "gateway",
     deploymentId: deploymentId(paths),
     endpoint: "http://127.0.0.1:7310",
@@ -312,7 +312,7 @@ test("[CONNECTION-512D9A25] OAuth refresh failure backs off until retry or crede
   await gateway.reload(true);
   assert.equal(refreshCalls, 1);
   assert.equal(
-    (await readComponentState(paths, "gateway"))?.degradation,
+    (await readComponentRecord(paths, "gateway"))?.degradation,
     "connection",
   );
   assert.deepEqual(
@@ -346,7 +346,7 @@ test("[CONNECTION-512D9A25] OAuth refresh failure backs off until retry or crede
   await gateway.reload(true);
   assert.equal(refreshCalls, 3);
   assert.equal(
-    (await readComponentState(paths, "gateway"))?.degradation,
+    (await readComponentRecord(paths, "gateway"))?.degradation,
     undefined,
   );
   assert.deepEqual(

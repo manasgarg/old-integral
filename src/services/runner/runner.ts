@@ -18,8 +18,8 @@ import {
   newSessionIdentity,
   writePiCredential,
   type ContainerBackend,
-  type PiRuntime,
-  type TaskRuntime,
+  type PiSession,
+  type TaskPiSession,
 } from "../../integrations/docker/pi-container.ts";
 import { type McpSidecarSpec } from "../../integrations/docker/mcp-sidecar.ts";
 import {
@@ -46,11 +46,11 @@ import {
 import {
   componentIdentity,
   deploymentId,
-  readComponentState,
-  type ComponentState,
+  readComponentRecord,
+  type ComponentRecord,
   verifyInternal,
 } from "../../platform/component-identity.ts";
-import { updateComponentState } from "../../platform/component-identity.ts";
+import { updateComponentRecord } from "../../platform/component-identity.ts";
 import { ensureDir, readText } from "../../platform/files.ts";
 import { join } from "node:path";
 import { IntegralError } from "../../platform/errors.ts";
@@ -168,7 +168,7 @@ async function recordResourceProjection(
   });
 }
 
-function gatewayAllowsClaims(state: ComponentState | undefined): boolean {
+function gatewayAllowsClaims(state: ComponentRecord | undefined): boolean {
   return (
     state?.status === "ready" ||
     (state?.status === "degraded" && state.degradation === "connection")
@@ -177,7 +177,7 @@ function gatewayAllowsClaims(state: ComponentState | undefined): boolean {
 
 export class Runner {
   private server: http.Server | undefined;
-  private pi: PiRuntime | undefined;
+  private pi: PiSession | undefined;
   private stopped = false;
   private polling: unknown;
   private busy = false;
@@ -194,7 +194,7 @@ export class Runner {
   private steeredMessageIds: string[] = [];
   private currentTask:
     { id: string; claimId: string; attemptId?: string } | undefined;
-  private activeTaskRuntime: TaskRuntime | undefined;
+  private activeTaskRuntime: TaskPiSession | undefined;
   private taskRun: RunRecorder | undefined;
   private taskHistoryView: string | undefined;
   private taskResources: ResourceProjection | undefined;
@@ -334,7 +334,7 @@ export class Runner {
 
     const server = http.createServer((req, res) => {
       if (req.url === "/integral/health") {
-        void readComponentState(this.paths, "runner").then((state) => {
+        void readComponentRecord(this.paths, "runner").then((state) => {
           res.setHeader("content-type", "application/json");
           res.end(
             JSON.stringify({
@@ -486,15 +486,15 @@ export class Runner {
     if (this.taskBusy || this.stopped) return;
     this.taskBusy = true;
     let task: ScheduledTask | undefined,
-      runtime: TaskRuntime | undefined,
+      runtime: TaskPiSession | undefined,
       exitCode: number | undefined,
       turnStarted: number | undefined;
 
     try {
       const [coordinatorState, gatewayState, generationRaw] = await Promise.all(
         [
-          readComponentState(this.paths, "coordinator"),
-          readComponentState(this.paths, "gateway"),
+          readComponentRecord(this.paths, "coordinator"),
+          readComponentRecord(this.paths, "gateway"),
           readText(join(this.paths.state, "connection-generation")),
         ],
       );
@@ -724,7 +724,7 @@ export class Runner {
     }
   }
 
-  private async createTaskRuntime(task: ScheduledTask): Promise<TaskRuntime> {
+  private async createTaskRuntime(task: ScheduledTask): Promise<TaskPiSession> {
     const resolvedImage = await this.dependencies.containers.ensureImage(
       this.config,
       task.profile.piVersion,
@@ -768,7 +768,7 @@ export class Runner {
     });
     this.taskRun = recorder;
 
-    let historyView: string | undefined, runtime: TaskRuntime | undefined;
+    let historyView: string | undefined, runtime: TaskPiSession | undefined;
     try {
       historyView = await this.runs.createHistoryView(recorder);
       this.taskHistoryView = historyView;
@@ -859,15 +859,15 @@ export class Runner {
     try {
       const [coordinatorState, gatewayState, generationRaw, sessionRaw] =
         await Promise.all([
-          readComponentState(this.paths, "coordinator"),
-          readComponentState(this.paths, "gateway"),
+          readComponentRecord(this.paths, "coordinator"),
+          readComponentRecord(this.paths, "gateway"),
           readText(join(this.paths.state, "connection-generation")),
           readText(join(this.paths.state, "session-generation")),
         ]);
       const generation = Number(generationRaw?.trim() || "0"),
         sessionGeneration = Number(sessionRaw?.trim() || generation);
 
-      await updateComponentState(this.paths, "runner", {
+      await updateComponentRecord(this.paths, "runner", {
         connectionGeneration: generation,
         status: "ready",
       });
@@ -1037,7 +1037,7 @@ export class Runner {
           : {}),
       });
 
-      await updateComponentState(this.paths, "runner", {
+      await updateComponentRecord(this.paths, "runner", {
         status: "degraded",
         error: error instanceof Error ? error.message : String(error),
       });
@@ -1183,7 +1183,7 @@ export class Runner {
         text: renderContext(context),
       });
 
-    let historyView: string | undefined, pi: PiRuntime | undefined;
+    let historyView: string | undefined, pi: PiSession | undefined;
     try {
       historyView = await this.observeStage(
         "create-history-view",

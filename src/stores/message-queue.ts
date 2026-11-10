@@ -88,7 +88,7 @@ function snowflakeWorkerId(file: string): number {
   );
 }
 
-export class DurableQueue {
+export class MessageQueue {
   private data: QueueFile = { nextOrder: 1, items: [] };
   private readonly operations = new SerialExecutor();
   private readonly workerId: number;

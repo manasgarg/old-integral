@@ -10,8 +10,8 @@ import {
   discordChunks,
   verifyDiscordBot,
 } from "../src/integrations/discord.ts";
-import { DurableQueue } from "../src/stores/message-queue.ts";
-import { DurableTaskQueue } from "../src/stores/task-queue.ts";
+import { MessageQueue } from "../src/stores/message-queue.ts";
+import { TaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 test("Discord connection binds immutable application, bot, user, and DM IDs", () => {
@@ -102,7 +102,7 @@ test("Discord ingress checkpoints and queue origins survive restart without dupl
       "queue.json",
     ),
     ingress = new DiscordIngressStore(stateFile),
-    queue = new DurableQueue(queueFile),
+    queue = new MessageQueue(queueFile),
     origin = {
       provider: "discord" as const,
       externalId: "110000000000000001",
@@ -118,7 +118,7 @@ test("Discord ingress checkpoints and queue origins survive restart without dupl
   assert.equal(queue.snapshot().length, 1);
 
   const restoredIngress = new DiscordIngressStore(stateFile),
-    restoredQueue = new DurableQueue(queueFile);
+    restoredQueue = new MessageQueue(queueFile);
   await restoredIngress.load();
   await restoredQueue.load();
   assert.equal(restoredIngress.position(), origin.externalId);
@@ -130,7 +130,7 @@ test("Discord ingress checkpoints and queue origins survive restart without dupl
 
 test("Discord steering state becomes queued after restart if delivery did not finish", async (t) => {
   const paths = await fixture(t),
-    queue = new DurableQueue(paths.queue),
+    queue = new MessageQueue(paths.queue),
     first = await queue.enqueue("first"),
     later = await queue.enqueue("change direction");
   await queue.claim();
@@ -142,7 +142,7 @@ test("Discord steering state becomes queued after restart if delivery did not fi
       { id: later.id, status: "steering" },
     ],
   );
-  const restored = new DurableQueue(paths.queue);
+  const restored = new MessageQueue(paths.queue);
   await restored.load();
   assert.deepEqual(
     restored.snapshot().map((message) => message.status),
@@ -161,7 +161,7 @@ test("Discord reply chunks preserve order, Unicode pairs, and the message limit"
 
 test("Discord task origin survives acceptance and completion outbox persistence", async (t) => {
   const paths = await fixture(t),
-    tasks = new DurableTaskQueue(paths),
+    tasks = new TaskQueue(paths),
     origin = {
       provider: "discord" as const,
       conversationId: "discord:100000000000000004",

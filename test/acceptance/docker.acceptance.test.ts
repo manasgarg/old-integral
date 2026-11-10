@@ -12,7 +12,7 @@ import {
   newSessionIdentity,
 } from "../../src/integrations/docker/pi-container.ts";
 import { writeWebExtension } from "../../src/integrations/pi/session-extensions.ts";
-import { ensureContainerImage } from "../../src/integrations/docker/managed-image.ts";
+import { ensureManagedPiImage } from "../../src/integrations/docker/managed-image.ts";
 import { loadConfig } from "../../src/stores/config.ts";
 import { validateConnection } from "../../src/stores/connection-store.ts";
 import { deploymentId } from "../../src/platform/component-identity.ts";
@@ -51,7 +51,7 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] [WEB-2ED07
   await writeFile(join(currentRun, "run.json"), '{"status":"running"}\n');
   await writeFile(caCert, "acceptance CA fixture\n");
   await writeFile(caBundle, "acceptance CA fixture\n");
-  const image = ensureContainerImage(config, "0.80.3");
+  const image = ensureManagedPiImage(config, "0.80.3");
   await createLockedNetwork(network);
   const identity = newSessionIdentity(),
     spec = buildContainerSpec({
@@ -253,7 +253,7 @@ test("[BOX-E1F472A1] managed Pi image exposes its model catalog through integral
   );
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
-    image = ensureContainerImage(config, "0.80.3"),
+    image = ensureManagedPiImage(config, "0.80.3"),
     output = execFileSync(
       "docker",
       [
@@ -288,7 +288,7 @@ test("[CONNECTION-12C87631] managed Pi image includes Git and GitHub clients", a
   );
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
-    image = ensureContainerImage(config, "0.80.3");
+    image = ensureManagedPiImage(config, "0.80.3");
   for (const command of [
     ["git", "--version"],
     ["gh", "--version"],
@@ -312,7 +312,7 @@ test("[BOX-40521095] managed image contains the exact Pi release and governed De
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     runtime = await ensurePiRuntime(paths),
-    image = ensureContainerImage(config, runtime.version, {
+    image = ensureManagedPiImage(config, runtime.version, {
       systemPackages: ["ca-certificates", "gh", "git", "jq"],
     }),
     piVersion = execFileSync(

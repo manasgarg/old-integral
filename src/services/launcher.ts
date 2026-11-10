@@ -6,10 +6,10 @@ import type { EffectiveConfig } from "../stores/config.ts";
 import { acquireLock, readText } from "../platform/files.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import {
-  componentStatePath,
+  componentRecordPath,
   deploymentId,
-  readComponentState,
-  writeComponentState,
+  readComponentRecord,
+  writeComponentRecord,
 } from "../platform/component-identity.ts";
 import { Coordinator } from "./coordinator/coordinator.ts";
 import { Gateway } from "./gateway/gateway.ts";
@@ -155,7 +155,7 @@ export async function startComponents(
         );
       }
 
-      await rm(componentStatePath(paths, item.component), { force: true });
+      await rm(componentRecordPath(paths, item.component), { force: true });
 
       try {
         await item.unlock();
@@ -234,7 +234,7 @@ export async function startComponents(
       started.push({ component, stop, unlock, logger });
 
       const generation = await connectionGeneration(paths);
-      await writeComponentState(paths, {
+      await writeComponentRecord(paths, {
         component,
         deploymentId: deploymentId(paths),
         endpoint:
@@ -283,7 +283,7 @@ export async function serverStatus(
   ) => Promise<boolean> = probeComponent,
 ): Promise<DeploymentStatus> {
   const recorded = await Promise.all(
-    COMPONENTS.map((component) => readComponentState(paths, component)),
+    COMPONENTS.map((component) => readComponentRecord(paths, component)),
   );
 
   const entries = await Promise.all(
