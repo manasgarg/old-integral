@@ -1,7 +1,9 @@
 # Container behaviors
 
-These behaviors cover the runner component provisioning and managing the warm
-Pi RPC container.
+These behaviors cover core's box: provisioning the Pi container from its
+image, restricting it, running Pi over RPC, and ending the session. The box is
+disposable. Anything that must outlive it leaves through the conversation
+record, the run record, a governed repository, a store, or the gateway.
 
 <!-- Automation note (BOX-AB639757): The image, RPC command, session restoration, and lifecycle orchestration are automated; launching the real image is not run in the default suite because its execution environment has no Docker-daemon access. -->
 <!-- Automation note (BOX-601613D4): The default suite verifies the complete Docker argument and mount specification; `npm run test:acceptance:docker` inspects the live container's kernel-enforced identity, filesystem, capabilities, resources, mounts, and network. -->
@@ -21,8 +23,10 @@ Given the coordinator, runner, and gateway are healthy
 	When the runner claims the next queued message from the coordinator
 		Then integral creates a fresh temporary session home
 			And starts one non-root Docker container for Pi on the locked network
+			And runs each enabled extension's preparation step before starting Pi
 			And runs the immutable Pi image recorded with the conversation selection in RPC mode with session persistence and approval prompts disabled
 			And runs Pi offline so Pi does not perform its own startup network operations
+			And loads every enabled extension into Pi
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
@@ -72,12 +76,13 @@ Given integral is provisioning a Pi container
 			And uses a read-only root filesystem
 			And mounts `/tmp` as a size-bounded `tmpfs` with execution and set-user-ID disabled
 			And mounts one fresh session home and explicitly configured host stores as the only writable host filesystems
-			And places governed per-run repository checkouts only inside that fresh session home
+			And keeps every repository clone inside that fresh session home
 			And mounts each host store only at its recorded mount path
 			And does not mount canonical repositories or unconfigured host directories
 			And does not mount the Docker socket
 			And does not mount control-plane configuration or credentials
-			And mounts only the gateway CA, curated read-only run history, fresh temporary session home, store lock namespace, and configured store directories as required
+			And mounts only the gateway CA, bundled extension packages, curated read-only run history, unrecovered session homes, fresh temporary session home, store lock namespace, and configured store directories as required
+			And mounts bundled extension packages, run history, and unrecovered session homes read-only
 			And uses server-created history mount destinations that remain removable during session cleanup
 ```
 
@@ -90,7 +95,7 @@ Given integral has an active Pi RPC session
 			And sends it to the same Pi session
 			And preserves preceding turns as conversational context
 			And cancels a pending idle shutdown before starting the turn
-			And does not start a second Pi container or duplicate an existing MCP sidecar
+			And does not start a second Pi container or rerun extension preparation
 ```
 
 ## BOX-BE26C696 — Bound a stuck turn
@@ -98,13 +103,13 @@ Given integral has an active Pi RPC session
 ```text
 Given Pi does not finish a turn within the configured turn timeout
 	When the timeout expires
-		Then integral requests container termination
+		Then integral stops Pi
 			And reports that the turn timed out
 			And durably returns the in-flight message to the queue
-			And removes temporary session data
+			And runs extension shutdown steps within the bounded shutdown deadline
 			And revokes temporary session credentials
-			And terminates every MCP sidecar owned by the timed-out session
-			And force-removes the Docker container if it has not exited five seconds after SIGTERM
+			And force-removes the Docker container if it has not exited five seconds after the shutdown deadline
+			And removes temporary session data unless the session home is unrecovered
 ```
 
 ## BOX-7D3A19E4 — Recycle an idle Pi session without ending the conversation
@@ -113,8 +118,9 @@ Given Pi does not finish a turn within the configured turn timeout
 Given the durable queue is empty
 	And the Pi session has no turn in flight
 	When the Pi idle timeout expires
-		Then integral terminates the Pi container
-			And terminates every MCP sidecar owned by that Pi session
+		Then integral stops Pi
+			And runs extension shutdown steps within the bounded shutdown deadline
+			And terminates the Pi container
 			And revokes its temporary session token
 			And preserves the durable conversation record and queue
 			And keeps attached terminals connected
@@ -127,16 +133,16 @@ Given the durable queue is empty
 Given the runner has claimed a queued message
 	When it cannot provision or start the Pi container
 		Then integral durably returns the message to its prior queue position
-			And terminates every partially started MCP sidecar
+			And removes the partially started container
 			And records the provisioning failure
-			And reports the failure to every attached terminal
+			And reports the failure on the message's reply route
 ```
 
 ## BOX-40521095 — Govern Pi image package changes
 
 ```text
 Given Pi runs in an immutable managed image without host Docker access
-	When Pi lists the image's Debian packages through Integral's authenticated control pathway
+	When Pi lists the image's Debian packages through the Integral control API
 		Then Integral returns the durable desired package set and its revision
 			And includes the base packages required by the managed image
 	When Pi requests installation of valid Debian package names at the current revision
@@ -238,4 +244,23 @@ Given Integral owns the deployment's governed Pi image-recipe repository
 	When an image proposal or rebuild request is bound to the recipe commit from before the move
 		Then Integral rejects it without building
 			And leaves the active recipe and selected image unchanged
+```
+
+## BOX-87993E3C — Retain an unrecovered session home
+
+```text
+Given a session ends before every extension shutdown step completed
+	When integral removes the box
+		Then it keeps that session's home on the host instead of deleting it
+			And records it as unrecovered with its session and run identity
+			And revokes the ended session's credentials as usual
+	When integral provisions the next session in the deployment
+		Then it mounts each unrecovered session home read-only at `/home/pi/history/unrecovered/<session-id>`
+			And runs extension preparation steps after that mount is available
+			And deletes an unrecovered session home after every preparation step in that session succeeds
+	When an unrecovered session home exceeds the configured retention period
+		Then integral deletes it
+			And records the expiry in the run history
+	When integral restarts with unrecovered session homes
+		Then it keeps them and offers them to the next session
 ```

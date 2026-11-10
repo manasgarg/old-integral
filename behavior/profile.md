@@ -40,16 +40,16 @@ Given an earlier development version recorded `pi-profile` at `/home/pi/.pi/agen
 
 ```text
 Given the `pi-profile` repository is active and available
-	When integral provisions an interactive or isolated scheduled Pi session
-		Then it materializes a writable per-run checkout through the ordinary governed repository protocol
-			And places the checkout at `/home/pi/.pi` before Pi starts
+	When the repository extension prepares an interactive or isolated scheduled Pi session
+		Then it clones the profile through the ordinary governed repository protocol
+			And places the clone at `/home/pi/.pi` before Pi starts
 			And lets Pi discover both project resources below `/home/pi/.pi` and global resources below `/home/pi/.pi/agent`
-			And trusts project resources from this designated untrusted profile checkout inside the container
-			And records the exact profile commit with the run
+			And Pi trusts project resources from this designated untrusted profile checkout inside the container
+			And integral records the exact profile commit with the run
 			And exposes the checkout through the ordinary governed repository tools and lifecycle
-			And does not apply profile-specific parsing, validation, building, installation, or interpretation on the host
+			And integral does not apply profile-specific parsing, validation, building, installation, or interpretation on the host
 			And marks authentication, sessions, package materializations, and trust decisions as ignored through checkout-local exclusions
-			And loads Integral's trusted runtime extensions from outside the profile checkout
+			And integral loads bundled extensions from read-only packages outside the profile checkout
 
 Given the `pi-profile` repository is unavailable or soft-deleted
 	When integral provisions a Pi session

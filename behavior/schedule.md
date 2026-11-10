@@ -1,7 +1,9 @@
 # Schedule behaviors
 
 These behaviors cover Pi-managed schedules, durable occurrence delivery, and
-isolated run-to-completion task execution.
+isolated run-to-completion task execution. The scheduler is a channel without a
+human, as described in [`channel.md`](channel.md); task tools come from the
+bundled task extension.
 
 ## SCHEDULE-55BD779F — Manage schedules through the gateway
 
@@ -10,7 +12,7 @@ Given Pi has an authenticated Integral session
 	And the session may be an interactive conversation or isolated scheduled-task attempt
 	And the invocation may have originated from the terminal, Discord, or another supported human channel
 	When Pi creates a recurring schedule with a five-field cron expression, IANA timezone, and self-contained task prompt
-		Then the request passes through the authenticated gateway control boundary
+		Then the request passes to the Integral control API through the gateway
 			And the scheduler validates the expression, timezone, minimum frequency, and task size
 			And durably records a stable schedule ID and revision before acknowledging it
 			And does not expose component credentials or endpoints to Pi

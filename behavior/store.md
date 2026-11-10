@@ -1,24 +1,24 @@
 # Durable store behaviors
 
-These behaviors cover host-backed directories that remain writable and durable
-across Pi runs. Stores use direct filesystem writes rather than the governed
-Git landing protocol; Integral provides mounting, isolation, coordination,
-configured snapshots, and soft deletion without interpreting
-their content.
+These behaviors cover stores: host-backed directories that core mounts into the
+box as writable volumes and that remain durable across Pi runs. Stores use
+direct filesystem writes rather than Git landing. Core provides mounting,
+isolation, coordination, configured snapshots, and soft deletion without
+interpreting store content. The bundled store extension gives Pi lifecycle
+tools over the Integral control API.
 
-
-## STORE-350F3496 — Give Pi authenticated store lifecycle tools
+## STORE-350F3496 — Give Pi store lifecycle tools through the store extension
 
 ```text
 Given integral provisions any interactive or isolated scheduled Pi session
-	When it prepares Pi's extensions
-		Then it registers `store_list`, `store_create`, `store_delete`, `store_restore`, `store_snapshot_list`, and `store_snapshot_restore`
-			And describes direct-write durability, advisory locking, snapshots, and soft deletion to Pi
+	When it enables the store extension
+		Then the extension registers `store_list`, `store_create`, `store_delete`, `store_restore`, `store_snapshot_list`, and `store_snapshot_restore`
+			And supplies guidance on direct-write durability, advisory locking, snapshots, and soft deletion
 			And explains that creation, restoration, and snapshot restoration replace affected sessions while deletion changes mounted resources only for later sessions
-			And sends every lifecycle operation through the authenticated gateway control boundary
-			And derives store authority from the session instead of accepting a host path from Pi
+			And sends every lifecycle operation to the Integral control API through the gateway
+			And the control API derives store authority from the session instead of accepting a host path from the box
 			And keeps the tools available when no store connection exists yet
-	When a store tool is called with an expired, revoked, or mismatched session identity
+	When a store operation carries an expired, revoked, or mismatched session identity
 		Then integral rejects it without reading or changing store state
 ```
 

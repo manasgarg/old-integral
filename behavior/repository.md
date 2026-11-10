@@ -1,24 +1,43 @@
 # Governed repository behaviors
 
-These behaviors cover host-canonical Git repositories that Pi can create,
-mount in its filesystem, edit through per-run checkouts, land through a
-validated host boundary, and soft-delete without destroying history. Existing
-bare repositories may enter the same lifecycle through a host connection.
+These behaviors cover host-canonical Git repositories. Integral serves each
+governed repository from its Git endpoint, reachable only through the gateway.
+The bundled repository extension clones every active repository into the
+session before Pi starts and saves unlanded work when the session ends. Every
+push reaches the governed Git landing rule plugin, which validates it and
+advances the canonical branch. Existing bare repositories may enter the same
+lifecycle through a host connection.
 
 <!-- Automation note (REPO-7B0E2F4A): Selective approval-gated repository landing, exact proposal review, stale-ref refusal, denied writes, and direct local image editing are automated. -->
 
-## REPO-D1865075 — Give Pi authenticated repository lifecycle tools
+## REPO-CC68A6EF — Serve governed repositories through the gateway
+
+```text
+Given one or more governed repositories are active
+	When an authenticated session uses Git smart HTTP against Integral's Git endpoint through the gateway
+		Then the endpoint serves only repositories visible to that session
+			And permits fetch and clone of each canonical branch and of recovery refs
+			And sends every push to the governed Git landing rule plugin
+			And authenticates the session by its gateway identity without another Git credential
+			And never runs Git against Pi-writable repository metadata
+	When a session requests a repository that is soft-deleted, unavailable, or belongs to another deployment
+		Then the endpoint refuses it with `resource_soft_deleted`, `resource_unavailable`, or not found
+	When box software attempts to reach a canonical repository by SSH, a host path, or another transport
+		Then no route exists
+```
+
+## REPO-D1865075 — Give Pi repository lifecycle tools through the repository extension
 
 ```text
 Given integral provisions any interactive or isolated scheduled Pi session
-	When it prepares Pi's extensions
-		Then it registers `repo_list`, `repo_create`, `repo_push`, `repo_recovery_discard`, `repo_delete`, and `repo_restore`
-			And describes the commit-before-push and soft-delete semantics to Pi
+	When it enables the repository extension
+		Then the extension registers `repo_list`, `repo_create`, `repo_push`, `repo_recovery_discard`, `repo_delete`, and `repo_restore`
+			And supplies guidance on the commit-before-push and soft-delete semantics
 			And explains that creation and restoration replace the calling session while deletion changes mounted resources only for later sessions
-			And sends every operation through the authenticated gateway control boundary
-			And derives repository authority from the session instead of accepting a host path from Pi
+			And sends lifecycle operations to the Integral control API through the gateway
+			And implements `repo_push` as an ordinary Git push to Integral's Git endpoint
 			And keeps the tools available when no repository connection exists yet
-	When a repository tool is called with an expired, revoked, or mismatched session identity
+	When a repository tool or Git request carries an expired, revoked, or mismatched session identity
 		Then integral rejects it without reading or changing repository state
 ```
 
@@ -32,14 +51,13 @@ Given Pi has an authenticated integral session
 			And initializes its canonical branch as `main`
 			And records the canonical path and filesystem identity of its backing root
 			And records the requested mount path with the repository connection
-			And creates a checkout on a branch named for the current run
 			And marks the current session for replacement after the tool reports durable creation
-			And makes the repository available at that path before the next Pi prompt
+			And the replacement session's repository extension clones it at that path before the next Pi prompt
 			And uses the same path in every later Pi session
 			And does not expose the canonical host path to Pi
-	When canonical creation or checkout placement fails
+	When canonical creation fails
 		Then the tool reports failure without an active repository connection
-			And removes any incomplete canonical repository and checkout created by that operation
+			And removes any incomplete canonical repository created by that operation
 ```
 
 ## REPO-515BAAB9 — Constrain agent-visible resource mount paths
@@ -57,45 +75,45 @@ Given Pi or the connection CLI creates, adds, or restores a governed repository 
 			And records the normalized container path rather than a host path
 ```
 
-## REPO-A690931F — Mount every active governed repository into every Pi session
+## REPO-A690931F — Clone every active governed repository into every Pi session
 
 ```text
 Given one or more governed repository connections are active and have mount paths
-	When integral provisions an interactive or isolated scheduled Pi session
-		Then it creates a separate checkout for that run from each canonical branch head
-			And places each checkout at its recorded mount path
+	When the repository extension prepares an interactive or isolated scheduled Pi session
+		Then it clones each repository from Integral's Git endpoint through the gateway
+			And places each clone at its recorded mount path inside the session home
 			And checks out a branch whose identity includes the run ID
-			And configures `origin` as a read-only integral transport for the canonical repository
-			And permits `git fetch origin`
-			And refuses a direct `git push origin`
-			And does not mount a canonical repository or its host parent directory into the container
-	When any active repository cannot be materialized at its recorded path
+			And configures `origin` as Integral's Git endpoint for that repository
+			And permits `git fetch origin` and `git push origin`
+			And no canonical repository or host parent directory is mounted into the box
+	When a repository cannot be cloned at its recorded path
+		Then the extension removes any partial clone for that repository
+			And Pi starts with the remaining repositories
+			And the extension tells Pi which named repository is unavailable without exposing a host path
+	When host health checks find a repository's backing path invalid
 		Then integral marks the connection unavailable with a bounded reason
 			And advances its lifecycle revision and the connection generation
-			And removes any partial checkout for that repository
-			And provisions the session with the remaining active resources
-			And tells Pi which named repository is unavailable without exposing its host path
 ```
 
-## REPO-CDA4609A — Land directly writable repository work through the host boundary
+## REPO-CDA4609A — Land directly writable repository work through the landing plugin
 
 ```text
 Given Pi has committed work on a current-run governed repository branch
 	And that repository's host-managed write policy is `direct`
-	When Pi calls `repo_push` for that repository
-		Then the container sends a Git bundle and proposed full commit ID through the authenticated gateway control boundary
-			And the host derives the repository and run identity from the authenticated session
-			And the host never runs Git against Pi-writable repository metadata
-			And the host receives the bundle into a fresh quarantine repository
-			And verifies the bundle and runs Git object integrity checks
+	When a push to the canonical branch reaches the governed Git landing rule plugin
+		Then the plugin derives the repository and run identity from the authenticated session
+			And receives the pack into a fresh quarantine repository
+			And verifies the pack and runs Git object integrity checks
 			And validates the complete proposed tree before changing the canonical repository
 			And accepts regular files, executable files, and symbolic links with safe relative targets
 			And rejects Git links, unsafe paths, oversized files, and a repository over its configured limit
-			And executes no hook from the bundle or canonical repository
+			And executes no hook from the pack or canonical repository
 			And advances the canonical branch to the proposed head only by compare-and-swap fast-forward
 			And preserves Pi's commits without creating a host merge commit
 			And records the repository ID, prior head, landed head, run ID, and changed paths in the host-attested run history
 			And reports success only after the canonical ref update is durable
+	When a push targets any ref other than the canonical branch or the run's recovery ref
+		Then the plugin refuses it without changing the canonical repository
 ```
 
 ## REPO-9C4A71E2 — Require an explicit disposition for repository commits
@@ -103,13 +121,13 @@ Given Pi has committed work on a current-run governed repository branch
 ```text
 Given Pi works in a run-scoped governed repository checkout
 	When Pi creates commits it wants to keep
-		Then it calls `repo_push` before reporting the repository work complete
+		Then it pushes them before reporting the repository work complete
 			And reports the landed canonical commit rather than only the run-branch commit
 	When Pi decides not to land commits it created
 		Then it undoes those commits and their file changes in the run checkout before reporting completion
-			And does not deliberately leave rejected work for host recovery
-	When integral describes governed repository work to Pi
-		Then it explains that a local commit is not durable until `repo_push` succeeds
+			And does not deliberately leave rejected work for recovery
+	When the repository extension describes governed repository work to Pi
+		Then it explains that a local commit is not durable until a push lands
 			And explains the required land-or-undo disposition before completion
 ```
 
@@ -118,11 +136,11 @@ Given Pi works in a run-scoped governed repository checkout
 ```text
 Given every governed repository has a host-managed write policy of `direct`, `approval-required`, or `denied`
 	And Pi cannot change that policy
-	When Pi calls `repo_push`
-		Then integral derives the repository ID and policy from the authenticated session
-			And never trusts a policy, host path, approval status, or repository identity supplied by Pi
-	When Pi calls `repo_push` for an `approval-required` repository
-		Then integral receives and validates the proposed commit through the ordinary quarantine boundary
+	When a push reaches the governed Git landing rule plugin
+		Then the plugin derives the repository ID and policy from the authenticated session
+			And never trusts a policy, host path, approval status, or repository identity supplied by the box
+	When the push targets an `approval-required` repository
+		Then the plugin receives and validates the proposed commit through the ordinary quarantine boundary
 			And stores the valid proposal under an approval-specific ref without advancing the canonical branch
 			And binds the approval to the repository ID, current canonical base commit, proposed commit, complete tree digest, changed paths, originating session and run, and repository lifecycle revision
 			And shows the exact commit diff and safe validation summary to the approving human
@@ -137,9 +155,9 @@ Given every governed repository has a host-managed write policy of `direct`, `ap
 	When a human denies the proposal or its approval expires
 		Then integral leaves the canonical branch unchanged
 			And retains only the bounded proposal and audit material required by policy
-	When Pi calls `repo_push` for a `denied` repository
-		Then integral rejects the request without accepting a proposal or changing repository state
-	When Pi calls a read-only repository operation
+	When the push targets a `denied` repository
+		Then the plugin rejects it without accepting a proposal or changing repository state
+	When a session fetches or clones
 		Then integral permits it according to ordinary session and repository policy without mutation approval
 	When a trusted local operator edits an `approval-required` image-recipe repository through `integral image edit`
 		Then integral treats the local CLI invocation as direct human authority for that repository
@@ -151,12 +169,12 @@ Given every governed repository has a host-managed write policy of `direct`, `ap
 
 ```text
 Given a governed repository canonical branch may have advanced since a run began
-	When `repo_push` proposes a head that does not descend from the current canonical head
-		Then integral refuses the landing without changing the canonical repository
+	When a push proposes a head that does not descend from the current canonical head
+		Then the landing plugin refuses it without changing the canonical repository
 			And reports the current canonical head
 			And permits Pi to fetch, rebase, resolve conflicts, and retry from its checkout
-	When a bundle, proposed head, commit range, or tree fails validation
-		Then integral refuses the landing without importing unvalidated refs into the canonical repository
+	When a pack, proposed head, commit range, or tree fails validation
+		Then the landing plugin refuses it without importing unvalidated refs into the canonical repository
 			And records a redacted refusal reason in the run history
 			And leaves the checkout available for Pi to correct and retry
 ```
@@ -165,32 +183,33 @@ Given a governed repository canonical branch may have advanced since a run began
 
 ```text
 Given a governed repository checkout differs from its landed canonical head
-	When the Pi run stops, fails, times out, or is recycled
-		Then integral reconstructs its files without trusting or executing its `.git` metadata
-			And records the reconstructed state on a host-owned recovery ref in the canonical repository
-			And records whether the checkout contained committed or uncommitted changes
-			And makes the recovery artifact visible in repository status for a later run
-			And only then removes the temporary checkout
-	When integral restarts with an abandoned repository checkout
-		Then it performs the same host-owned recovery before starting a new Pi invocation
+	When the repository extension's shutdown step runs
+		Then it commits any uncommitted changes to a recovery commit without changing the run branch
+			And pushes the work to the run's recovery ref through Integral's Git endpoint
+			And the landing plugin validates the recovery push like any other push but writes only the recovery ref
+			And integral records whether the checkout contained committed or uncommitted changes
+			And makes the recovery ref visible in repository status for a later run
+	When the session ends before that shutdown step completes
+		Then integral retains the session home as unrecovered as described by `BOX-87993E3C`
+			And a later session's repository extension performs the same recovery from the retained checkout before its own preparation completes
 	When the checkout has no work beyond its landed canonical head
-		Then integral removes it without creating an empty recovery artifact
-	When a recovery artifact exceeds the configured retention period
-		Then integral removes its recovery ref without changing the canonical branch
+		Then the extension pushes no recovery ref
+	When a recovery ref exceeds the configured retention period
+		Then integral removes it without changing the canonical branch
 			And records the expiration in host-attested repository history
 ```
 
 ## REPO-54D1B8C7 — Review recovered work using its originating run
 
 ```text
-Given one or more host-owned repository recovery refs exist
-	When integral starts a later Pi invocation
-		Then it identifies each recovery ref and its originating session in the system context
+Given one or more repository recovery refs exist
+	When the repository extension prepares a later Pi session
+		Then its guidance identifies each recovery ref and its originating session
 			And instructs Pi to find and examine the originating run log before deciding its disposition
-			And instructs Pi to either land the recovered work through `repo_push` or remove the recovery ref
+			And instructs Pi to either land the recovered work through a push or remove the recovery ref
 	When Pi decides recovered work should be kept
 		Then it fetches and applies the recovery ref to its run checkout
-			And lands the resulting commit through `repo_push`
+			And lands the resulting commit through a push
 	When Pi decides recovered work should not be kept
 		Then it calls the governed recovery-discard operation
 			And integral removes only that recovery ref and its recovery metadata
@@ -205,10 +224,10 @@ Given an active governed repository is visible to Pi
 		Then integral records a tombstone containing the repository identity, canonical branch, prior mount path, and deletion actor
 			And removes the repository from the active connection inventory
 			And prevents every existing checkout from landing after the deletion revision
-			And rejects later `repo_push` and `git fetch origin` calls from those checkouts as `resource_soft_deleted`
+			And Integral's Git endpoint rejects later pushes and fetches from those checkouts as `resource_soft_deleted`
 			And leaves every existing Pi session and checkout running until its ordinary end
 			And lets those checkouts continue local edits and Git commits
-			And preserves unlanded work from each checkout when its session ordinarily ends
+			And accepts recovery pushes for unlanded work from those checkouts when their sessions end
 			And omits the repository from every session started after deletion
 			And preserves the canonical repository and its complete history
 			And reports that the current session retains its checkout until it ends
@@ -219,16 +238,18 @@ Given an active governed repository is visible to Pi
 ## REPO-1C3B9872 — Keep repository sessions running after backing failure
 
 ```text
-Given a Pi session was provisioned with a governed repository checkout
+Given a Pi session has a governed repository checkout
 	When trusted host code detects that the canonical repository is missing, inaccessible, invalid, or replaced by another filesystem identity
 		Then integral marks the connection unavailable with a bounded reason
 			And advances its lifecycle revision and the connection generation
 			And leaves the existing Pi session and checkout running until its ordinary end
 			And lets local file edits and Git commits succeed or fail normally inside that checkout
-			And rejects `repo_push`, `git fetch origin`, and later host-mediated operations with `resource_unavailable`
-			And preserves unlanded work in canonical-independent recovery storage when the session ends
+			And Integral's Git endpoint rejects pushes, fetches, and later lifecycle operations with `resource_unavailable`
+	When the session ends while the repository is unavailable
+		Then the recovery push fails
+			And integral retains the session home as unrecovered as described by `BOX-87993E3C`
 	When integral starts a later Pi session
-		Then it omits the unavailable repository
+		Then the repository extension omits the unavailable repository
 			And tells Pi the connection name and bounded availability reason without exposing its host path
 ```
 
