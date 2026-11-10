@@ -42,8 +42,6 @@ Given integral is installed
 
 ## CLI-7A87D55B — Share conversation status between the CLI and talk
 
-<!-- Automation note (CLI-7A87D55B): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
-
 ```text
 Given the integral coordinator is healthy
 	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
@@ -53,8 +51,6 @@ Given the integral coordinator is healthy
 
 ## CLI-E3D01B8A — Share model selection between the CLI and talk
 
-<!-- Automation note (CLI-E3D01B8A): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
-
 ```text
 Given the integral coordinator is healthy
 	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
@@ -63,8 +59,6 @@ Given the integral coordinator is healthy
 ```
 
 ## CLI-DF545C68 — Share connection discovery between the CLI and talk
-
-<!-- Automation note (CLI-DF545C68): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
 
 ```text
 Given the integral coordinator is healthy
@@ -78,8 +72,6 @@ Given the integral coordinator is healthy
 
 ## CLI-FCE41B12 — Share durable queues between the CLI and talk
 
-<!-- Automation note (CLI-FCE41B12): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
-
 ```text
 Given the integral coordinator is healthy
 	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
@@ -92,8 +84,6 @@ Given the integral coordinator is healthy
 ```
 
 ## CLI-8066D182 — Share approval decisions between the CLI and talk
-
-<!-- Automation note (CLI-8066D182): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
 
 ```text
 Given the integral coordinator is healthy
@@ -110,8 +100,6 @@ Given the integral coordinator is healthy
 
 ## CLI-D1B5816E — Keep shared operations local to each command surface
 
-<!-- Automation note (CLI-D1B5816E): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
-
 ```text
 Given the integral coordinator is healthy
 	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
@@ -123,8 +111,6 @@ Given the integral coordinator is healthy
 ```
 
 ## CLI-6453A00A — Explain shared commands and command-specific boundaries
-
-<!-- Automation note (CLI-6453A00A): Shared terminal operations are covered individually; complete cross-surface equivalence requires an attached interactive terminal fixture. -->
 
 ```text
 Given the integral coordinator is healthy
