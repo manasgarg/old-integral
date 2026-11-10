@@ -233,7 +233,7 @@ Given a connection with one or more stored credentials exists
 ## CONNECTION-20778353 — Refuse server startup without an active model connection
 
 ```text
-Given no active model connection is configured
+Given no model connection with a usable credential is configured
 	When the user runs `integral server start`
 		Then the server exits non-zero
 			And does not accept chat sessions
@@ -243,6 +243,16 @@ Given no active model connection is configured
 		Then the runner exits non-zero with the same connection instruction
 	When the user starts only the coordinator or gateway component
 		Then that component is not refused solely because the model connection is absent
+```
+
+## CONNECTION-D3A3EDE9 — Start the server while model connections are degraded
+
+```text
+Given a model connection has a usable credential
+	And integral has marked it degraded
+	When the user runs `integral server start`
+		Then the server is not refused because the connection is degraded
+			And the gateway can retry the connection and clear the mark
 ```
 
 ## CONNECTION-0FB2F92A — Keep real credentials outside the container

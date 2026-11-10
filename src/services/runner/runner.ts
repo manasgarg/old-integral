@@ -1792,22 +1792,22 @@ function mcpCatalogSignature(catalog: McpCatalog): string {
 
 export async function validateRunnerHost(paths: IntegralPaths): Promise<void> {
   const connections = await listConnections(paths);
-  requireActiveModelConnection(connections);
+  requireUsableModelConnection(connections);
   if (!dockerAvailable())
     throw new IntegralError("Docker daemon is unavailable");
 }
 
-export function requireActiveModelConnection(connections: Connection[]): void {
+export function requireUsableModelConnection(connections: Connection[]): void {
   if (
     !connections.some(
       (connection) =>
         connection.kind === "model" &&
         "state" in connection &&
-        connection.state === "active",
+        (connection.state === "active" || connection.state === "degraded"),
     )
   )
     throw new IntegralError(
-      "no active model connection; run integral connection add",
+      "no model connection with a usable credential; run integral connection add",
     );
 }
 

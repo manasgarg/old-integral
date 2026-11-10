@@ -3,9 +3,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { pathsFor } from "../src/platform/deployment-paths.ts";
 import { serverStatus } from "../src/services/launcher.ts";
+import { readComponentRecord } from "../src/platform/component-identity.ts";
+import { COMPONENTS } from "../src/platform/constants.ts";
 import {
   defaultDeploySettings,
   deploy,
+  deploymentHealth,
   DeployError,
   rollbackDeploy,
   type CommandOptions,
@@ -51,8 +54,15 @@ function run(
 
 export const productionDeployHost: DeployHost = {
   run,
-  deploymentStatus: async (home) =>
-    (await serverStatus(pathsFor(home))).overall,
+  deploymentStatus: async (home) => {
+    const paths = pathsFor(home);
+    return deploymentHealth(
+      await serverStatus(paths),
+      await Promise.all(
+        COMPONENTS.map((component) => readComponentRecord(paths, component)),
+      ),
+    );
+  },
   sleep: (ms) => sleep(ms),
   now: () => new Date(),
   report: (line) => process.stdout.write(line),

@@ -89,7 +89,9 @@ check ──▶ build ──▶ rehearse ──▶ drain + stop ──▶ back u
 6. **Migrate.** Run the new release's `integral migrate` on production.
 7. **Switch.** Point `current` at the new release.
 8. **Start and verify.** Start the service, wait for every component to report
-   healthy, and run `integral doctor`.
+   healthy, and run `integral doctor`. A connection the gateway cannot
+   authorize, such as an expired OAuth login, is reported instead of rolled
+   back: the previous release would have the same problem.
 9. **Record.** Append the result to `deploy-log.jsonl`.
 
 Steps 1 to 3 never touch production, so a failure there just stops the
