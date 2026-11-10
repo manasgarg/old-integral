@@ -44,7 +44,7 @@ import {
   sameSelection,
   type ModelChoice,
   type ModelSelection,
-} from "./model-selection.ts";
+} from "./domain/model-selection.ts";
 import { imageCommand } from "./cli/image.ts";
 export { imageCommand, type ImageCommandDependencies } from "./cli/image.ts";
 import { queueCommand, runQueueCommand } from "./cli/queue.ts";

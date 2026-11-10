@@ -1,4 +1,4 @@
-import type { PiProtocolEvent } from "../container/pi-protocol.ts";
+import type { PiProtocolEvent } from "../domain/pi-rpc-protocol.ts";
 
 export function isToolEvent(type: string): boolean {
   return /tool.*(?:start|end|result|execution)|(?:start|end|result).*tool/i.test(

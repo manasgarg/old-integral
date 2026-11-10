@@ -1,5 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import { nextCronInstant } from "./cron.ts";
+import { nextCronInstant } from "./domain/cron.ts";
 import type { EffectiveConfig } from "./config.ts";
 import { IntegralError } from "./platform/errors.ts";
 import { internalFetch } from "./platform/internal-http-client.ts";
@@ -20,7 +20,7 @@ import type {
   ScheduleDefinition,
   ScheduleTrigger,
   UpdateSchedule,
-} from "./schedule-types.ts";
+} from "./domain/schedules.ts";
 import {
   componentIdentity,
   deploymentId,

@@ -28,12 +28,12 @@ import {
 import {
   interpretPiEvent,
   type PiProtocolEvent,
-} from "./container/pi-protocol.ts";
+} from "./domain/pi-rpc-protocol.ts";
 export {
   interpretPiProtocol,
   type PiProtocolEvent,
   type PiProtocolResult,
-} from "./container/pi-protocol.ts";
+} from "./domain/pi-rpc-protocol.ts";
 import { packageFile } from "./platform/package-files.ts";
 
 export interface ContainerSpec {

@@ -8,13 +8,15 @@ import {
 } from "./queue.ts";
 import {
   listModelChoices,
-  matchModelChoices,
-  sameSelection,
   type ModelCatalog,
   type ModelCatalogProgress,
+} from "./model-catalog.ts";
+import {
+  matchModelChoices,
+  sameSelection,
   type ModelChoice,
   type ModelSelection,
-} from "./model-selection.ts";
+} from "./domain/model-selection.ts";
 import {
   componentIdentity,
   deploymentId,
@@ -38,7 +40,7 @@ import {
   type TaskOutboxEntry,
 } from "./task-queue.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
-import type { ConversationOriginRoute } from "./schedule-types.ts";
+import type { ConversationOriginRoute } from "./domain/schedules.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "./platform/constants.ts";
 import type { Logger } from "./platform/logging.ts";
 import { ensureContainerImage } from "./container.ts";

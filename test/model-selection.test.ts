@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { saveConnection, validateConnection } from "../src/connections.ts";
+import { listModelChoices } from "../src/model-catalog.ts";
 import {
-  listModelChoices,
   matchModelChoices,
   type ModelChoice,
-} from "../src/model-selection.ts";
+} from "../src/domain/model-selection.ts";
 import { ModelSelectionStore } from "../src/queue.ts";
 import { loadConfig } from "../src/config.ts";
 import { fixture } from "./helpers.ts";

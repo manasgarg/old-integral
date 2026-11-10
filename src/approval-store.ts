@@ -3,8 +3,8 @@ import { appendFile, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import { IntegralError } from "./platform/errors.ts";
 import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
-import type { ModelSelection } from "./model-selection.ts";
-import type { ConversationOriginRoute } from "./schedule-types.ts";
+import type { ModelSelection } from "./domain/model-selection.ts";
+import type { ConversationOriginRoute } from "./domain/schedules.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import type { ContainerPackageOperation } from "./container-packages.ts";
 

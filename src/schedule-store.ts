@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readdir, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { nextCronInstant } from "./cron.ts";
+import { nextCronInstant } from "./domain/cron.ts";
 import { IntegralError } from "./platform/errors.ts";
 import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
@@ -14,8 +14,8 @@ import type {
   ScheduleOperation,
   ScheduleTrigger,
   UpdateSchedule,
-} from "./schedule-types.ts";
-import type { ModelSelection } from "./model-selection.ts";
+} from "./domain/schedules.ts";
+import type { ModelSelection } from "./domain/model-selection.ts";
 import { SerialExecutor } from "./platform/serial-executor.ts";
 
 const execute = promisify(execFile);
