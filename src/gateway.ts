@@ -30,7 +30,7 @@ import {
 } from "./platform/component-identity.ts";
 import { IntegralError } from "./platform/errors.ts";
 import type { Logger } from "./platform/logging.ts";
-import { oauthAccess, refreshOAuth } from "./oauth.ts";
+import { oauthAccess, refreshOAuth } from "./integrations/oauth.ts";
 import { acquireLock, atomicWrite } from "./platform/files.ts";
 import { readText } from "./platform/files.ts";
 import { join } from "node:path";
@@ -40,9 +40,9 @@ import {
   type HttpServerRuntime,
   type IntervalRuntime,
 } from "./platform/timers-and-servers.ts";
-import { executeEmail, parseEmailOperation } from "./email.ts";
+import { executeEmail, parseEmailOperation } from "./integrations/email.ts";
 import { internalFetch } from "./platform/internal-http-client.ts";
-import { callRemoteMcp } from "./mcp.ts";
+import { callRemoteMcp } from "./integrations/mcp.ts";
 import {
   readJsonObject,
   readRequestBody,

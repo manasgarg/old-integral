@@ -4,7 +4,7 @@ import {
   saveConnection,
   validateConnection,
 } from "../src/stores/connection-store.ts";
-import { listModelChoices } from "../src/model-catalog.ts";
+import { listModelChoices } from "../src/integrations/pi/model-catalog.ts";
 import {
   matchModelChoices,
   type ModelChoice,

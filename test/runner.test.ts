@@ -7,7 +7,7 @@ import type {
   ContainerSpec,
   PiRuntime,
   TaskRuntime,
-} from "../src/container.ts";
+} from "../src/integrations/docker/pi-container.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,

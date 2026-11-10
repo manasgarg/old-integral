@@ -10,7 +10,7 @@ import {
   ensureImageRecipeRepository,
   imageRecipeDockerfile,
 } from "../stores/image-recipe-store.ts";
-import { buildImageRecipe } from "../image-build.ts";
+import { buildImageRecipe } from "../integrations/docker/image-build.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
 import { ModelSelectionStore } from "../stores/conversation-store.ts";

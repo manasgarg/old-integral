@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
-import type { Connection } from "./stores/connection-store.ts";
-import { IntegralError } from "./platform/errors.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import type { Connection } from "../stores/connection-store.ts";
+import { IntegralError } from "../platform/errors.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import {
   ensurePiRuntime,
   loadPiRuntimeModule,
@@ -12,7 +12,7 @@ import {
   type PiAuthPrompt,
   type PiCredential,
   type PiCredentialStore,
-} from "./pi-runtime.ts";
+} from "./pi/host-runtime.ts";
 
 export interface OAuthUi {
   show(message: string): void;

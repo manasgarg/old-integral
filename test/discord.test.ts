@@ -9,7 +9,7 @@ import {
   DiscordIngressStore,
   discordChunks,
   verifyDiscordBot,
-} from "../src/discord.ts";
+} from "../src/integrations/discord.ts";
 import { DurableQueue } from "../src/stores/message-queue.ts";
 import { DurableTaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";

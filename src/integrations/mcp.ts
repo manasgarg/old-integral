@@ -1,5 +1,5 @@
-import type { Connection } from "./stores/connection-store.ts";
-import { IntegralError } from "./platform/errors.ts";
+import type { Connection } from "../stores/connection-store.ts";
+import { IntegralError } from "../platform/errors.ts";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_SESSION_PROTOCOL_VERSION = "2025-11-25";

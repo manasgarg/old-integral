@@ -4,8 +4,8 @@ import {
   type Connection,
 } from "./stores/connection-store.ts";
 import { IntegralError } from "./platform/errors.ts";
+import { SENTINEL } from "./domain/credential-sentinels.ts";
 
-export const SENTINEL = "integral-managed-credential";
 export const WEB_CONNECTION_NAME = "integral-web";
 
 const webConnection: Connection = {
@@ -14,12 +14,6 @@ const webConnection: Connection = {
   auth: "none",
   methods: ["GET"],
 };
-
-export const OAUTH_SENTINEL = `e30.${Buffer.from(
-  JSON.stringify({
-    "https://api.openai.com/auth": { chatgpt_account_id: SENTINEL },
-  }),
-).toString("base64url")}.${SENTINEL}`;
 
 export interface CredentialedConnection {
   connection: Connection;

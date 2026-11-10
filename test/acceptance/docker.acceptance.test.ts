@@ -8,18 +8,18 @@ import {
   createLockedNetwork,
   dockerNetworkGateway,
   dockerRunArgs,
-  ensureContainerImage,
   freshSessionHome,
   newSessionIdentity,
-  writeWebExtension,
-} from "../../src/container.ts";
+} from "../../src/integrations/docker/pi-container.ts";
+import { writeWebExtension } from "../../src/integrations/pi/session-extensions.ts";
+import { ensureContainerImage } from "../../src/integrations/docker/managed-image.ts";
 import { loadConfig } from "../../src/stores/config.ts";
 import { validateConnection } from "../../src/stores/connection-store.ts";
 import { deploymentId } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
-import { ensurePiRuntime } from "../../src/pi-runtime.ts";
+import { ensurePiRuntime } from "../../src/integrations/pi/host-runtime.ts";
 import { ensureImageRecipeRepository } from "../../src/stores/image-recipe-store.ts";
-import { buildImageRecipe } from "../../src/image-build.ts";
+import { buildImageRecipe } from "../../src/integrations/docker/image-build.ts";
 
 /* @covers WEB-65AA5DDC
 Given an authenticated Pi session uses `web_search` or `fetch_pages`

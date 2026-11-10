@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadConfig } from "../src/stores/config.ts";
-import type { ContainerBackend, McpSidecarSpec } from "../src/container.ts";
+import type { ContainerBackend } from "../src/integrations/docker/pi-container.ts";
+import type { McpSidecarSpec } from "../src/integrations/docker/mcp-sidecar.ts";
 import { validateConnection } from "../src/stores/connection-store.ts";
 import { Logger } from "../src/platform/logging.ts";
-import type { McpRuntime } from "../src/mcp.ts";
+import type { McpRuntime } from "../src/integrations/mcp.ts";
 import { McpSidecarManager } from "../src/runner/mcp-sidecars.ts";
 import { fixture } from "./helpers.ts";
 

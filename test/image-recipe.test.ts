@@ -16,7 +16,7 @@ import {
   stageImageProposal,
   validateImageDockerfile,
 } from "../src/stores/image-recipe-store.ts";
-import { buildImageRecipe } from "../src/image-build.ts";
+import { buildImageRecipe } from "../src/integrations/docker/image-build.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import { PI_VERSION } from "../src/platform/constants.ts";
 import type { IntegralPaths } from "../src/platform/deployment-paths.ts";

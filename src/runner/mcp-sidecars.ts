@@ -1,7 +1,8 @@
 import type { EffectiveConfig } from "../stores/config.ts";
-import type { ContainerBackend, McpSidecarSpec } from "../container.ts";
+import type { ContainerBackend } from "../integrations/docker/pi-container.ts";
+import type { McpSidecarSpec } from "../integrations/docker/mcp-sidecar.ts";
 import type { Logger } from "../platform/logging.ts";
-import type { McpCatalog, McpRuntime } from "../mcp.ts";
+import type { McpCatalog, McpRuntime } from "../integrations/mcp.ts";
 import { IntegralError } from "../platform/errors.ts";
 
 export class McpSidecarManager {

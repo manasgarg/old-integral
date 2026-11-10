@@ -8,7 +8,7 @@ import { packageFile } from "../src/platform/package-files.ts";
 import {
   ensurePiRuntime,
   type PiPackageOperations,
-} from "../src/pi-runtime.ts";
+} from "../src/integrations/pi/host-runtime.ts";
 import { fixture } from "./helpers.ts";
 
 function fakeOperations(calls: string[]): PiPackageOperations {

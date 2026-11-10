@@ -2,10 +2,10 @@ import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PI_PACKAGE, PI_VERSION } from "./platform/constants.ts";
-import { IntegralError } from "./platform/errors.ts";
-import { ensureDir } from "./platform/files.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { PI_PACKAGE, PI_VERSION } from "../../platform/constants.ts";
+import { IntegralError } from "../../platform/errors.ts";
+import { ensureDir } from "../../platform/files.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
 
 export interface PiRuntimeResolution {
   version: string;
