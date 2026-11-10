@@ -6,7 +6,7 @@ import { Scheduler } from "../src/scheduler.ts";
 import { loadConfig } from "../src/config.ts";
 import { scheduleCommand } from "../src/cli.ts";
 import { fixture } from "./helpers.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 
 const profile = {
   connection: "model",

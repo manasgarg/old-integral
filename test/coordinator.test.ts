@@ -4,7 +4,7 @@ import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
 import { loadConfig } from "../src/config.ts";
 import { fixture } from "./helpers.ts";
 import { saveConnection, validateConnection } from "../src/connections.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
@@ -19,7 +19,7 @@ import {
   componentIdentity,
   deploymentId,
   internalHeaders,
-} from "../src/state.ts";
+} from "../src/platform/component-identity.ts";
 
 async function until(check: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt++) {

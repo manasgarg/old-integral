@@ -1,4 +1,5 @@
-import type { LogFormat, LogLevel } from "./config.ts";
+export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+export type LogFormat = "text" | "json";
 
 const weights: Record<LogLevel, number> = {
   error: 0,

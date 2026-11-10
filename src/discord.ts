@@ -9,8 +9,8 @@ import {
   type Message,
 } from "discord.js";
 import type { Connection } from "./connections.ts";
-import { IntegralError } from "./errors.ts";
-import { atomicWrite, readText } from "./fs.ts";
+import { IntegralError } from "./platform/errors.ts";
+import { atomicWrite, readText } from "./platform/files.ts";
 
 export interface DiscordMessage {
   id: string;

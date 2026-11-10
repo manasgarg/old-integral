@@ -3,7 +3,7 @@ import test from "node:test";
 import { loadConfig } from "../src/config.ts";
 import type { ContainerBackend, McpSidecarSpec } from "../src/container.ts";
 import { validateConnection } from "../src/connections.ts";
-import { Logger } from "../src/logging.ts";
+import { Logger } from "../src/platform/logging.ts";
 import type { McpRuntime } from "../src/mcp.ts";
 import { McpSidecarManager } from "../src/runner/mcp-sidecars.ts";
 import { fixture } from "./helpers.ts";

@@ -3,7 +3,10 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathsFor, resolveIntegralHome } from "../src/paths.ts";
+import {
+  pathsFor,
+  resolveIntegralHome,
+} from "../src/platform/deployment-paths.ts";
 
 /* @covers ENV-2A7C4E91
 Given `INTEGRAL_HOME` contains an absolute path

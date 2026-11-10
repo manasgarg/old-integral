@@ -10,7 +10,7 @@ import { ModelSelectionStore } from "../src/queue.ts";
 import { loadConfig } from "../src/config.ts";
 import { fixture } from "./helpers.ts";
 import { saveContainerPackageState } from "../src/container-packages.ts";
-import { atomicWrite } from "../src/fs.ts";
+import { atomicWrite } from "../src/platform/files.ts";
 
 const choices: ModelChoice[] = [
   {

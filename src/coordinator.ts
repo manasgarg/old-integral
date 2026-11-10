@@ -1,6 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { EffectiveConfig } from "./config.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   ConversationStore,
   DurableQueue,
@@ -21,17 +21,17 @@ import {
   readComponentState,
   updateComponentState,
   verifyInternal,
-} from "./state.ts";
-import { atomicWrite, readText } from "./fs.ts";
+} from "./platform/component-identity.ts";
+import { atomicWrite, readText } from "./platform/files.ts";
 import { join } from "node:path";
-import { IntegralError } from "./errors.ts";
+import { IntegralError } from "./platform/errors.ts";
 import {
   nodeHttpServerRuntime,
   nodeIntervalRuntime,
   type HttpServerRuntime,
   type IntervalRuntime,
-} from "./runtime.ts";
-import { internalFetch } from "./http-client.ts";
+} from "./platform/timers-and-servers.ts";
+import { internalFetch } from "./platform/internal-http-client.ts";
 import {
   DurableTaskQueue,
   type ScheduledTask,
@@ -39,10 +39,10 @@ import {
 } from "./task-queue.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
 import type { ConversationOriginRoute } from "./schedule-types.ts";
-import { DEFAULT_PI_IMAGE, type Component } from "./constants.ts";
-import type { Logger } from "./logging.ts";
+import { DEFAULT_PI_IMAGE, type Component } from "./platform/constants.ts";
+import type { Logger } from "./platform/logging.ts";
 import { ensureContainerImage } from "./container.ts";
-import { readJsonObject, writeJson } from "./http-server.ts";
+import { readJsonObject, writeJson } from "./platform/json-http.ts";
 import {
   ClientEventStream,
   type ClientEvent,

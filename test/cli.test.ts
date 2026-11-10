@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { main } from "../src/cli.ts";
-import { PI_VERSION } from "../src/constants.ts";
+import { PI_VERSION } from "../src/platform/constants.ts";
 
 async function capture(
   args: string[],

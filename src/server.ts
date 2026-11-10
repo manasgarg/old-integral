@@ -1,22 +1,22 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Component } from "./constants.ts";
-import { COMPONENTS } from "./constants.ts";
+import type { Component } from "./platform/constants.ts";
+import { COMPONENTS } from "./platform/constants.ts";
 import type { EffectiveConfig } from "./config.ts";
-import { acquireLock, readText } from "./fs.ts";
-import type { IntegralPaths } from "./paths.ts";
+import { acquireLock, readText } from "./platform/files.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   componentStatePath,
   deploymentId,
   readComponentState,
   writeComponentState,
-} from "./state.ts";
+} from "./platform/component-identity.ts";
 import { Coordinator } from "./coordinator.ts";
 import { Gateway } from "./gateway.ts";
 import { Scheduler } from "./scheduler.ts";
 import { Runner, validateRunnerHost } from "./runner.ts";
-import { Logger } from "./logging.ts";
-import { IntegralError } from "./errors.ts";
+import { Logger } from "./platform/logging.ts";
+import { IntegralError } from "./platform/errors.ts";
 import { credentialSecretValues } from "./connections.ts";
 import { ensurePiProfileRepository } from "./resources.ts";
 

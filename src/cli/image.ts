@@ -3,16 +3,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig, type EffectiveConfig } from "../config.ts";
-import { IntegralError } from "../errors.ts";
-import { atomicWrite } from "../fs.ts";
+import { IntegralError } from "../platform/errors.ts";
+import { atomicWrite } from "../platform/files.ts";
 import {
   buildImageRecipe,
   commitImageDockerfile,
   ensureImageRecipeRepository,
   imageRecipeDockerfile,
 } from "../image-recipe.ts";
-import type { IntegralPaths } from "../paths.ts";
-import { resolvePaths } from "../paths.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
+import { resolvePaths } from "../platform/deployment-paths.ts";
 import { ModelSelectionStore } from "../queue.ts";
 
 const HELP = `Usage: integral image <command>

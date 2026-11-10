@@ -4,14 +4,14 @@ import {
   discoverPiVersion,
   ensureContainerImage,
 } from "./container.ts";
-import { DEFAULT_PI_IMAGE } from "./constants.ts";
+import { DEFAULT_PI_IMAGE } from "./platform/constants.ts";
 import { listConnections } from "./connections.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import { ensurePiRuntime, type PiRuntimeResolution } from "./pi-runtime.ts";
 import { loadContainerPackageState } from "./container-packages.ts";
-import { readText } from "./fs.ts";
+import { readText } from "./platform/files.ts";
 import type { ImageBuildResult } from "./image-recipe.ts";
-import { IntegralError } from "./errors.ts";
+import { IntegralError } from "./platform/errors.ts";
 
 export interface ModelSelection {
   connection: string;

@@ -6,7 +6,10 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
 import { saveConnection, validateConnection } from "../../src/connections.ts";
-import { componentStatePath, readComponentState } from "../../src/state.ts";
+import {
+  componentStatePath,
+  readComponentState,
+} from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
 import { DurableQueue } from "../../src/queue.ts";
 

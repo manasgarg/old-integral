@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { atomicWrite, readText } from "./fs.ts";
+import { atomicWrite, readText } from "./platform/files.ts";
 import type { ModelSelection } from "./model-selection.ts";
-import type { IntegralPaths } from "./paths.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import type { ScheduleDefinition } from "./schedule-types.ts";
 import type { ConversationOriginRoute } from "./schedule-types.ts";
-import { IntegralError } from "./errors.ts";
-import { SerialExecutor } from "./persistence/serial-executor.ts";
+import { IntegralError } from "./platform/errors.ts";
+import { SerialExecutor } from "./platform/serial-executor.ts";
 
 export type OccurrenceState =
   "pending" | "accepted" | "succeeded" | "failed" | "cancelled" | "coalesced";

@@ -1,16 +1,15 @@
 import { createHash } from "node:crypto";
 import { parse } from "smol-toml";
-import { atomicWrite, readText } from "./fs.ts";
+import { atomicWrite, readText } from "./platform/files.ts";
 import {
   DEFAULT_PI_IMAGE,
   DEFAULT_PORTS,
   type Component,
-} from "./constants.ts";
-import { IntegralError } from "./errors.ts";
-import type { IntegralPaths } from "./paths.ts";
+} from "./platform/constants.ts";
+import { IntegralError } from "./platform/errors.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import type { LogFormat, LogLevel } from "./platform/logging.ts";
 
-export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
-export type LogFormat = "text" | "json";
 export type PullPolicy = "always" | "if-not-present" | "never";
 export type ValueSource = "built-in" | "file" | "environment";
 

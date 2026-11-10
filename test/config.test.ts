@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { loadConfig, initConfig, STARTER_CONFIG } from "../src/config.ts";
 import { fixture } from "./helpers.ts";
-import { DEFAULT_PI_IMAGE } from "../src/constants.ts";
+import { DEFAULT_PI_IMAGE } from "../src/platform/constants.ts";
 
 /* @covers CONFIG-8A31F6C2
 Given integral has resolved an `INTEGRAL_HOME`

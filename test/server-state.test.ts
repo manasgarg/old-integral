@@ -3,7 +3,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import type http from "node:http";
 import { join } from "node:path";
-import { acquireLock } from "../src/fs.ts";
+import { acquireLock } from "../src/platform/files.ts";
 import { loadConfig } from "../src/config.ts";
 import { fixture } from "./helpers.ts";
 import {
@@ -13,15 +13,15 @@ import {
   readComponentState,
   verifyInternal,
   writeComponentState,
-} from "../src/state.ts";
+} from "../src/platform/component-identity.ts";
 import {
   serverStatus,
   startComponents,
   waitForShutdownSignal,
   type StartComponentsDependencies,
 } from "../src/server.ts";
-import { nodeHttpServerRuntime } from "../src/runtime.ts";
-import type { Component } from "../src/constants.ts";
+import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
+import type { Component } from "../src/platform/constants.ts";
 import { requireActiveModelConnection } from "../src/runner.ts";
 
 /* @covers SERVER-DF5FD52E

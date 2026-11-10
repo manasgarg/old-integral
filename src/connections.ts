@@ -1,9 +1,9 @@
 import { readdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, normalize } from "node:path";
 import { parse } from "smol-toml";
-import { atomicWrite, ensureDir, readText } from "./fs.ts";
-import { IntegralError } from "./errors.ts";
-import type { IntegralPaths } from "./paths.ts";
+import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
+import { IntegralError } from "./platform/errors.ts";
+import type { IntegralPaths } from "./platform/deployment-paths.ts";
 
 export type ConnectionKind =
   "model" | "http" | "mcp" | "email" | "channel" | "host-repo" | "host-store";
