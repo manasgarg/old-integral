@@ -1,4 +1,4 @@
-FROM node:24.15.0-slim
+FROM node:26.13.0-slim
 
 ARG PI_VERSION=latest
 ARG SYSTEM_PACKAGES="ca-certificates gh git"

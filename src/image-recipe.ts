@@ -69,8 +69,104 @@ async function git(args: string[], cwd?: string): Promise<string> {
   }
 }
 
+// Foundational image references that earlier Integral releases bundled in
+// Dockerfile.pi. When a release changes the bundled reference, add the old one
+// here so existing image recipes move to the new base instead of failing
+// validation. Recipes on any other reference are never rewritten.
+export const RETIRED_FOUNDATIONAL_IMAGES: readonly string[] = [
+  "node:24.15.0-slim",
+];
+
+// Recipe heads already known to need no foundational move, per repository.
+const settledFoundationHeads = new Map<string, string>();
+
+interface FoundationalMigration {
+  source: string;
+  from: string;
+  to: string;
+}
+
 function bundledDockerfile(): string {
   return fileURLToPath(new URL("../../Dockerfile.pi", import.meta.url));
+}
+
+export async function bundledFoundationalImage(): Promise<string> {
+  const reference = (await readFile(bundledDockerfile(), "utf8")).match(
+    /^FROM\s+(\S+)/m,
+  )?.[1];
+  if (!reference)
+    throw new IntegralError("bundled Pi Dockerfile has no foundational image");
+  return reference;
+}
+
+async function foundationalMigration(
+  paths: IntegralPaths,
+  head: string,
+): Promise<FoundationalMigration | undefined> {
+  if (settledFoundationHeads.get(paths.imageRecipe) === head) return undefined;
+  const dockerfile = await imageRecipeDockerfile(paths, head),
+    to = await bundledFoundationalImage(),
+    froms = [...dockerfile.matchAll(/^FROM\s+(\S+)/gm)],
+    from = froms.length === 1 ? froms[0]![1] : undefined;
+  if (from && from !== to && RETIRED_FOUNDATIONAL_IMAGES.includes(from)) {
+    const source = `${dockerfile.replace(/^FROM\s+\S+/m, `FROM ${to}`).trimEnd()}\n`;
+    const valid = await validateImageDockerfile(source).then(
+      () => true,
+      () => false,
+    );
+    if (valid) return { source, from, to };
+  }
+  settledFoundationHeads.set(paths.imageRecipe, head);
+  return undefined;
+}
+
+// Commits the migration on top of `prior`. Returns undefined when the recipe
+// moved concurrently so the caller can re-evaluate the new head.
+async function landFoundationalMigration(
+  paths: IntegralPaths,
+  prior: string,
+  migration: FoundationalMigration,
+): Promise<string | undefined> {
+  const working = await mkdtemp(join(tmpdir(), "integral-image-migrate-"));
+  try {
+    await git(["clone", "--no-local", paths.imageRecipe, working]);
+    await git(["checkout", "--detach", prior], working);
+    await writeFile(join(working, "Dockerfile"), migration.source);
+    await git(["add", "Dockerfile"], working);
+    await git(
+      [
+        "-c",
+        "user.name=Integral",
+        "-c",
+        "user.email=integral@localhost",
+        "commit",
+        "-m",
+        `Move managed Pi image recipe to ${migration.to}`,
+      ],
+      working,
+    );
+    const landed = await git(["rev-parse", "HEAD"], working),
+      treeDigest = await git(["rev-parse", "HEAD^{tree}"], working);
+    try {
+      await git(["push", "origin", "HEAD:refs/heads/main"], working);
+    } catch (error) {
+      if ((await imageRecipeHead(paths)) !== prior) return undefined;
+      throw error;
+    }
+    await appendImageAudit(paths, {
+      action: "recipe.migrate",
+      actor: "Integral",
+      prior,
+      landed,
+      treeDigest,
+      priorFoundationalImageReference: migration.from,
+      foundationalImageReference: migration.to,
+    });
+    settledFoundationHeads.set(paths.imageRecipe, landed);
+    return landed;
+  } finally {
+    await rm(working, { recursive: true, force: true });
+  }
 }
 
 function modelBridge(): string {
@@ -85,7 +181,10 @@ export async function ensureImageRecipeRepository(
   const ready = await stat(paths.imageRecipe)
     .then((value) => value.isDirectory())
     .catch(() => false);
-  if (ready) return await imageRecipeHead(paths);
+  if (ready) {
+    const head = await imageRecipeHead(paths);
+    if (!(await foundationalMigration(paths, head))) return head;
+  }
   await ensureDir(paths.state);
   const lock = join(paths.state, "image-recipe-init.lock");
   for (let attempt = 0; ; attempt++) {
@@ -119,7 +218,17 @@ async function ensureImageRecipeRepositoryUnlocked(
       "rev-parse",
       "--is-bare-repository",
     ]);
-    return await imageRecipeHead(paths);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const head = await imageRecipeHead(paths),
+        migration = await foundationalMigration(paths, head);
+      if (!migration) return head;
+      const landed = await landFoundationalMigration(paths, head, migration);
+      if (landed) return landed;
+    }
+    throw new IntegralError(
+      "image recipe kept changing while moving it to the current foundational image",
+      409,
+    );
   }
   await ensureDir(dirname(paths.imageRecipe));
   const working = await mkdtemp(join(tmpdir(), "integral-image-seed-"));
