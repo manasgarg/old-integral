@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { main, modelCommand, talkCommand } from "../src/cli.ts";
-import type { TalkTerminal } from "../src/cli.ts";
+import { main, modelCommand, talkCommand } from "../src/cli/main.ts";
+import type { TalkTerminal } from "../src/cli/main.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,

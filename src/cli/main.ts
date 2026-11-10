@@ -3,14 +3,14 @@ import { clearLine, cursorTo, moveCursor } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
-import { loadConfig, initConfig } from "./stores/config.ts";
-import type { EffectiveConfig } from "./stores/config.ts";
+import { loadConfig, initConfig } from "../stores/config.ts";
+import type { EffectiveConfig } from "../stores/config.ts";
 import {
   INTEGRAL_VERSION,
   COMPONENTS,
   PI_VERSION,
   type Component,
-} from "./platform/constants.ts";
+} from "../platform/constants.ts";
 import {
   CATALOG,
   listConnections,
@@ -22,46 +22,46 @@ import {
   validateConnection,
   type AuthMethod,
   type Connection,
-} from "./stores/connection-store.ts";
-import { resolvePaths } from "./platform/deployment-paths.ts";
-import { messageOf, IntegralError } from "./platform/errors.ts";
-import { serverStatus, startComponents } from "./services/launcher.ts";
+} from "../stores/connection-store.ts";
+import { resolvePaths } from "../platform/deployment-paths.ts";
+import { messageOf, IntegralError } from "../platform/errors.ts";
+import { serverStatus, startComponents } from "../services/launcher.ts";
 import {
   componentEndpoint,
   verifiedFetch,
-} from "./platform/internal-http-client.ts";
+} from "../platform/internal-http-client.ts";
 import {
   oauthAccess,
   runGenericOAuth,
   runModelOAuth,
-} from "./integrations/oauth.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+} from "../integrations/oauth.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import {
   discoverMcpAuthorization,
   discoverRemoteMcp,
   type McpCatalog,
-} from "./integrations/mcp.ts";
+} from "../integrations/mcp.ts";
 import {
   addHostResource,
   softDeleteResource,
-} from "./stores/resource-store.ts";
+} from "../stores/resource-store.ts";
 import {
   matchModelChoices,
   sameModel,
   sameSelection,
   type ModelChoice,
   type ModelSelection,
-} from "./domain/model-selection.ts";
-import { imageCommand } from "./cli/image.ts";
-export { imageCommand, type ImageCommandDependencies } from "./cli/image.ts";
-import { queueCommand, runQueueCommand } from "./cli/queue.ts";
-export { queueCommand, type QueueDependencies } from "./cli/queue.ts";
-import { scheduleCommand } from "./cli/schedule.ts";
-export { scheduleCommand, type ScheduleDependencies } from "./cli/schedule.ts";
-import { runTaskCommand, taskCommand } from "./cli/task.ts";
-export { taskCommand, type TaskDependencies } from "./cli/task.ts";
-import { fetchJson, requestOk } from "./cli/http.ts";
-import { verifyDiscordBot } from "./integrations/discord.ts";
+} from "../domain/model-selection.ts";
+import { imageCommand } from "./image.ts";
+export { imageCommand, type ImageCommandDependencies } from "./image.ts";
+import { queueCommand, runQueueCommand } from "./queue.ts";
+export { queueCommand, type QueueDependencies } from "./queue.ts";
+import { scheduleCommand } from "./schedule.ts";
+export { scheduleCommand, type ScheduleDependencies } from "./schedule.ts";
+import { runTaskCommand, taskCommand } from "./task.ts";
+export { taskCommand, type TaskDependencies } from "./task.ts";
+import { fetchJson, requestOk } from "./coordinator-client.ts";
+import { verifyDiscordBot } from "../integrations/discord.ts";
 import {
   approvalCommand,
   healthyCoordinator,
@@ -70,12 +70,12 @@ import {
   runStatusCommand,
   statusCommand,
   type ConversationCommandDependencies,
-} from "./cli/conversation.ts";
+} from "./conversation.ts";
 export {
   approvalCommand,
   statusCommand,
   type ConversationCommandDependencies,
-} from "./cli/conversation.ts";
+} from "./conversation.ts";
 
 const TOP_HELP = `integral — a governed, containerized Pi conversation
 

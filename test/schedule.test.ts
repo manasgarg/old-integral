@@ -4,7 +4,7 @@ import { nextCronInstant, parseCron } from "../src/domain/cron.ts";
 import { ScheduleStore } from "../src/stores/schedule-store.ts";
 import { Scheduler } from "../src/services/scheduler/scheduler.ts";
 import { loadConfig } from "../src/stores/config.ts";
-import { scheduleCommand } from "../src/cli.ts";
+import { scheduleCommand } from "../src/cli/main.ts";
 import { fixture } from "./helpers.ts";
 import { Logger } from "../src/platform/logging.ts";
 

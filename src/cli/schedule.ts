@@ -6,7 +6,7 @@ import {
 import type { ModelSelection } from "../domain/model-selection.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
-import { fetchJson, requestJson } from "./http.ts";
+import { fetchJson, requestJson } from "./coordinator-client.ts";
 
 const HELP = `Usage: integral schedule <command>
 

@@ -13,7 +13,7 @@ import integralWebTools, {
   WEB_FETCH_TIMEOUT_MS,
   WEB_RESULT_MAX_CHARS,
   WEB_SEARCH_CONCURRENCY,
-} from "../src/web-extension.ts";
+} from "../src/pi-extensions/web-tools.ts";
 
 interface RegisteredTool {
   name: string;
