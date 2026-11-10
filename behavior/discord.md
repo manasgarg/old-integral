@@ -1,14 +1,15 @@
 # Discord DM behaviors
 
-These behaviors cover the Discord channel: one trusted Discord direct-message
-channel as its own durable Integral conversation, following the channel
-contract in [`channel.md`](channel.md). The Discord DM and the default terminal
-conversation keep separate histories, queues, sessions, and task routes. In
-this release the logical Discord conversation maps one-to-one to the configured
-native Discord DM; linking surfaces is out of scope. A Discord connection also
-enables the bundled Discord-send extension, whose single-DM limit is enforced
-by the Discord rule plugin. Discord does not grant the agent credentials or
-weaken governed-operation approvals.
+These behaviors cover the Discord channel, which is part of core: one trusted
+Discord direct-message channel as its own durable Integral conversation,
+following the channel contract in [`channel.md`](channel.md). The Discord DM
+and the default terminal conversation keep separate histories, queues,
+sessions, and task routes. In this release the logical Discord conversation
+maps one-to-one to the configured native Discord DM; linking surfaces is out
+of scope. A Discord connection also activates the bundled Discord-send
+extension, whose host half contributes the Discord gateway rule and the
+single-DM rule plugin. Discord does not grant the agent credentials or weaken
+governed-operation approvals.
 
 <!-- Automation note (DISCORD-E4BE44A7): Full verification requires an isolated Discord application and credential fixture. -->
 <!-- Automation note (DISCORD-E043BBDD): Gateway reconnect and shutdown require Discord Gateway fault-injection infrastructure. -->

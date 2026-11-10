@@ -1,11 +1,12 @@
 # Durable store behaviors
 
-These behaviors cover stores: host-backed directories that core mounts into the
-box as writable volumes and that remain durable across Pi runs. Stores use
-direct filesystem writes rather than Git landing. Core provides mounting,
-isolation, coordination, configured snapshots, and soft deletion without
-interpreting store content. The bundled store extension gives Pi lifecycle
-tools over the Integral control API.
+These behaviors cover the bundled store extension. Stores are host-backed
+directories that remain writable and durable across Pi runs. The store
+extension's host half contributes each active store as a volume, the store
+lifecycle control operations, the snapshot service, and the `host-store`
+connection kind; core mounts the volumes into the box. Stores use direct
+filesystem writes rather than Git landing, and Integral does not interpret
+store content. The extension's box half gives Pi the lifecycle tools.
 
 ## STORE-350F3496 — Give Pi store lifecycle tools through the store extension
 

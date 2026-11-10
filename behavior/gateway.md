@@ -1,10 +1,11 @@
 # Gateway behaviors
 
 These behaviors cover the gateway, core's single enforcement point for
-everything that leaves the box. Each active connection contributes gateway
-rules. A rule may name a rule plugin for limits that depend on what a request
-means rather than where it goes, and it may require human approval.
-Extensions never enforce policy; the gateway does.
+everything that leaves the box. Gateway rules come from active connections and
+from active extensions' defaults. A rule may name a rule plugin, contributed by
+an extension's host half, for limits that depend on what a request means
+rather than where it goes, and it may require human approval. The box half of
+an extension never enforces policy.
 
 <!-- Automation note (GATEWAY-A2BBBBE8): Boundary matching, sentinel removal, credential injection, and forwarding construction are automated; a public TLS upstream is not contacted by the offline suite. -->
 <!-- Automation note (GATEWAY-EC79406A): The default suite verifies the internal-network Docker specification; `npm run test:acceptance:docker` also verifies that a live container has no direct external route. -->
@@ -45,17 +46,17 @@ Given an active chat has a unique session token
 ## GATEWAY-08EEB2DC — Evaluate every request against gateway rules
 
 ```text
-Given every active connection contributes zero or more gateway rules
+Given every active connection and active extension contributes zero or more gateway rules
 	And each rule names a scheme, host, port, path prefix, allowed methods, credential placement, optional rule plugin, and whether approval is required
-	And core contributes the built-in public web rule and the Integral control rule
+	And core contributes the Integral control rule
 	When an authenticated session sends a request through the gateway
 		Then the gateway selects the most specific rule whose boundary and method match the request
 			And refuses the request when no rule matches
 			And applies only the selected rule's credential, rule plugin, and approval requirement
-			And treats core's built-in rules the same way as connection rules
+			And treats core, connection, and extension rules the same way
 	When two active rules match a request with equal specificity
 		Then the gateway refuses the request
-			And reports the conflicting connections without exposing credentials
+			And reports the conflicting connections or extensions without exposing credentials
 ```
 
 ## GATEWAY-A2BBBBE8 — Forward a request allowed by a gateway rule
@@ -78,13 +79,13 @@ Given an authenticated chat container is active
 ```text
 Given an authenticated chat container is active
 	When it requests a destination outside every active connection boundary
-		And the request does not match the built-in credential-free web GET boundary
+		And the request does not match the web extension's credential-free public web rule
 		Then the gateway returns HTTP 403
 			And states that policy denied the request
 			And does not contact the requested upstream
 	When it requests an HTTPS tunnel
 		Then the gateway accepts `CONNECT` only on port 443
-			And refuses the tunnel before interception unless an active HTTPS connection or the built-in web GET boundary can match its host and port
+			And refuses the tunnel before interception unless an active gateway rule can match its host and port
 			And still applies method and path policy to each intercepted request
 ```
 
@@ -127,13 +128,13 @@ Given a connection stores one or more secrets
 ## GATEWAY-AAD4DC1D — Apply rule plugins for limits that depend on request meaning
 
 ```text
-Given a gateway rule names a host-side rule plugin
-	And integral bundles plugins for the email recipient policy, the Discord single-DM boundary, and governed Git landing
+Given a gateway rule names a rule plugin contributed by an active extension's host half
+	And the bundled email, Discord-send, and repository extensions contribute the email recipient policy, the Discord single-DM boundary, and governed Git landing plugins
 	When a request matches that rule
 		Then the gateway gives the plugin the parsed request, the authenticated session, and the connection's non-secret policy before forwarding
 			And the plugin may allow the request, refuse it with a bounded reason, require approval, or answer it without forwarding
 			And the plugin cannot widen the rule's boundary or read another connection's credentials
-	When the plugin fails, times out, or returns an invalid verdict
+	When the plugin fails, times out, returns an invalid verdict, or its extension is inactive
 		Then the gateway refuses the request
 			And does not contact the upstream
 Given a gateway rule names no plugin
@@ -144,15 +145,20 @@ Given a gateway rule names no plugin
 ## GATEWAY-FACB8D58 — Reach host operations only through the Integral control rule
 
 ```text
-Given extensions need host operations such as repository and store lifecycle, package inventory, image rebuild, Discord delivery records, and task outcomes
+Given core and active extensions register operations on the Integral control API
+	And core registers package inventory, package changes, image rebuild, schedule, and task-outcome operations
+	And extensions register operations such as repository and store lifecycle
 	When an authenticated session calls the Integral control API
 		Then the box reaches it only through the gateway at a fixed internal host name
 			And the gateway attributes the call to the session like any other request
-			And the control API derives authority from the session and never from a caller-supplied identity, host path, policy, or approval state
+			And the control API routes the call to the registering core component or extension host half
+			And derives authority from the session and never from a caller-supplied identity, host path, policy, or approval state
 			And each control operation declares whether it requires approval
-			And the box has no route to coordinator, runner, or scheduler listeners
+			And the box has no route to coordinator, runner, scheduler, or extension service listeners except through the gateway
 	When a control call carries an expired, revoked, or mismatched session identity
 		Then the control API refuses it without reading or changing host state
+	When a control call names an operation of an inactive extension
+		Then the control API refuses it as unavailable
 ```
 
 ## GATEWAY-846B1000 — Require human approval for governed requests

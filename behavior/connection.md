@@ -8,13 +8,16 @@ enforce or mount, and it falls into one of four roles:
   HTTP, and MCP) contribute gateway rules and the credentials those rules
   inject.
 - **Repository** connections (`host-repo`) contribute a governed repository
-  served through Integral's Git endpoint.
+  served through the repository extension's Git endpoint.
 - **Store** connections (`host-store`) contribute a writable volume.
 - **Channel** connections (`discord`) contribute a channel. A channel
   connection may also enable an extension, but its own credential is never
   exposed to Pi.
 
-Extensions read connection descriptions; they never hold real credentials.
+Core defines the model-provider, generic HTTP, GitHub, and Discord connection
+kinds. Bundled extensions contribute the MCP, email, repository, and store
+kinds and their setup. An extension's box half reads connection descriptions
+and never holds real credentials.
 Integral has no grant or revoke concept.
 
 <!-- Automation note (CONNECTION-03C4E791): Guided setup validation and its explicit equivalent are automated; keystroke-level interactive selection is not driven by the non-interactive default suite. -->

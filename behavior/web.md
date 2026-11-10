@@ -1,8 +1,8 @@
 # Web retrieval behaviors
 
-These behaviors cover the bundled web extension, which Pi uses to search the
-public web and read selected pages, and core's built-in public web rule, which
-governs that traffic at the gateway.
+These behaviors cover the bundled web extension. Its box half gives Pi tools to
+search the public web and read selected pages. Its host half contributes the
+public web rule, which governs that traffic at the gateway.
 
 ## WEB-2ED07A71 — Provide web search and page-fetch tools
 
@@ -24,12 +24,12 @@ Given Integral provisions an interactive Pi session or an isolated scheduled-tas
 ```text
 Given an authenticated session sends an HTTP or HTTPS GET request that matches no connection rule
 	When the request reaches the gateway
-		Then the gateway applies core's built-in public web rule
+		Then the gateway applies the web extension's public web rule
 			And permits the destination without requiring a configured connection
 			And attributes and logs the request to the session
-			And does not inject a credential through the built-in web rule
+			And does not inject a credential through the public web rule
 			And evaluates every redirected request through the same rule
-	When the session attempts a non-GET request that matches only the built-in web rule
+	When the session attempts a non-GET request that matches only the public web rule
 		Then the gateway denies the request
 			And does not contact the requested upstream
 	When software in the container attempts to bypass the gateway

@@ -1,10 +1,11 @@
 # Channel behaviors
 
-These behaviors define the channel contract. A channel is where work enters a
-conversation and where its results are delivered. The terminal, the configured
-Discord DM, and the scheduler are channels. Channel-specific presentation lives
-in [`chat.md`](chat.md), [`discord.md`](discord.md), and
-[`schedule.md`](schedule.md); this file covers what every channel shares.
+These behaviors define the channel contract. Channels are part of core. A
+channel is where work enters a conversation and where its results are
+delivered. The terminal, the configured Discord DM, and the scheduler are
+channels. Channel-specific presentation lives in [`chat.md`](chat.md),
+[`discord.md`](discord.md), and [`schedule.md`](schedule.md); this file covers
+what every channel shares.
 
 ## CHANNEL-344DC824 — Submit channel input to a coordinator conversation
 

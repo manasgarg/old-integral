@@ -1,12 +1,13 @@
 # Governed repository behaviors
 
-These behaviors cover host-canonical Git repositories. Integral serves each
-governed repository from its Git endpoint, reachable only through the gateway.
-The bundled repository extension clones every active repository into the
-session before Pi starts and saves unlanded work when the session ends. Every
-push reaches the governed Git landing rule plugin, which validates it and
-advances the canonical branch. Existing bare repositories may enter the same
-lifecycle through a host connection.
+These behaviors cover the bundled repository extension and the host-canonical
+Git repositories it governs. Its host half contributes a Git endpoint service,
+the governed Git landing rule plugin, repository lifecycle control operations,
+and the `host-repo` connection kind; its canonical repositories live in the
+extension's own data directory. Its box half clones every active repository
+into the session before Pi starts and saves unlanded work when the session
+ends. Existing bare repositories may enter the same lifecycle through a host
+connection.
 
 <!-- Automation note (REPO-7B0E2F4A): Selective approval-gated repository landing, exact proposal review, stale-ref refusal, denied writes, and direct local image editing are automated. -->
 
@@ -14,7 +15,7 @@ lifecycle through a host connection.
 
 ```text
 Given one or more governed repositories are active
-	When an authenticated session uses Git smart HTTP against Integral's Git endpoint through the gateway
+	When an authenticated session uses Git smart HTTP against the repository extension's Git endpoint through the gateway
 		Then the endpoint serves only repositories visible to that session
 			And permits fetch and clone of each canonical branch and of recovery refs
 			And sends every push to the governed Git landing rule plugin
@@ -35,7 +36,7 @@ Given integral provisions any interactive or isolated scheduled Pi session
 			And supplies guidance on the commit-before-push and soft-delete semantics
 			And explains that creation and restoration replace the calling session while deletion changes mounted resources only for later sessions
 			And sends lifecycle operations to the Integral control API through the gateway
-			And implements `repo_push` as an ordinary Git push to Integral's Git endpoint
+			And implements `repo_push` as an ordinary Git push to the repository extension's Git endpoint
 			And keeps the tools available when no repository connection exists yet
 	When a repository tool or Git request carries an expired, revoked, or mismatched session identity
 		Then integral rejects it without reading or changing repository state
@@ -80,10 +81,10 @@ Given Pi or the connection CLI creates, adds, or restores a governed repository 
 ```text
 Given one or more governed repository connections are active and have mount paths
 	When the repository extension prepares an interactive or isolated scheduled Pi session
-		Then it clones each repository from Integral's Git endpoint through the gateway
+		Then it clones each repository from the repository extension's Git endpoint through the gateway
 			And places each clone at its recorded mount path inside the session home
 			And checks out a branch whose identity includes the run ID
-			And configures `origin` as Integral's Git endpoint for that repository
+			And configures `origin` as the repository extension's Git endpoint for that repository
 			And permits `git fetch origin` and `git push origin`
 			And no canonical repository or host parent directory is mounted into the box
 	When a repository cannot be cloned at its recorded path
@@ -185,7 +186,7 @@ Given a governed repository canonical branch may have advanced since a run began
 Given a governed repository checkout differs from its landed canonical head
 	When the repository extension's shutdown step runs
 		Then it commits any uncommitted changes to a recovery commit without changing the run branch
-			And pushes the work to the run's recovery ref through Integral's Git endpoint
+			And pushes the work to the run's recovery ref through the repository extension's Git endpoint
 			And the landing plugin validates the recovery push like any other push but writes only the recovery ref
 			And integral records whether the checkout contained committed or uncommitted changes
 			And makes the recovery ref visible in repository status for a later run
@@ -224,7 +225,7 @@ Given an active governed repository is visible to Pi
 		Then integral records a tombstone containing the repository identity, canonical branch, prior mount path, and deletion actor
 			And removes the repository from the active connection inventory
 			And prevents every existing checkout from landing after the deletion revision
-			And Integral's Git endpoint rejects later pushes and fetches from those checkouts as `resource_soft_deleted`
+			And the repository extension's Git endpoint rejects later pushes and fetches from those checkouts as `resource_soft_deleted`
 			And leaves every existing Pi session and checkout running until its ordinary end
 			And lets those checkouts continue local edits and Git commits
 			And accepts recovery pushes for unlanded work from those checkouts when their sessions end
@@ -244,7 +245,7 @@ Given a Pi session has a governed repository checkout
 			And advances its lifecycle revision and the connection generation
 			And leaves the existing Pi session and checkout running until its ordinary end
 			And lets local file edits and Git commits succeed or fail normally inside that checkout
-			And Integral's Git endpoint rejects pushes, fetches, and later lifecycle operations with `resource_unavailable`
+			And the repository extension's Git endpoint rejects pushes, fetches, and later lifecycle operations with `resource_unavailable`
 	When the session ends while the repository is unavailable
 		Then the recovery push fails
 			And integral retains the session home as unrecovered as described by `BOX-87993E3C`

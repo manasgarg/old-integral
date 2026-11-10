@@ -1,11 +1,11 @@
 # MCP behaviors
 
-These behaviors define remote and stdio MCP connections. MCP is an extension:
-the MCP client runs inside the box as the bundled MCP extension, and every
-remote request leaves through gateway rules contributed by the MCP connection.
-Host code handles only setup, authorization, credential refresh, and health.
-MCP Apps, prompts, resources, and per-conversation enable switches are outside
-this scope.
+These behaviors define the bundled MCP extension. Its box half is the MCP
+client, which runs inside the box and starts stdio servers there. Its host
+half contributes the remote and stdio MCP connection kinds, their setup,
+authorization, and health checks, and the gateway rules each MCP connection
+needs. Every remote request leaves through those rules. MCP Apps, prompts,
+resources, and per-conversation enable switches are outside this scope.
 
 <!-- Automation note (MCP-948B2522): OAuth metadata discovery, dynamic registration, issuer/resource binding, and refresh are covered by MCP, OAuth, connection, and gateway tests. -->
 <!-- Automation note (MCP-DB6BD516): Stateless, sessionful, and legacy SSE negotiation are covered by MCP protocol tests. -->

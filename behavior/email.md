@@ -1,10 +1,10 @@
 # Email behaviors
 
-These behaviors cover email accounts. An email connection contributes gateway
-rules for its provider API and names the email rule plugin, which enforces the
-account's capabilities and recipient policy. The bundled email extension gives
-Pi semantic tools over those APIs as a convenience. The box receives only
-credential sentinels.
+These behaviors cover the bundled email extension. Its host half contributes
+the Gmail and Mailgun connection kinds, gateway rules for their provider APIs,
+and the email rule plugin, which enforces each account's capabilities and
+recipient policy. Its box half gives Pi semantic tools over those APIs as a
+convenience. The box receives only credential sentinels.
 
 ## EMAIL-B765A312 — Configure provider-defined email capabilities
 
