@@ -15,6 +15,10 @@ Speak in plain English.
 - Keep TypeScript strict. Do not weaken compiler options or lint rules to make a
   change pass. Narrow unknown values, model data explicitly, and keep unsafe
   assertions at validated system boundaries.
+- Separate logical blocks of code with one blank line so a reader can see
+  where one step ends and the next begins, for example setup, validation, the
+  main work, and the result. Keep a block's related statements together, and
+  do not add blank lines that split a single step or pad short functions.
 - Prefer Node.js built-ins over adding dependencies when they provide the
   required behavior. Use `node:test` for automated tests and keep tests
   deterministic and isolated from external services.

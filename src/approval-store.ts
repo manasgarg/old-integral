@@ -16,6 +16,7 @@ export type ApprovalStatus =
   | "stale"
   | "succeeded"
   | "failed";
+
 export type TerminalApprovalStatus = Exclude<
   ApprovalStatus,
   "pending" | "approved"
@@ -137,6 +138,7 @@ export function publicApproval(record: ApprovalRecord): PublicApproval {
 
 export class ApprovalStore {
   private approvals: ApprovalRecord[] = [];
+
   constructor(
     private readonly paths: IntegralPaths,
     private readonly now: () => number = Date.now,
@@ -146,6 +148,7 @@ export class ApprovalStore {
   async load(): Promise<void> {
     const raw = await readText(this.paths.approvals);
     if (!raw) return;
+
     try {
       const parsed = JSON.parse(raw) as ApprovalFile;
       if (
@@ -154,6 +157,7 @@ export class ApprovalStore {
         parsed.approvals.some((record) => !validRecord(record))
       )
         throw new Error("invalid approval state");
+
       this.approvals = structuredClone(parsed.approvals);
     } catch {
       throw new IntegralError(`invalid approval file: ${this.paths.approvals}`);
@@ -208,6 +212,7 @@ export class ApprovalStore {
           created + (input.deadlineMs ?? 600_000),
         ).toISOString(),
       };
+
     this.approvals.push(record);
     await this.persistTransition(record);
     return structuredClone(record);
@@ -224,12 +229,14 @@ export class ApprovalStore {
         `approval ${id} is already ${record.status}`,
         409,
       );
+
     record.status = outcome;
     record.decision = {
       outcome,
       terminalId,
       at: new Date(this.now()).toISOString(),
     };
+
     await this.persistTransition(record);
     return structuredClone(record);
   }
@@ -243,6 +250,7 @@ export class ApprovalStore {
     const record = this.mutable(id);
     if (record.status !== "approved")
       throw new IntegralError(`approval ${id} is not approved`, 409);
+
     record.status = outcome.status;
     record.execution = {
       at: new Date(this.now()).toISOString(),
@@ -250,6 +258,7 @@ export class ApprovalStore {
         ? { result: structuredClone(outcome.result) }
         : { error: outcome.error }),
     };
+
     await this.persistTransition(record);
     return structuredClone(record);
   }
@@ -260,6 +269,7 @@ export class ApprovalStore {
         (record) =>
           record.status === "pending" && Date.parse(record.expiresAt) <= now,
       );
+
     for (const record of expired) {
       record.status = "expired";
       record.execution = {
@@ -268,6 +278,7 @@ export class ApprovalStore {
       };
       await this.persistTransition(record);
     }
+
     return structuredClone(expired);
   }
 
@@ -278,6 +289,7 @@ export class ApprovalStore {
     if (record.continuationMessageId === messageId) return;
     if (record.continuationMessageId)
       throw new IntegralError(`approval ${id} already has a continuation`, 409);
+
     record.continuationMessageId = messageId;
     await this.persistTransition(record);
   }
@@ -293,6 +305,7 @@ export class ApprovalStore {
       this.paths.approvals,
       `${JSON.stringify({ schemaVersion: 1, approvals: this.approvals })}\n`,
     );
+
     await ensureDir(dirname(this.paths.approvalAudit));
     await appendFile(
       this.paths.approvalAudit,
@@ -310,6 +323,7 @@ export class ApprovalStore {
       })}\n`,
       { mode: 0o600 },
     );
+
     const handle = await open(this.paths.approvalAudit, "r+");
     try {
       await handle.sync();
@@ -370,6 +384,7 @@ function validRequest(value: unknown): value is GovernedApprovalRequest {
   if (!value || typeof value !== "object") return false;
   const request = value as Partial<GovernedApprovalRequest> &
     Record<string, unknown>;
+
   if (request.kind === "container-packages")
     return (
       (request.operation === "install" || request.operation === "upgrade") &&
@@ -377,6 +392,7 @@ function validRequest(value: unknown): value is GovernedApprovalRequest {
       Number.isInteger(request.expectedRevision) &&
       Number(request.expectedRevision) >= 0
     );
+
   return (
     request.kind === "image-recipe" &&
     (request.operation === "proposal" || request.operation === "rebuild") &&

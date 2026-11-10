@@ -77,20 +77,24 @@ export class Scheduler {
     await this.schedules.load();
     await this.occurrences.load();
     this.token = await componentIdentity(this.paths);
+
     const server = http.createServer(
       (request, response) => void this.route(request, response),
     );
     this.server = server;
+
     await this.dependencies.servers.listen(
       server,
       this.config.server.schedulerPort,
       "127.0.0.1",
     );
+
     await this.tick();
     this.timer = this.dependencies.intervals.setInterval(
       () => void this.tick().catch(() => undefined),
       1_000,
     );
+
     return server;
   }
 
@@ -99,9 +103,11 @@ export class Scheduler {
       this.tickCoalesced++;
       return;
     }
+
     this.ticking = true;
     const started = this.dependencies.now();
     let failed = false;
+
     try {
       await this.materialize();
       for (const occurrence of this.occurrences
@@ -157,11 +163,13 @@ export class Scheduler {
       schedule.id,
       schedule.revision,
     );
+
     if (schedule.trigger.type === "once") {
       return Date.parse(schedule.trigger.runAt) <= now && existing.length === 0
         ? [new Date(schedule.trigger.runAt).toISOString()]
         : [];
     }
+
     let cursor = existing.length
       ? Math.max(...existing.map((item) => Date.parse(item.scheduledFor)))
       : Date.parse(schedule.updatedAt);
@@ -174,6 +182,7 @@ export class Scheduler {
             schedule.trigger.timezone,
             cursor,
           );
+
     const result: string[] = [];
     while (next <= now) {
       result.push(new Date(next).toISOString());
@@ -186,16 +195,19 @@ export class Scheduler {
         cursor,
       );
     }
+
     this.nextInstants.set(schedule.id, {
       revision: schedule.revision,
       cursor,
       next,
     });
+
     return result;
   }
 
   private async dispatch(occurrence: ScheduledOccurrence): Promise<void> {
     await this.occurrences.recordDispatch(occurrence.executionId);
+
     const response = await this.dependencies.internalFetch(
       this.paths,
       "scheduler",
@@ -205,9 +217,11 @@ export class Scheduler {
     );
     if (!response.ok)
       throw new IntegralError(`task dispatch failed: ${response.status}`);
+
     const body = (await response.json()) as { id?: unknown };
     if (typeof body.id !== "string")
       throw new IntegralError("coordinator returned an invalid task record");
+
     await this.occurrences.accept(occurrence.executionId, body.id);
   }
 
@@ -225,16 +239,19 @@ export class Scheduler {
         });
         return;
       }
+
       if (url.pathname === "/integral/schedules" && request.method === "GET") {
         json(response, 200, this.schedules.list());
         return;
       }
+
       if (url.pathname === "/integral/schedules" && request.method === "POST") {
         const body = await bodyJson(request),
           item = await this.schedules.create(createInput(body), actor(body));
         json(response, 201, item);
         return;
       }
+
       if (
         url.pathname === "/integral/occurrences" &&
         request.method === "GET"
@@ -249,6 +266,7 @@ export class Scheduler {
         );
         return;
       }
+
       const history = url.pathname.match(
         /^\/integral\/schedules\/([^/]+)\/history$/,
       );
@@ -256,6 +274,7 @@ export class Scheduler {
         json(response, 200, await this.schedules.history(history[1]!));
         return;
       }
+
       const action = url.pathname.match(
         /^\/integral\/schedules\/([^/]+)\/(enable|disable|restore)$/,
       );
@@ -279,11 +298,13 @@ export class Scheduler {
         json(response, 200, item);
         return;
       }
+
       const schedule = url.pathname.match(/^\/integral\/schedules\/([^/]+)$/);
       if (schedule && request.method === "GET") {
         json(response, 200, this.schedules.get(schedule[1]!, true));
         return;
       }
+
       if (schedule && request.method === "PATCH") {
         const body = await bodyJson(request),
           item = await this.schedules.update(
@@ -294,6 +315,7 @@ export class Scheduler {
         json(response, 200, item);
         return;
       }
+
       if (schedule && request.method === "DELETE") {
         const body = await bodyJson(request),
           item = await this.schedules.delete(
@@ -304,6 +326,7 @@ export class Scheduler {
         json(response, 200, item);
         return;
       }
+
       const acknowledgement = url.pathname.match(
         /^\/integral\/internal\/occurrences\/([^/]+)\/ack$/,
       );
@@ -317,10 +340,12 @@ export class Scheduler {
           )
         )
           return unauthorized(response);
+
         const body = await bodyJson(request),
           outcome = string(body.outcome);
         if (!["succeeded", "failed", "cancelled"].includes(outcome))
           throw new IntegralError("invalid task outcome", 400);
+
         const item = await this.occurrences.acknowledge(
           acknowledgement[1]!,
           outcome as "succeeded" | "failed" | "cancelled",
@@ -329,6 +354,7 @@ export class Scheduler {
         json(response, 200, item);
         return;
       }
+
       response.writeHead(404).end("not found\n");
     } catch (error) {
       const status = error instanceof IntegralError ? error.exitCode : 500;
@@ -357,6 +383,7 @@ function origin(value: unknown): NonNullable<CreateSchedule["origin"]> {
   const item = record(value);
   if (item.provider !== "discord")
     throw new IntegralError("unsupported conversation origin", 400);
+
   return {
     provider: "discord",
     conversationId: string(item.conversationId),

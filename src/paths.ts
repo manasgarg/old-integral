@@ -49,6 +49,7 @@ function canonicalize(path: string): string {
   } catch {
     let cursor = normalized;
     const suffix: string[] = [];
+
     while (cursor !== dirname(cursor)) {
       try {
         return join(realpathSync.native(cursor), ...suffix.reverse());
@@ -57,6 +58,7 @@ function canonicalize(path: string): string {
         cursor = dirname(cursor);
       }
     }
+
     return normalized;
   }
 }
@@ -66,6 +68,7 @@ export function resolveIntegralHome(
 ): string {
   const candidate =
     env.INTEGRAL_HOME?.trim() || (env.HOME ? join(env.HOME, ".integral") : "");
+
   if (!candidate) {
     throw new IntegralError(
       "INTEGRAL_HOME is not set and HOME is unavailable; set INTEGRAL_HOME to an absolute path",
@@ -74,6 +77,7 @@ export function resolveIntegralHome(
   if (!isAbsolute(candidate)) {
     throw new IntegralError("INTEGRAL_HOME must be an absolute path");
   }
+
   return canonicalize(candidate);
 }
 
@@ -81,6 +85,7 @@ export function pathsFor(root: string): IntegralPaths {
   const config = join(root, "config");
   const data = join(root, "data");
   const state = join(root, "state");
+
   return {
     root,
     config,

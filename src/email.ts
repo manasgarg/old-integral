@@ -52,6 +52,7 @@ async function responseJson(
   } catch {
     parsed = {};
   }
+
   if (!response.ok) {
     const value = record(parsed),
       nested = record(value.error),
@@ -68,6 +69,7 @@ async function responseJson(
       `email provider request failed: HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
     );
   }
+
   return record(parsed);
 }
 
@@ -95,17 +97,20 @@ function headersOf(message: Record<string, unknown>): Record<string, string> {
   const headers = Array.isArray(payload.headers)
     ? (payload.headers as GmailHeader[])
     : [];
+
   const result: Record<string, string> = {};
   for (const header of headers) {
     if (typeof header.name === "string" && typeof header.value === "string")
       result[header.name.toLowerCase()] = header.value;
   }
+
   return result;
 }
 
 function decodePart(part: GmailPart): string | undefined {
   if (part.mimeType === "text/plain" && typeof part.body?.data === "string")
     return Buffer.from(part.body.data, "base64url").toString("utf8");
+
   if (Array.isArray(part.parts)) {
     for (const child of part.parts) {
       const decoded = decodePart(record(child));
@@ -161,6 +166,7 @@ function validateMessage(
     cc = operation.cc ?? [],
     bcc = operation.bcc ?? [],
     recipients = [...to, ...cc, ...bcc];
+
   if (!to.length || recipients.length > MAX_RECIPIENTS)
     throw new IntegralError(
       `email must have 1 to ${MAX_RECIPIENTS} recipients`,
@@ -174,6 +180,7 @@ function validateMessage(
     )
   )
     throw new IntegralError("email contains an invalid recipient address");
+
   const denied = recipients.find(
     (recipient) => !allowedRecipient(connection, recipient),
   );
@@ -182,6 +189,7 @@ function validateMessage(
       `recipient is not allowed by connection ${connection.name}: ${denied}`,
       403,
     );
+
   const subject = validateField(
     "subject",
     operation.subject,
@@ -191,6 +199,7 @@ function validateMessage(
     throw new IntegralError("text must not be empty");
   if (Buffer.byteLength(operation.text) > MAX_BODY_BYTES)
     throw new IntegralError("text is too long");
+
   return { to, cc, bcc, subject, text: operation.text };
 }
 
@@ -221,23 +230,28 @@ async function gmail(
 ): Promise<unknown> {
   const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
   const headers = providerHeaders(connection, credential);
+
   if (operation.operation === "search") {
     requireCapability(connection, "search");
     if (typeof operation.query !== "string" || operation.query.length > 1_000)
       throw new IntegralError("search query is invalid or too long");
+
     const maxResults = Math.min(
       MAX_RESULTS,
       Math.max(1, Math.trunc(operation.maxResults ?? 10)),
     );
+
     const url = new URL(base);
     url.searchParams.set("q", operation.query);
     url.searchParams.set("maxResults", String(maxResults));
+
     const listed = await responseJson(await request(url, { headers }));
     const messages = Array.isArray(listed.messages) ? listed.messages : [];
     const summaries = [];
     for (const item of messages.slice(0, maxResults)) {
       const id = record(item).id;
       if (typeof id !== "string") continue;
+
       const detail = await responseJson(
         await request(
           `${base}/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
@@ -246,18 +260,22 @@ async function gmail(
       );
       summaries.push(gmailSummary(detail));
     }
+
     return { messages: summaries, nextPageToken: listed.nextPageToken ?? null };
   }
+
   if (operation.operation === "read") {
     requireCapability(connection, "read");
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(operation.messageId))
       throw new IntegralError("invalid Gmail message ID");
+
     const message = await responseJson(
       await request(
         `${base}/${encodeURIComponent(operation.messageId)}?format=full`,
         { headers },
       ),
     );
+
     const text = decodePart(record(message.payload)) ?? "";
     return {
       ...gmailSummary(message),
@@ -265,11 +283,13 @@ async function gmail(
       truncated: Buffer.byteLength(text) > MAX_READ_BYTES,
     };
   }
+
   requireCapability(connection, "send");
   const message = validateMessage(connection, operation);
   const raw = Buffer.from(mimeMessage(connection.account!, message)).toString(
     "base64url",
   );
+
   const sent = await responseJson(
     await request(`${base}/send`, {
       method: "POST",
@@ -277,6 +297,7 @@ async function gmail(
       body: JSON.stringify({ raw }),
     }),
   );
+
   return { id: sent.id ?? null, threadId: sent.threadId ?? null };
 }
 
@@ -289,6 +310,7 @@ async function mailgun(
   if (operation.operation !== "send")
     throw new IntegralError("mailgun supports only send", 403);
   requireCapability(connection, "send");
+
   const message = validateMessage(connection, operation),
     form = new FormData();
   form.set("from", connection.fromAddress!);
@@ -297,6 +319,7 @@ async function mailgun(
   for (const recipient of message.bcc) form.append("bcc", recipient);
   form.set("subject", message.subject);
   form.set("text", message.text);
+
   const host =
     connection.region === "eu" ? "api.eu.mailgun.net" : "api.mailgun.net";
   const sent = await responseJson(
@@ -309,6 +332,7 @@ async function mailgun(
       },
     ),
   );
+
   return { id: sent.id ?? null, message: sent.message ?? null };
 }
 
@@ -325,6 +349,7 @@ export async function executeEmail(
       `connection ${connection.name} has no usable credential; rotate or reconfigure it`,
       403,
     );
+
   return connection.provider === "gmail"
     ? gmail(connection, credential, operation, request)
     : mailgun(connection, credential, operation, request);
@@ -333,6 +358,7 @@ export async function executeEmail(
 export function parseEmailOperation(raw: unknown): EmailOperation {
   const value = record(raw),
     operation = value.operation;
+
   if (operation === "search")
     return {
       operation,
@@ -341,11 +367,13 @@ export function parseEmailOperation(raw: unknown): EmailOperation {
         ? { maxResults: value.maxResults }
         : {}),
     };
+
   if (operation === "read")
     return {
       operation,
       messageId: typeof value.messageId === "string" ? value.messageId : "",
     };
+
   if (operation === "send")
     return {
       operation,
@@ -355,5 +383,6 @@ export function parseEmailOperation(raw: unknown): EmailOperation {
       subject: typeof value.subject === "string" ? value.subject : "",
       text: typeof value.text === "string" ? value.text : "",
     };
+
   throw new IntegralError("unknown email operation");
 }

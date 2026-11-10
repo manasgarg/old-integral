@@ -121,15 +121,18 @@ export function validateMain(
 ): Record<string, unknown> {
   const root = object(raw);
   const errors: string[] = [];
+
   for (const [section, value] of Object.entries(root)) {
     if (!allowed[section]) {
       errors.push(`${file}: unknown section [${section}]`);
       continue;
     }
+
     if (object(value) !== value) {
       errors.push(`${file}: [${section}] must be a table`);
       continue;
     }
+
     for (const key of Object.keys(value)) {
       if (!allowed[section].includes(key))
         errors.push(`${file}: unknown option ${section}.${key}`);
@@ -139,6 +142,7 @@ export function validateMain(
         );
     }
   }
+
   if (errors.length) throw new IntegralError(errors.join("\n"));
   return root;
 }
@@ -170,11 +174,13 @@ export async function loadConfig(
       throw new IntegralError(`${paths.mainConfig}: ${String(error)}`);
     }
   }
+
   const source = (section: string, key: string): ValueSource =>
     object(root[section])[key] === undefined ? "built-in" : "file";
   const val = (section: string, key: string): unknown =>
     object(root[section])[key] ??
     defaults[`${section}.${key}` as keyof typeof defaults];
+
   const envPortErrors: string[] = [],
     envPorts: Record<Component, number | undefined> = {
       gateway: undefined,
@@ -182,6 +188,7 @@ export async function loadConfig(
       runner: undefined,
       scheduler: undefined,
     };
+
   for (const component of [
     "gateway",
     "coordinator",
@@ -198,6 +205,7 @@ export async function loadConfig(
     }
   }
   if (envPortErrors.length) throw new IntegralError(envPortErrors.join("\n"));
+
   const server = {
     gatewayPort:
       envPorts.gateway ??
@@ -212,6 +220,7 @@ export async function loadConfig(
       envPorts.scheduler ??
       port(val("server", "scheduler_port"), "server.scheduler_port"),
   };
+
   if (new Set(Object.values(server)).size !== 4) {
     const conflicts = Object.entries(server)
       .filter(([, value], index, all) =>
@@ -224,6 +233,7 @@ export async function loadConfig(
       `gateway, coordinator, runner, and scheduler ports must be distinct; conflicts: ${conflicts.join(", ")}`,
     );
   }
+
   const fileLogging = object(root.logging);
   const logLevelRaw =
     env.INTEGRAL_LOG_LEVEL?.trim() ||
@@ -233,6 +243,7 @@ export async function loadConfig(
     env.INTEGRAL_LOG_FORMAT?.trim() ||
     fileLogging.format ||
     defaults["logging.format"];
+
   const logging = {
     level: stringChoice(
       logLevelRaw,
@@ -247,6 +258,7 @@ export async function loadConfig(
       ["text", "json"],
     ),
   };
+
   const runner = {
     image: stringValue(val("runner", "image"), "runner.image"),
     pullPolicy: stringChoice(
@@ -267,6 +279,7 @@ export async function loadConfig(
   };
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(runner.image))
     throw new IntegralError("runner.image must be a valid OCI image reference");
+
   const conversation = {
     contextMaxMessages: int(
       val("conversation", "context_max_messages"),
@@ -279,6 +292,7 @@ export async function loadConfig(
       false,
     ),
   };
+
   const repositories = {
     maxFileBytes: int(
       val("repositories", "max_file_bytes"),
@@ -297,20 +311,24 @@ export async function loadConfig(
     throw new IntegralError(
       "repositories.max_repo_bytes must not be smaller than repositories.max_file_bytes",
     );
+
   const stores = {
     snapshots: int(val("stores", "snapshots"), "stores.snapshots", false),
   };
+
   const sources: Record<string, ValueSource> = {};
   for (const key of Object.keys(defaults)) {
     const [section, option] = key.split(".") as [string, string];
     sources[key] = source(section, option);
   }
+
   for (const [component, envValue] of Object.entries(envPorts))
     if (envValue !== undefined)
       sources[`server.${component}_port`] = "environment";
   if (env.INTEGRAL_LOG_LEVEL?.trim()) sources["logging.level"] = "environment";
   if (env.INTEGRAL_LOG_FORMAT?.trim())
     sources["logging.format"] = "environment";
+
   const shared = {
     server,
     runner,
@@ -319,6 +337,7 @@ export async function loadConfig(
     stores,
     logging,
   };
+
   const fingerprinted = {
     ...shared,
     server: {
@@ -334,6 +353,7 @@ export async function loadConfig(
       ),
     },
   };
+
   return {
     ...shared,
     sources,
@@ -350,6 +370,7 @@ export async function initConfig(paths: IntegralPaths): Promise<void> {
     throw new IntegralError(
       `${paths.mainConfig} already exists; refusing to overwrite it`,
     );
+
   validateMain(parse(STARTER_CONFIG), paths.mainConfig);
   await atomicWrite(paths.mainConfig, STARTER_CONFIG);
 }

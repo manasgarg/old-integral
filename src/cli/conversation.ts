@@ -48,6 +48,7 @@ export async function healthyCoordinator(
   >,
 ): Promise<string> {
   const paths = dependencies.resolvePaths();
+
   try {
     const endpoint = await dependencies.componentEndpoint(paths, "coordinator");
     await dependencies.verifiedFetch(paths, "coordinator", "/integral/health");
@@ -77,6 +78,7 @@ function renderStatus(status: ConversationStatus): string {
   const selection = status.selection
     ? `${status.selection.connection} (${status.selection.provider}) / ${status.selection.model}`
     : "selection required";
+
   return [
     `gateway: ${status.gateway}`,
     `runner: ${status.runner}`,
@@ -100,6 +102,7 @@ export async function runStatusCommand(
     new URL("/integral/status", endpoint),
     dependencies.fetch,
   )) as ConversationStatus;
+
   dependencies.writeOutput(
     args.includes("--json")
       ? `${JSON.stringify(status, null, 2)}\n`
@@ -113,10 +116,12 @@ export async function statusCommand(
   overrides: Partial<ConversationCommandDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionDependencies, ...overrides };
+
   if (args.includes("--help") || args.includes("-h")) {
     dependencies.writeOutput(STATUS_HELP);
     return 0;
   }
+
   return runStatusCommand(
     args,
     await healthyCoordinator(dependencies),
@@ -133,9 +138,11 @@ export function renderApproval(value: Record<string, unknown>): string {
         ? (value.details as Record<string, unknown>)
         : undefined,
     diff = typeof details?.diff === "string" ? details.diff.trim() : "";
+
   const floating = details?.floatingResolution === true,
     priorImage =
       typeof details?.priorImage === "string" ? details.priorImage : "unknown";
+
   return `approval ${id} [${status}] ${summary}${floating ? `\nFloating dependencies will resolve at build time; prior image: ${priorImage}` : ""}${diff ? `\n${diff}` : ""}`;
 }
 
@@ -147,11 +154,13 @@ export async function runApprovalCommand(
 ): Promise<number> {
   const command = args[0],
     json = args.includes("--json");
+
   if (command === "ls") {
     const approvals = (await fetchJson(
       new URL("/integral/approvals", endpoint),
       dependencies.fetch,
     )) as Array<Record<string, unknown>>;
+
     if (json)
       dependencies.writeOutput(`${JSON.stringify(approvals, null, 2)}\n`);
     else if (!approvals.length)
@@ -161,10 +170,12 @@ export async function runApprovalCommand(
         dependencies.writeOutput(`${renderApproval(approval)}\n`);
     return 0;
   }
+
   if (command === "approve" || command === "deny") {
     const id = args[1];
     if (!id)
       throw new IntegralError(`usage: integral approval ${command} <id>`);
+
     const result = (await requestJson(
       new URL(
         `/integral/approvals/${encodeURIComponent(id)}/${command}`,
@@ -181,6 +192,7 @@ export async function runApprovalCommand(
       },
       dependencies.fetch,
     )) as Record<string, unknown>;
+
     dependencies.writeOutput(
       json
         ? `${JSON.stringify(result, null, 2)}\n`
@@ -188,6 +200,7 @@ export async function runApprovalCommand(
     );
     return 0;
   }
+
   throw new IntegralError(`unknown approval command: ${String(command)}`);
 }
 
@@ -196,6 +209,7 @@ export async function approvalCommand(
   overrides: Partial<ConversationCommandDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionDependencies, ...overrides };
+
   if (
     !args[0] ||
     args.includes("--help") ||
@@ -205,6 +219,7 @@ export async function approvalCommand(
     dependencies.writeOutput(APPROVAL_HELP);
     return 0;
   }
+
   return runApprovalCommand(
     args,
     await healthyCoordinator(dependencies),

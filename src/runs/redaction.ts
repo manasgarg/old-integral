@@ -22,6 +22,7 @@ export function redactText(value: string, secrets: string[]): string {
     /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
     "$1 [redacted]",
   );
+
   for (const secret of secrets)
     if (secret) result = result.split(secret).join("[redacted]");
   return result;

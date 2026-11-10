@@ -81,6 +81,7 @@ function modelBoundary(connection: Connection): Connection {
 
 const OAUTH_RETRY_INITIAL_MS = 30_000;
 const OAUTH_RETRY_MAX_MS = 15 * 60_000;
+
 interface OAuthRefreshBackoff {
   credentialHash: string;
   error: string;
@@ -137,6 +138,7 @@ export class Gateway {
     }
   >();
   private readonly dependencies: GatewayDependencies;
+
   constructor(
     private readonly paths: IntegralPaths,
     private readonly config: EffectiveConfig,
@@ -145,10 +147,12 @@ export class Gateway {
   ) {
     this.dependencies = { ...productionDependencies, ...overrides };
   }
+
   async start(): Promise<http.Server> {
     this.ca = await this.dependencies.ensureCa(this.paths);
     this.token = await componentIdentity(this.paths);
     await this.reload(true);
+
     const server = this.makeServer();
     this.servers.push(server);
     await this.dependencies.servers.listen(
@@ -156,12 +160,15 @@ export class Gateway {
       this.config.server.gatewayPort,
       "127.0.0.1",
     );
+
     this.refreshTimer = this.dependencies.intervals.setInterval(
       () => void this.reload(false).catch(() => undefined),
       500,
     );
+
     return server;
   }
+
   private makeServer(): http.Server {
     const server = http.createServer((req, res) => void this.route(req, res));
     server.on(
@@ -170,14 +177,17 @@ export class Gateway {
     );
     return server;
   }
+
   async reload(strict = false): Promise<void> {
     if (this.reloadWork) {
       this.reloadCoalesced++;
       return this.reloadWork;
     }
+
     const started = this.dependencies.now(),
       work = this.performReload(strict);
     this.reloadWork = work;
+
     let failed = false;
     try {
       await work;
@@ -197,6 +207,7 @@ export class Gateway {
       this.reloadWork = undefined;
       const coalesced = this.reloadCoalesced;
       this.reloadCoalesced = 0;
+
       if (coalesced && !failed) {
         this.logger.event(
           "warn",
@@ -215,22 +226,27 @@ export class Gateway {
     const loaded = await loadConnections(this.paths);
     if (strict && loaded.errors.length)
       throw new IntegralError(loaded.errors.join("\n"));
+
     const credentialErrors: string[] = [],
       activeConnectionNames = new Set(
         loaded.connections.map((connection) => connection.name),
       );
+
     for (const name of this.oauthRefreshBackoff.keys())
       if (!activeConnectionNames.has(name))
         this.oauthRefreshBackoff.delete(name);
+
     this.candidates = await Promise.all(
       loaded.connections.map(async (connection) => {
         const raw = await credentialFor(this.paths, connection.name);
         let credential = raw,
           injectedHeaders: Record<string, string> | undefined;
+
         if (raw && oauthAccess(raw)) {
           const credentialHash = createHash("sha256").update(raw).digest("hex"),
             previous = this.oauthRefreshBackoff.get(connection.name),
             sameFailedCredential = previous?.credentialHash === credentialHash;
+
           if (
             sameFailedCredential &&
             this.dependencies.now() < previous.nextAttemptAt
@@ -263,6 +279,7 @@ export class Gateway {
                 delayMs = sameFailedCredential
                   ? Math.min(previous.delayMs * 2, OAUTH_RETRY_MAX_MS)
                   : OAUTH_RETRY_INITIAL_MS;
+
               this.oauthRefreshBackoff.set(connection.name, {
                 credentialHash,
                 error: message,
@@ -277,6 +294,7 @@ export class Gateway {
               credentialErrors.push(message);
             }
         } else this.oauthRefreshBackoff.delete(connection.name);
+
         if (raw && connection.provider === "openai-codex")
           try {
             const accountId = (JSON.parse(raw) as { accountId?: unknown })
@@ -286,6 +304,7 @@ export class Gateway {
           } catch {
             /* opaque credential */
           }
+
         return {
           connection: modelBoundary(connection),
           credential,
@@ -293,6 +312,7 @@ export class Gateway {
         };
       }),
     );
+
     const generationFile = join(this.paths.state, "connection-generation"),
       current = Number((await readText(generationFile))?.trim() || "0"),
       hash = createHash("sha256")
@@ -313,12 +333,14 @@ export class Gateway {
         `${generation}\n`,
       );
     }
+
     if (loaded.errors.length) this.sawInvalidConnections = true;
     else {
       this.lastConnectionHash = hash;
       this.sawInvalidConnections = false;
     }
     this.lastGeneration = generation;
+
     const errors = [...loaded.errors, ...credentialErrors],
       error = errors.length ? errors.join("\n") : undefined,
       status: "ready" | "degraded" = error ? "degraded" : "ready",
@@ -334,15 +356,18 @@ export class Gateway {
             }
           : {}),
       };
+
     await updateComponentState(this.paths, "gateway", health);
     await this.publishHealthNotification(status, error);
   }
+
   private async publishHealthNotification(
     status: "ready" | "degraded",
     error?: string,
   ): Promise<void> {
     const signature = JSON.stringify({ status, error });
     if (signature === this.lastHealthNotification) return;
+
     try {
       const response = await this.dependencies.internalFetch(
         this.paths,
@@ -359,10 +384,12 @@ export class Gateway {
       /* The next gateway reload retries after the coordinator becomes available. */
     }
   }
+
   private authenticate(req: IncomingMessage): string | undefined {
     const token = parseProxyAuthorization(req.headers["proxy-authorization"]);
     return token && this.sessions.get(token);
   }
+
   private async route(
     req: IncomingMessage,
     res: ServerResponse,
@@ -372,6 +399,7 @@ export class Gateway {
       res.end(JSON.stringify(await gatewayHealth(this.paths)));
       return;
     }
+
     if (req.url === "/integral/internal/session" && req.method === "POST") {
       if (
         !verifyInternal(
@@ -384,6 +412,7 @@ export class Gateway {
         res.writeHead(401).end("unauthorized\n");
         return;
       }
+
       const body = await bodyJson(req);
       const token = stringValue(body.token),
         sessionId = stringValue(body.sessionId),
@@ -391,6 +420,7 @@ export class Gateway {
         executionId = stringValue(body.executionId),
         attemptId = stringValue(body.attemptId);
       const origin = body.origin;
+
       if (!token || !sessionId) {
         res.writeHead(400).end("invalid session\n");
         return;
@@ -399,8 +429,10 @@ export class Gateway {
         res.writeHead(400).end("incomplete task session identity\n");
         return;
       }
+
       this.sessions.set(token, sessionId);
       if (runId) this.sessionRunIds.set(sessionId, runId);
+
       if (origin && typeof origin === "object" && !Array.isArray(origin)) {
         const value = origin as Record<string, unknown>;
         if (
@@ -422,11 +454,14 @@ export class Gateway {
             ),
           );
       }
+
       if (executionId && attemptId)
         this.taskSessions.set(sessionId, { executionId, attemptId });
+
       res.writeHead(204).end();
       return;
     }
+
     if (
       req.url === "/integral/internal/docker-listener" &&
       req.method === "POST"
@@ -442,12 +477,15 @@ export class Gateway {
         res.writeHead(401).end("unauthorized\n");
         return;
       }
+
       const body = await bodyJson(req),
         address = stringValue(body.address);
+
       if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(address)) {
         res.writeHead(400).end("invalid address\n");
         return;
       }
+
       if (
         !this.servers.some(
           (s) =>
@@ -462,9 +500,11 @@ export class Gateway {
         );
         this.servers.push(dockerServer);
       }
+
       res.writeHead(204).end();
       return;
     }
+
     if (req.url === "/integral/internal/session" && req.method === "DELETE") {
       if (
         !verifyInternal(
@@ -480,6 +520,7 @@ export class Gateway {
       const body = await bodyJson(req);
       const token = stringValue(body.token),
         sessionId = this.sessions.get(token);
+
       this.sessions.delete(token);
       if (sessionId) {
         this.sessionRunIds.delete(sessionId);
@@ -487,9 +528,11 @@ export class Gateway {
         this.taskSessions.delete(sessionId);
         await this.releaseSessionLocks(sessionId);
       }
+
       res.writeHead(204).end();
       return;
     }
+
     const sessionId = this.authenticate(req);
     if (!sessionId) {
       res
@@ -497,6 +540,7 @@ export class Gateway {
         .end("proxy authentication required\n");
       return;
     }
+
     if (req.url === "/integral/task-outcome" && req.method === "POST") {
       try {
         const task = this.taskSessions.get(sessionId);
@@ -505,11 +549,13 @@ export class Gateway {
             "task outcome is unavailable outside an active task attempt",
             403,
           );
+
         const body = await bodyJson(req, 110_000),
           outcome = stringValue(body.outcome),
           message = stringValue(body.message);
         if (outcome !== "complete" && outcome !== "failed")
           throw new IntegralError("invalid task outcome declaration", 400);
+
         const upstream = await this.dependencies.internalFetch(
           this.paths,
           "gateway",
@@ -524,6 +570,7 @@ export class Gateway {
             }),
           },
         );
+
         const responseBody = await upstream.text();
         res.writeHead(upstream.status, {
           "content-type":
@@ -535,6 +582,7 @@ export class Gateway {
       }
       return;
     }
+
     if (req.url === "/integral/discord" && req.method === "POST") {
       const requestId = randomUUID();
       try {
@@ -542,6 +590,7 @@ export class Gateway {
           text = stringValue(body.text);
         if (!text.trim())
           throw new IntegralError("Discord message text is required", 400);
+
         const candidates = this.candidates.filter(
           ({ connection, credential }) =>
             connection.kind === "channel" &&
@@ -555,9 +604,11 @@ export class Gateway {
               : "active Discord connection not found",
             503,
           );
+
         const connection = candidates[0]!.connection;
         if (!connection.userId || !connection.channelId)
           throw new IntegralError("Discord connection is incomplete", 503);
+
         const upstream = await this.dependencies.internalFetch(
           this.paths,
           "gateway",
@@ -574,12 +625,14 @@ export class Gateway {
             }),
           },
         );
+
         const responseBody = await upstream.text();
         if (!upstream.ok)
           throw new IntegralError(
             responseBody.trim() || "Discord delivery failed",
             upstream.status,
           );
+
         this.logger.event(
           "info",
           "gateway.discord",
@@ -591,6 +644,7 @@ export class Gateway {
             request_id: requestId,
           },
         );
+
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify({ delivered: true }));
       } catch (error) {
@@ -608,15 +662,18 @@ export class Gateway {
       }
       return;
     }
+
     if (req.url === "/integral/email" && req.method === "POST") {
       const requestId = randomUUID();
       let name = "",
         operation = "unknown",
         provider = "unknown";
+
       try {
         const body = await bodyJson(req, 500_000);
         name = stringValue(body.connection);
         operation = stringValue(body.operation, "unknown");
+
         const candidate = this.candidates.find(
           ({ connection }) =>
             connection.kind === "email" && connection.name === name,
@@ -624,11 +681,13 @@ export class Gateway {
         if (!candidate)
           throw new IntegralError(`email connection not found: ${name}`, 404);
         provider = candidate.connection.provider ?? "unknown";
+
         const result = await this.dependencies.executeEmail(
           candidate.connection,
           candidate.credential,
           parseEmailOperation(body),
         );
+
         this.logger.event(
           "info",
           "gateway.email",
@@ -642,6 +701,7 @@ export class Gateway {
             request_id: requestId,
           },
         );
+
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(result));
       } catch (error) {
@@ -662,6 +722,7 @@ export class Gateway {
       }
       return;
     }
+
     if (req.url === "/integral/mcp" && req.method === "POST") {
       try {
         const body = await bodyJson(req, 1_000_000),
@@ -673,6 +734,7 @@ export class Gateway {
             !Array.isArray(body.arguments)
               ? (body.arguments as Record<string, unknown>)
               : {};
+
         const candidate = this.candidates.find(
           ({ connection }) =>
             connection.kind === "mcp" && connection.name === name,
@@ -680,6 +742,7 @@ export class Gateway {
         if (!candidate)
           throw new IntegralError(`MCP connection not found: ${name}`, 404);
         if (!tool) throw new IntegralError("MCP tool name is required", 400);
+
         if (candidate.connection.transport === "stdio") {
           const upstream = await this.dependencies.internalFetch(
             this.paths,
@@ -696,6 +759,7 @@ export class Gateway {
               }),
             },
           );
+
           res.writeHead(upstream.status, {
             "content-type":
               upstream.headers.get("content-type") ?? "application/json",
@@ -703,6 +767,7 @@ export class Gateway {
           res.end(await upstream.text());
           return;
         }
+
         const result = await this.dependencies.callRemoteMcp(
           candidate.connection,
           candidate.credential,
@@ -716,6 +781,7 @@ export class Gateway {
       }
       return;
     }
+
     if (
       req.url?.startsWith("/integral/control/schedules") ||
       req.url?.startsWith("/integral/control/occurrences") ||
@@ -736,6 +802,7 @@ export class Gateway {
       }
       return;
     }
+
     let target: URL | undefined;
     try {
       target = new URL(req.url!);
@@ -761,6 +828,7 @@ export class Gateway {
       respondError(res, error);
     }
   }
+
   private async control(
     req: IncomingMessage,
     res: ServerResponse,
@@ -771,16 +839,19 @@ export class Gateway {
       await this.containerPackageControl(req, res, sessionId);
       return;
     }
+
     if (target.pathname === "/integral/control/image-rebuild") {
       if ((req.method ?? "POST") !== "POST")
         throw new IntegralError("unsupported image rebuild operation", 405);
       await this.imageApprovalControl(res, sessionId, { operation: "rebuild" });
       return;
     }
+
     if (target.pathname.startsWith("/integral/control/resources/")) {
       await this.resourceControl(req, res, target, sessionId);
       return;
     }
+
     if (
       ![
         "/integral/control/schedules",
@@ -789,17 +860,20 @@ export class Gateway {
       ].some((prefix) => target.pathname.startsWith(prefix))
     )
       throw new IntegralError("unknown integral control endpoint", 404);
+
     const schedulingPath = target.pathname.replace(
         "/integral/control",
         "/integral",
       ),
       body = await bodyJson(req);
+
     const upstream = await this.scheduleControl(
       sessionId,
       req.method ?? "GET",
       `${schedulingPath}${target.search}`,
       body,
     );
+
     const responseBody = await upstream.text();
     res.writeHead(upstream.status, {
       "content-type":
@@ -807,6 +881,7 @@ export class Gateway {
     });
     res.end(responseBody);
   }
+
   private async containerPackageControl(
     req: IncomingMessage,
     res: ServerResponse,
@@ -815,6 +890,7 @@ export class Gateway {
     const method = req.method ?? "GET";
     if (method !== "GET" && method !== "POST")
       throw new IntegralError("unsupported package operation", 405);
+
     const body = method === "POST" ? await bodyJson(req) : {};
     if (method === "POST") {
       delete body.actor;
@@ -826,10 +902,12 @@ export class Gateway {
       const origin = this.sessionOrigins.get(sessionId);
       if (origin) body.origin = origin;
     }
+
     const abort = new AbortController();
     res.once("close", () => {
       if (!res.writableEnded) abort.abort();
     });
+
     const upstream = await this.dependencies.internalFetch(
         this.paths,
         "gateway",
@@ -842,6 +920,7 @@ export class Gateway {
         },
       ),
       responseBody = await upstream.text();
+
     if (method === "POST" && upstream.ok)
       this.logger.event(
         "info",
@@ -854,12 +933,14 @@ export class Gateway {
           request_id: randomUUID(),
         },
       );
+
     res.writeHead(upstream.status, {
       "content-type":
         upstream.headers.get("content-type") ?? "application/json",
     });
     res.end(responseBody);
   }
+
   private async resourceControl(
     req: IncomingMessage,
     res: ServerResponse,
@@ -875,6 +956,7 @@ export class Gateway {
       kind: ResourceKind = collection === "repos" ? "host-repo" : "host-store";
     if (collection !== "repos" && collection !== "stores")
       throw new IntegralError("unknown resource collection", 404);
+
     const method = req.method ?? "GET";
     if (parts.length === 1 && method === "GET") {
       const records = await Promise.all(
@@ -882,6 +964,7 @@ export class Gateway {
           .filter((value) => value.kind === kind)
           .map((value) => refreshResource(this.paths, value)),
       );
+
       const inventory: Array<Record<string, unknown>> = await Promise.all(
         records.map(async (value) => ({
           ...publicResource(value),
@@ -898,6 +981,7 @@ export class Gateway {
               }),
         })),
       );
+
       if (kind === "host-repo") {
         const head = await ensureImageRecipeRepository(this.paths);
         inventory.unshift({
@@ -916,15 +1000,18 @@ export class Gateway {
           ),
         });
       }
+
       respondJson(res, inventory);
       return;
     }
+
     if (parts.length === 1 && method === "POST") {
       const body = await bodyJson(req),
         name = stringValue(body.name),
         mount = stringValue(body.mount);
       if (!name || !mount)
         throw new IntegralError("name and mount are required", 400);
+
       const value = await createResource(
         this.paths,
         kind,
@@ -932,6 +1019,7 @@ export class Gateway {
         mount,
         this.config,
       );
+
       this.logger.event(
         "info",
         "gateway.resource_created",
@@ -942,12 +1030,15 @@ export class Gateway {
           kind,
         },
       );
+
       respondJson(res, publicResource(value), 201);
       return;
     }
+
     const id = parts[1];
     if (kind === "host-repo" && id === IMAGE_RECIPE_ID && parts[2] === "git") {
       await ensureImageRecipeRepository(this.paths);
+
       if (
         method === "GET" &&
         parts[3] === "info" &&
@@ -960,6 +1051,7 @@ export class Gateway {
             true,
           ),
           prefix = Buffer.from("001e# service=git-upload-pack\n0000");
+
         res.writeHead(200, {
           "content-type": "application/x-git-upload-pack-advertisement",
           "cache-control": "no-cache",
@@ -967,6 +1059,7 @@ export class Gateway {
         res.end(Buffer.concat([prefix, advertised]));
         return;
       }
+
       if (method === "POST" && parts[3] === "git-upload-pack") {
         const request = await readRequestBody(req, 16 * 1024 * 1024),
           response = await gitUploadPack(
@@ -974,6 +1067,7 @@ export class Gateway {
             request,
             false,
           );
+
         res.writeHead(200, {
           "content-type": "application/x-git-upload-pack-result",
           "cache-control": "no-cache",
@@ -981,8 +1075,10 @@ export class Gateway {
         res.end(response);
         return;
       }
+
       throw new IntegralError("unknown image recipe Git operation", 404);
     }
+
     if (
       kind === "host-repo" &&
       id === IMAGE_RECIPE_ID &&
@@ -997,6 +1093,7 @@ export class Gateway {
       });
       return;
     }
+
     if (
       kind === "host-repo" &&
       id === IMAGE_RECIPE_ID &&
@@ -1008,12 +1105,15 @@ export class Gateway {
       res.writeHead(204).end();
       return;
     }
+
     const resource = id ? await resourceForId(this.paths, id) : undefined;
     if (!resource || resource.kind !== kind)
       throw new IntegralError("resource not found", 404);
+
     if (kind === "host-store" && parts[2] === "locks" && parts.length === 4) {
       if (!(await sessionHasResource(this.paths, resource.id, sessionId)))
         throw new IntegralError("store is not mounted in this session", 403);
+
       const current = await refreshResource(this.paths, resource);
       if (current.state !== "active")
         throw new IntegralError(
@@ -1022,9 +1122,11 @@ export class Gateway {
             : "resource_unavailable",
           409,
         );
+
       const name = parts[3]!;
       if (!/^[A-Za-z0-9._-]{1,100}$/.test(name))
         throw new IntegralError("invalid store lock name", 400);
+
       if (method === "POST") {
         const release = await acquireResourceAdvisoryLock(
             this.paths,
@@ -1042,6 +1144,7 @@ export class Gateway {
         respondJson(res, { lease });
         return;
       }
+
       if (method === "DELETE") {
         const body = await bodyJson(req),
           lease = stringValue(body.lease),
@@ -1053,21 +1156,25 @@ export class Gateway {
           held.name !== name
         )
           throw new IntegralError("store lock lease not found", 404);
+
         this.resourceLocks.delete(lease);
         await held.release();
         res.writeHead(204).end();
         return;
       }
     }
+
     if (kind === "host-repo" && parts[2] === "git") {
       if (!(await sessionHasResource(this.paths, resource.id, sessionId)))
         throw new IntegralError(
           "repository is not mounted in this session",
           403,
         );
+
       const active = await refreshResource(this.paths, resource);
       if (active.state !== "active")
         throw new IntegralError("resource_unavailable", 409);
+
       if (
         method === "GET" &&
         parts[3] === "info" &&
@@ -1076,6 +1183,7 @@ export class Gateway {
       ) {
         const advertised = await gitUploadPack(active.path, undefined, true),
           prefix = Buffer.from("001e# service=git-upload-pack\n0000");
+
         res.writeHead(200, {
           "content-type": "application/x-git-upload-pack-advertisement",
           "cache-control": "no-cache",
@@ -1083,6 +1191,7 @@ export class Gateway {
         res.end(Buffer.concat([prefix, advertised]));
         return;
       }
+
       if (method === "POST" && parts[3] === "git-upload-pack") {
         const request = await readRequestBody(req, 16 * 1024 * 1024),
           response = await gitUploadPack(active.path, request, false);
@@ -1093,8 +1202,10 @@ export class Gateway {
         res.end(response);
         return;
       }
+
       throw new IntegralError("unknown Git repository operation", 404);
     }
+
     if (
       kind === "host-repo" &&
       parts[2] === "recovery" &&
@@ -1106,22 +1217,27 @@ export class Gateway {
           "repository is not mounted in this session",
           403,
         );
+
       await discardRepositoryRecovery(this.paths, resource.id, parts[3]!);
       res.writeHead(204).end();
       return;
     }
+
     if (parts.length === 2 && method === "DELETE") {
       const body = await bodyJson(req),
         revision = integerValue(body.expectedRevision);
+
       const value = await softDeleteResource(
         this.paths,
         resource.connection,
         revision,
         `pi:${sessionId}`,
       );
+
       respondJson(res, publicResource(value));
       return;
     }
+
     if (parts[2] === "restore" && parts.length === 3 && method === "POST") {
       const body = await bodyJson(req),
         value = await restoreResource(
@@ -1130,9 +1246,11 @@ export class Gateway {
           integerValue(body.expectedRevision),
           stringValue(body.mount),
         );
+
       respondJson(res, publicResource(value));
       return;
     }
+
     if (kind === "host-repo" && parts[2] === "push" && method === "POST") {
       const body = await bodyJson(
           req,
@@ -1140,6 +1258,7 @@ export class Gateway {
         ),
         encoded = stringValue(body.bundle),
         proposed = stringValue(body.proposed);
+
       const value = await repositoryBundlePush(
         this.paths,
         this.config,
@@ -1147,14 +1266,17 @@ export class Gateway {
         Buffer.from(encoded, "base64"),
         proposed,
       );
+
       respondJson(res, value);
       return;
     }
+
     if (kind === "host-store" && parts[2] === "snapshots") {
       if (parts.length === 3 && method === "GET") {
         respondJson(res, await listStoreSnapshots(this.paths, resource.id));
         return;
       }
+
       if (parts.length === 5 && parts[4] === "restore" && method === "POST") {
         const body = await bodyJson(req),
           value = await restoreStoreSnapshot(
@@ -1168,6 +1290,7 @@ export class Gateway {
         return;
       }
     }
+
     throw new IntegralError("unknown resource operation", 404);
   }
 
@@ -1179,14 +1302,17 @@ export class Gateway {
     delete body.originSessionId;
     delete body.originRunId;
     body.originSessionId = sessionId;
+
     const runId = this.sessionRunIds.get(sessionId);
     if (runId) body.originRunId = runId;
     const origin = this.sessionOrigins.get(sessionId);
     if (origin) body.origin = origin;
+
     const abort = new AbortController();
     res.once("close", () => {
       if (!res.writableEnded) abort.abort();
     });
+
     const upstream = await this.dependencies.internalFetch(
         this.paths,
         "gateway",
@@ -1199,6 +1325,7 @@ export class Gateway {
         },
       ),
       responseBody = await upstream.text();
+
     if (upstream.ok)
       this.logger.event(
         "info",
@@ -1210,12 +1337,14 @@ export class Gateway {
           request_id: randomUUID(),
         },
       );
+
     res.writeHead(upstream.status, {
       "content-type":
         upstream.headers.get("content-type") ?? "application/json",
     });
     res.end(responseBody);
   }
+
   async scheduleControl(
     sessionId: string,
     method: string,
@@ -1226,6 +1355,7 @@ export class Gateway {
       body.actor = `pi:${sessionId}`;
       delete body.profile;
     }
+
     let origin = this.sessionOrigins.get(sessionId);
     if (method === "POST" && schedulingPath === "/integral/schedules") {
       const taskSession = this.taskSessions.get(sessionId);
@@ -1238,12 +1368,14 @@ export class Gateway {
         );
         if (!response.ok)
           throw new IntegralError("task execution profile is unavailable", 409);
+
         const task = (await response.json()) as {
           profile?: unknown;
           origin?: unknown;
         };
         if (!task.profile)
           throw new IntegralError("task execution profile is unavailable", 409);
+
         body.profile = task.profile;
         if (task.origin && typeof task.origin === "object") {
           body.origin = task.origin;
@@ -1258,19 +1390,23 @@ export class Gateway {
         );
         if (!snapshot.ok)
           throw new IntegralError("conversation model is unavailable", 409);
+
         const data = (await snapshot.json()) as { modelSelection?: unknown };
         if (!data.modelSelection)
           throw new IntegralError(
             "select a model before creating a schedule",
             409,
           );
+
         body.profile = data.modelSelection;
         if (origin) body.origin = origin;
       }
     }
+
     const target = schedulingPath.startsWith("/integral/tasks")
       ? "coordinator"
       : "scheduler";
+
     const response = await this.dependencies.internalFetch(
       this.paths,
       "gateway",
@@ -1281,6 +1417,7 @@ export class Gateway {
         ...(method === "GET" ? {} : { body: JSON.stringify(body) }),
       },
     );
+
     if (
       origin &&
       response.ok &&
@@ -1291,6 +1428,7 @@ export class Gateway {
         id?: unknown;
         prompt?: unknown;
       };
+
       if (typeof created.id === "string")
         await this.dependencies
           .internalFetch(
@@ -1308,8 +1446,10 @@ export class Gateway {
           )
           .catch(() => undefined);
     }
+
     return response;
   }
+
   private async forward(
     req: IncomingMessage,
     res: ServerResponse,
@@ -1317,12 +1457,14 @@ export class Gateway {
     sessionId: string,
   ): Promise<void> {
     const requestId = randomUUID();
+
     const decision = decideRequest(
       req.method ?? "GET",
       target,
       req.headers,
       this.candidates,
     );
+
     this.logger.event("info", "gateway.decision", "gateway allowed request", {
       verdict: "allow",
       method: req.method,
@@ -1332,6 +1474,7 @@ export class Gateway {
       request_id: requestId,
       connection: decision.connection.name,
     });
+
     const upstream = this.dependencies.request(
       target,
       {
@@ -1346,6 +1489,7 @@ export class Gateway {
         upstreamResponse.pipe(res);
       },
     );
+
     upstream.on("error", (error) => {
       if (!res.headersSent) res.writeHead(502);
       res.end("upstream request failed\n");
@@ -1354,8 +1498,10 @@ export class Gateway {
         request_id: requestId,
       });
     });
+
     req.pipe(upstream);
   }
+
   private async connect(
     req: IncomingMessage,
     socket: Duplex,
@@ -1368,17 +1514,20 @@ export class Gateway {
       );
       return;
     }
+
     const [host, rawPort] = (req.url ?? "").split(":");
     const port = Number(rawPort || 443);
     if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\npolicy denied CONNECT\n");
       return;
     }
+
     try {
       // Deny before TLS interception when no HTTPS connection can possibly match this host and port.
       const possible = allowsConnect(this.candidates, host, port);
       if (!possible)
         throw new IntegralError("policy denied the requested destination", 403);
+
       const cert = await this.dependencies.certificateFor(
         this.paths,
         host,
@@ -1386,8 +1535,10 @@ export class Gateway {
       );
       const key = await readFile(cert.key),
         certificate = await readFile(cert.cert);
+
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length) socket.unshift(head);
+
       const tlsServer = tls.createServer(
         { key, cert: certificate },
         (secure) => {
@@ -1403,6 +1554,7 @@ export class Gateway {
           inner.emit("connection", secure);
         },
       );
+
       tlsServer.emit("connection", socket);
     } catch (error) {
       this.logger.event("info", "gateway.decision", "gateway denied request", {
@@ -1417,23 +1569,29 @@ export class Gateway {
       );
     }
   }
+
   async stop(): Promise<void> {
     this.dependencies.intervals.clearInterval(this.refreshTimer);
+
     const servers = this.servers.splice(0);
     const locks = [...this.resourceLocks.values()];
+
     this.resourceLocks.clear();
     this.sessions.clear();
     this.sessionRunIds.clear();
     this.taskSessions.clear();
+
     await Promise.all([
       ...locks.map((lock) => lock.release().catch(() => undefined)),
       ...servers.map((server) => this.dependencies.servers.close(server)),
     ]);
   }
+
   private async releaseSessionLocks(sessionId: string): Promise<void> {
     const held = [...this.resourceLocks.entries()].filter(
       ([, value]) => value.sessionId === sessionId,
     );
+
     for (const [lease, value] of held) {
       this.resourceLocks.delete(lease);
       await value.release().catch(() => undefined);
@@ -1484,6 +1642,7 @@ export async function gatewayHealth(paths: IntegralPaths): Promise<{
   error?: string;
 }> {
   const state = await readComponentState(paths, "gateway");
+
   return {
     component: "gateway",
     deploymentId: deploymentId(paths),
@@ -1498,6 +1657,7 @@ async function bodyJson(
 ): Promise<Record<string, unknown>> {
   return await readJsonObject(req, { maxBytes });
 }
+
 async function gitUploadPack(
   gitDir: string,
   input: Buffer | undefined,
@@ -1523,6 +1683,7 @@ async function gitUploadPack(
       ),
       output: Buffer[] = [],
       errors: Buffer[] = [];
+
     child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => errors.push(chunk));
     child.on("error", reject);
@@ -1536,9 +1697,11 @@ async function gitUploadPack(
           ),
         );
     });
+
     child.stdin.end(input);
   });
 }
+
 async function acquireResourceAdvisoryLock(
   paths: IntegralPaths,
   resourceId: string,
@@ -1549,6 +1712,7 @@ async function acquireResourceAdvisoryLock(
       .update(`${resourceId}\0${name}`)
       .digest("hex"),
     path = join(paths.storeLocks, `advisory-${digest}.lock`);
+
   for (;;) {
     if (req.destroyed)
       throw new IntegralError("store lock request was cancelled", 499);
@@ -1560,14 +1724,17 @@ async function acquireResourceAdvisoryLock(
     }
   }
 }
+
 function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
+
 function integerValue(value: unknown): number {
   if (!Number.isInteger(value))
     throw new IntegralError("expectedRevision must be an integer", 400);
   return value as number;
 }
+
 function publicResource(value: ResourceRecord): Record<string, unknown> {
   return {
     id: value.id,
@@ -1583,9 +1750,11 @@ function publicResource(value: ResourceRecord): Record<string, unknown> {
       : {}),
   };
 }
+
 function respondJson(res: ServerResponse, value: unknown, status = 200): void {
   writeJson(res, status, value, false);
 }
+
 function respondError(res: ServerResponse, error: unknown): void {
   const status = error instanceof IntegralError ? error.exitCode : 500;
   res.writeHead(status >= 400 && status <= 599 ? status : 500, {

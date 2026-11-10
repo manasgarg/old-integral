@@ -10,10 +10,12 @@ export type ConnectionKind =
 export type AuthMethod = "oauth" | "device-code" | "key" | "none";
 export type EmailCapability = "read" | "search" | "send";
 export type McpTransport = "streamable-http" | "sse" | "stdio";
+
 export interface StdioCredential {
   type: "stdio-env";
   values: Record<string, string>;
 }
+
 export interface Connection {
   name: string;
   kind: ConnectionKind;
@@ -53,6 +55,7 @@ export interface Connection {
   userId?: string;
   channelId?: string;
 }
+
 export interface ListedConnection extends Connection {
   state:
     | "active"
@@ -101,6 +104,7 @@ async function connectionHealth(
   const raw = await readText(connectionHealthFile(paths, name));
   if (!raw) return undefined;
   const value = JSON.parse(raw) as { stage?: unknown };
+
   return [
     "authorization",
     "negotiation",
@@ -191,17 +195,20 @@ function table(raw: unknown): Record<string, unknown> {
     throw new IntegralError("connection declaration must be a TOML table");
   return raw as Record<string, unknown>;
 }
+
 function requiredString(raw: unknown, key: string): string {
   if (typeof raw !== "string" || !raw.trim())
     throw new IntegralError(`${key} is required`);
   return raw;
 }
+
 function optionalStrings(raw: unknown, key: string): string[] | undefined {
   if (raw === undefined) return undefined;
   if (!Array.isArray(raw) || raw.some((v) => typeof v !== "string" || !v))
     throw new IntegralError(`${key} must be a list of strings`);
   return raw as string[];
 }
+
 function optionalStringTable(
   raw: unknown,
   key: string,
@@ -209,6 +216,7 @@ function optionalStringTable(
   if (raw === undefined) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     throw new IntegralError(`${key} must be a table of strings`);
+
   const result: Record<string, string> = {};
   for (const [name, value] of Object.entries(raw)) {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
@@ -217,8 +225,10 @@ function optionalStringTable(
       throw new IntegralError(`${key} must be a table of strings`);
     result[name] = value;
   }
+
   return result;
 }
+
 function secureUrl(raw: unknown, key: string): string {
   const value = requiredString(raw, key);
   let parsed: URL;
@@ -227,10 +237,12 @@ function secureUrl(raw: unknown, key: string): string {
   } catch {
     throw new IntegralError(`${key} must be a valid HTTP or HTTPS URL`);
   }
+
   if (!["http:", "https:"].includes(parsed.protocol))
     throw new IntegralError(`${key} must use HTTP or HTTPS`);
   return parsed.toString();
 }
+
 function oauthUrl(raw: unknown, key: string): string {
   const value = secureUrl(raw, key);
   const url = new URL(value);
@@ -256,6 +268,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     if (!knownKeys.has(key))
       throw new IntegralError(`unknown connection option: ${key}`);
   }
+
   const name = requiredString(value.name, "name");
   if (!namePattern.test(name))
     throw new IntegralError(
@@ -265,6 +278,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     throw new IntegralError(
       `connection file stem ${stem} does not match declared name ${name}`,
     );
+
   const kind = requiredString(value.kind, "kind") as ConnectionKind;
   if (
     ![
@@ -280,6 +294,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     throw new IntegralError(
       "kind must be model, http, mcp, email, channel, host-repo, or host-store",
     );
+
   const provider =
     value.provider === undefined
       ? undefined
@@ -296,6 +311,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     throw new IntegralError("provider must be gmail or mailgun");
   if (provider === "github" && kind !== "http")
     throw new IntegralError("GitHub connections must use kind http");
+
   const catalog = CATALOG.find((e) => e.name === provider);
   const auth = (value.auth ??
     (catalog && "defaultAuth" in catalog ? catalog.defaultAuth : undefined)) as
@@ -312,15 +328,18 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     throw new IntegralError(
       "channel connections currently require Discord key authentication",
     );
+
   const hostResource = kind === "host-repo" || kind === "host-store";
   if (hostResource && auth !== "none")
     throw new IntegralError("host resources use no authentication");
+
   const requestedTransport = value.transport as McpTransport | undefined;
   const stdio = kind === "mcp" && requestedTransport === "stdio";
   const url =
     (kind === "http" || (kind === "mcp" && !stdio)) && provider !== "github"
       ? secureUrl(value.url, "url")
       : undefined;
+
   const hosts = optionalStrings(value.hosts, "hosts")?.map((host) =>
     host.toLowerCase(),
   );
@@ -338,6 +357,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
   } else if (value.hosts !== undefined) {
     throw new IntegralError("hosts is supported only by the GitHub preset");
   }
+
   const methods =
     optionalStrings(value.methods, "methods")?.map((m) => m.toUpperCase()) ??
     (kind === "http" ? ["*"] : undefined);
@@ -345,6 +365,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     throw new IntegralError("methods must not be empty");
   if (methods?.some((m) => m !== "*" && !/^[A-Z]+$/.test(m)))
     throw new IntegralError("methods must contain HTTP methods or *");
+
   const pathPrefix =
     value.path_prefix === undefined
       ? undefined
@@ -358,12 +379,14 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         "path_prefix may only narrow the connection URL path",
       );
   }
+
   const result: Connection = { name, kind, auth };
   if (provider) result.provider = provider;
   if (url) result.url = url;
   if (hosts) result.hosts = hosts;
   if (methods) result.methods = methods;
   if (pathPrefix) result.pathPrefix = pathPrefix;
+
   if (kind === "channel") {
     for (const [key, property] of [
       ["application_id", "applicationId"],
@@ -388,6 +411,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
           `${key} is supported only by channel connections`,
         );
   }
+
   if (auth === "key" && kind !== "email") {
     result.header =
       value.header === undefined
@@ -402,6 +426,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         "header and scheme must not contain control characters",
       );
   }
+
   if (auth === "oauth" || auth === "device-code") {
     if (kind === "http" || kind === "mcp") {
       const explicit =
@@ -427,11 +452,13 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
             "OAuth requires client_id or registration_url",
           );
       }
+
       if (auth === "device-code")
         result.deviceAuthorizationUrl = oauthUrl(
           value.device_authorization_url,
           "device_authorization_url",
         );
+
       const scopes = optionalStrings(value.scopes, "scopes");
       if (scopes) result.scopes = scopes;
       if (value.oauth_issuer !== undefined)
@@ -443,6 +470,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         );
     }
   }
+
   if (kind === "mcp") {
     const transport = (value.transport ?? "streamable-http") as McpTransport;
     if (!(["streamable-http", "sse", "stdio"] as const).includes(transport))
@@ -450,6 +478,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         "transport must be streamable-http, sse, or stdio",
       );
     result.transport = transport;
+
     if (transport === "stdio") {
       if (auth !== "none")
         throw new IntegralError(
@@ -459,6 +488,7 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         throw new IntegralError(
           "stdio MCP connections use command instead of url",
         );
+
       result.command = requiredString(value.command, "command");
       result.args = optionalStrings(value.args, "args") ?? [];
       result.env = optionalStringTable(value.env, "env") ?? {};
@@ -475,9 +505,11 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         throw new IntegralError(
           "secret_env names must be valid and distinct from env",
         );
+
       result.allowedUrls = (
         optionalStrings(value.allowed_urls, "allowed_urls") ?? []
       ).map((candidate) => secureUrl(candidate, "allowed_urls"));
+
       for (const forbidden of [
         "authorization_url",
         "token_url",
@@ -517,11 +549,13 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
       "command, args, env, secret_env, and allowed_urls are only for stdio MCP",
     );
   }
+
   if (kind === "email") {
     const supported: readonly EmailCapability[] =
       provider === "gmail" ? ["read", "search", "send"] : ["send"];
     const capabilities = optionalStrings(value.capabilities, "capabilities") as
       EmailCapability[] | undefined;
+
     if (!capabilities?.length)
       throw new IntegralError("email capabilities must not be empty");
     if (
@@ -532,11 +566,13 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         `${provider} capabilities must contain unique values from: ${supported.join(", ")}`,
       );
     result.capabilities = capabilities;
+
     if (capabilities.includes("send")) {
       const allowed = optionalStrings(
         value.allowed_recipients,
         "allowed_recipients",
       );
+
       if (!allowed?.length)
         throw new IntegralError("send capability requires allowed_recipients");
       if (
@@ -552,16 +588,19 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         throw new IntegralError(
           "allowed_recipients must contain email addresses or *@domain wildcards",
         );
+
       result.allowedRecipients = allowed.map((recipient) =>
         recipient.toLowerCase(),
       );
     }
+
     if (provider === "gmail") {
       if (auth !== "oauth")
         throw new IntegralError("gmail requires oauth authentication");
       const account = requiredString(value.account, "account");
       if (!emailAddressPattern.test(account))
         throw new IntegralError("account must be an email address");
+
       result.account = account;
       result.authorizationUrl = "https://accounts.google.com/o/oauth2/v2/auth";
       result.tokenUrl = "https://oauth2.googleapis.com/token";
@@ -577,9 +616,11 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
     } else {
       if (auth !== "key")
         throw new IntegralError("mailgun requires key authentication");
+
       const domain = requiredString(value.domain, "domain").toLowerCase();
       if (!domainPattern.test(domain))
         throw new IntegralError("domain must be a valid DNS domain");
+
       const fromAddress = requiredString(value.from_address, "from_address");
       if (
         !emailAddressPattern.test(fromAddress) ||
@@ -588,22 +629,27 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
         throw new IntegralError(
           "from_address must be an email address in the Mailgun domain",
         );
+
       const region = value.region ?? "us";
       if (region !== "us" && region !== "eu")
         throw new IntegralError("region must be us or eu");
+
       result.domain = domain;
       result.fromAddress = fromAddress;
       result.region = region;
     }
   }
+
   if (hostResource) {
     const path = requiredString(value.path, "path"),
       mount = requiredString(value.mount, "mount");
+
     if (!isAbsolute(path)) throw new IntegralError("path must be absolute");
     if (!isAbsolute(mount) || normalize(mount) !== mount)
       throw new IntegralError("mount must be an absolute normalized path");
     if (mount === "/home/pi" || !mount.startsWith("/home/pi/"))
       throw new IntegralError("mount must be below /home/pi");
+
     const relativeMount = mount.slice("/home/pi/".length);
     const piProfile = name === "pi-profile";
     if (
@@ -625,12 +671,14 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
       throw new IntegralError("mount overlaps an Integral control path");
     result.path = path;
     result.mount = mount;
+
     if (kind === "host-repo") {
       if (value.branch !== undefined)
         result.branch = requiredString(value.branch, "branch");
     } else if (value.branch !== undefined) {
       throw new IntegralError("branch is supported only by host-repo");
     }
+
     for (const forbidden of [
       "provider",
       "url",
@@ -651,12 +699,14 @@ export function validateConnection(raw: unknown, stem?: string): Connection {
       "path, branch, and mount are only for host resources",
     );
   }
+
   return result;
 }
 
 function quote(value: string): string {
   return JSON.stringify(value);
 }
+
 export function connectionToml(c: Connection): string {
   const rows = [`name = ${quote(c.name)}`, `kind = ${quote(c.kind)}`];
   const scalar: [string, string | undefined][] = [
@@ -687,9 +737,11 @@ export function connectionToml(c: Connection): string {
     ["branch", c.branch],
     ["mount", c.mount],
   ];
+
   for (const [key, value] of scalar)
     if (value !== undefined && !rows.some((row) => row.startsWith(`${key} =`)))
       rows.push(`${key} = ${quote(value)}`);
+
   if (c.methods) rows.push(`methods = [${c.methods.map(quote).join(", ")}]`);
   if (c.hosts) rows.push(`hosts = [${c.hosts.map(quote).join(", ")}]`);
   if (c.scopes) rows.push(`scopes = [${c.scopes.map(quote).join(", ")}]`);
@@ -710,6 +762,7 @@ export function connectionToml(c: Connection): string {
         .map(([name, value]) => `${name} = ${quote(value)}`)
         .join(", ")} }`,
     );
+
   return `${rows.join("\n")}\n`;
 }
 
@@ -735,9 +788,11 @@ export async function loadConnections(
       return { connections: [], errors: [] };
     throw error;
   }
+
   const connections: Connection[] = [],
     errors: string[] = [],
     names = new Set<string>();
+
   for (const file of files) {
     try {
       const c = validateConnection(
@@ -754,6 +809,7 @@ export async function loadConnections(
       );
     }
   }
+
   return { connections, errors };
 }
 
@@ -763,6 +819,7 @@ export async function credentialFor(
 ): Promise<string | undefined> {
   return readText(join(paths.credentials, name));
 }
+
 export async function credentialSecretValues(
   paths: IntegralPaths,
 ): Promise<string[]> {
@@ -772,31 +829,38 @@ export async function credentialSecretValues(
     const raw = await credentialFor(paths, connection.name);
     if (!raw) continue;
     values.add(raw.trim());
+
     try {
       collectStrings(JSON.parse(raw), values);
     } catch {
       /* opaque key */
     }
   }
+
   return [...values].filter(Boolean);
 }
+
 function collectStrings(value: unknown, values: Set<string>): void {
   if (typeof value === "string") {
     if (value) values.add(value);
     return;
   }
+
   if (Array.isArray(value)) {
     for (const item of value) collectStrings(item, values);
     return;
   }
+
   if (value && typeof value === "object")
     for (const item of Object.values(value)) collectStrings(item, values);
 }
+
 export async function listConnections(
   paths: IntegralPaths,
 ): Promise<ListedConnection[]> {
   const loaded = await loadConnections(paths);
   if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
+
   const resourceModule = await import("./resources.ts"),
     records = await resourceModule.listResourceRecords(paths),
     hostRecords = new Map(
@@ -808,6 +872,7 @@ export async function listConnections(
         )
       ).map((record) => [record.connection, record]),
     );
+
   return Promise.all(
     loaded.connections.map(async (c) => {
       const resource = hostRecords.get(c.name),
@@ -815,6 +880,7 @@ export async function listConnections(
         usable =
           (c.auth === "none" && !c.secretEnv?.length) ||
           usableCredential(c, await credentialFor(paths, c.name));
+
       return {
         ...c,
         state: resource
@@ -840,11 +906,13 @@ export async function listConnections(
     }),
   );
 }
+
 export async function activeModelConnectionNames(
   paths: IntegralPaths,
 ): Promise<string[]> {
   const loaded = await loadConnections(paths);
   if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
+
   const names = await Promise.all(
     loaded.connections
       .filter((connection) => connection.kind === "model")
@@ -858,13 +926,16 @@ export async function activeModelConnectionNames(
           : undefined;
       }),
   );
+
   return names.filter((name): name is string => name !== undefined);
 }
+
 function usableCredential(
   connection: Connection,
   raw: string | undefined,
 ): boolean {
   if (!raw?.trim()) return false;
+
   if (connection.transport === "stdio") {
     try {
       const value = JSON.parse(raw) as Partial<StdioCredential>;
@@ -879,6 +950,7 @@ function usableCredential(
       return false;
     }
   }
+
   if (connection.auth === "key") return true;
   try {
     const value = JSON.parse(raw) as {
@@ -902,10 +974,12 @@ async function bumpGeneration(paths: IntegralPaths): Promise<number> {
     sessionFile = join(paths.state, "session-generation"),
     current = Number((await readText(file))?.trim() || "0");
   const next = Number.isSafeInteger(current) ? current + 1 : 1;
+
   await Promise.all([
     atomicWrite(file, `${next}\n`),
     atomicWrite(sessionFile, `${next}\n`),
   ]);
+
   return next;
 }
 
@@ -917,6 +991,7 @@ export async function saveConnection(
   const declaration = join(paths.connections, `${connection.name}.toml`);
   const existed = await readText(declaration);
   const validated = validateConnection(parse(connectionToml(connection)));
+
   if (
     (connection.auth !== "none" || connection.secretEnv?.length) &&
     !credential
@@ -924,12 +999,15 @@ export async function saveConnection(
     throw new IntegralError(
       `authentication credential is required for ${connection.auth}`,
     );
+
   if (existed === undefined) {
     const all = await loadConnections(paths);
     if (all.connections.some((c) => c.name === connection.name))
       throw new IntegralError(`connection ${connection.name} already exists`);
+
     if (credential)
       await atomicWrite(join(paths.credentials, connection.name), credential);
+
     try {
       await atomicWrite(declaration, connectionToml(validated));
     } catch (error) {
@@ -950,9 +1028,11 @@ export async function saveConnection(
       throw new IntegralError(
         `connection name already used: ${connection.name}`,
       );
+
     // Rotation intentionally changes only the protected credential file.
     await atomicWrite(join(paths.credentials, connection.name), credential!);
   }
+
   return {
     rotated: existed !== undefined,
     generation: await bumpGeneration(paths),
@@ -967,6 +1047,7 @@ export async function migratePiProfileConnection(
     raw = await readText(declaration);
   if (raw === undefined)
     throw new IntegralError("pi-profile connection is missing");
+
   const current = validateConnection(parse(raw), "pi-profile");
   if (
     current.kind !== "host-repo" ||
@@ -976,6 +1057,7 @@ export async function migratePiProfileConnection(
     current.branch !== "main"
   )
     throw new IntegralError("pi-profile connection cannot be migrated");
+
   await atomicWrite(
     declaration,
     connectionToml({ ...current, mount: "/home/pi/.pi" }),
@@ -990,6 +1072,7 @@ export async function removeCredential(
   await rm(join(paths.credentials, name), { force: true });
   await bumpGeneration(paths);
 }
+
 export async function removeConnection(
   paths: IntegralPaths,
   name: string,
@@ -1000,6 +1083,7 @@ export async function removeConnection(
   } catch {
     throw new IntegralError(`connection not found: ${name}`);
   }
+
   await rm(file);
   await rm(join(paths.credentials, name), { force: true });
   await clearConnectionDegraded(paths, name);

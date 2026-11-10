@@ -101,6 +101,7 @@ export class DurableTaskQueue {
         throw new IntegralError(`invalid task queue: ${this.paths.taskQueue}`);
       this.data = parsed;
     }
+
     let changed = false;
     for (const task of this.data.tasks.filter(
       (item) => item.state === "claimed" || item.state === "running",
@@ -111,12 +112,14 @@ export class DurableTaskQueue {
         changed = true;
         continue;
       }
+
       const attempt = task.attempts.at(-1);
       if (attempt && !attempt.finishedAt) {
         attempt.finishedAt = new Date(this.now()).toISOString();
         attempt.outcome = "interrupted";
         attempt.error = "coordinator restarted with task outcome unknown";
       }
+
       task.lastError = "task outcome unknown after coordinator restart";
       if (task.triggerType === "recurring") {
         task.state = "failed";
@@ -124,6 +127,7 @@ export class DurableTaskQueue {
       } else task.state = "queued";
       changed = true;
     }
+
     if (changed) await this.persist();
   }
 
@@ -144,6 +148,7 @@ export class DurableTaskQueue {
       const existing = this.data.tasks.find(
         (item) => item.executionId === occurrence.executionId,
       );
+
       const candidate: ScheduledTask = {
         id: occurrence.executionId,
         executionId: occurrence.executionId,
@@ -160,6 +165,7 @@ export class DurableTaskQueue {
           ? { origin: structuredClone(occurrence.origin) }
           : {}),
       };
+
       if (existing) {
         if (
           JSON.stringify(immutableTask(existing)) !==
@@ -171,6 +177,7 @@ export class DurableTaskQueue {
           );
         return structuredClone(existing);
       }
+
       this.data.tasks.push(candidate);
       await this.persist();
       return structuredClone(candidate);
@@ -187,6 +194,7 @@ export class DurableTaskQueue {
         )
       )
         return undefined;
+
       const now = this.now(),
         task = this.data.tasks.find(
           (item) =>
@@ -196,6 +204,7 @@ export class DurableTaskQueue {
                 Date.parse(item.nextAttemptAt ?? "") <= now)),
         );
       if (!task) return undefined;
+
       task.state = "claimed";
       delete task.nextAttemptAt;
       task.claimId = this.newAttemptId();
@@ -209,6 +218,7 @@ export class DurableTaskQueue {
       const task = this.find(executionId);
       if (task.state !== "claimed" || task.claimId !== claimId)
         throw new IntegralError(`task claim is not active: ${claimId}`, 409);
+
       task.state = "running";
       delete task.claimId;
       task.attempts.push({
@@ -216,6 +226,7 @@ export class DurableTaskQueue {
         number: task.attempts.length + 1,
         startedAt: new Date(this.now()).toISOString(),
       });
+
       await this.persist();
       return structuredClone(task);
     });
@@ -230,6 +241,7 @@ export class DurableTaskQueue {
       const task = this.find(executionId);
       if (task.state !== "claimed" || task.claimId !== claimId)
         return structuredClone(task);
+
       task.state = "queued";
       delete task.claimId;
       task.lastError = error;
@@ -255,6 +267,7 @@ export class DurableTaskQueue {
           );
         return structuredClone(task);
       }
+
       const attempt = this.runningAttempt(task, attemptId);
       if (exitCode !== 0)
         throw new IntegralError("task success requires exit code zero", 409);
@@ -268,6 +281,7 @@ export class DurableTaskQueue {
           "task result does not match Pi's completion declaration",
           409,
         );
+
       const timestamp = new Date(this.now()).toISOString();
       attempt.finishedAt = timestamp;
       attempt.outcome = "succeeded";
@@ -277,6 +291,7 @@ export class DurableTaskQueue {
       task.completedAt = timestamp;
       delete task.lastError;
       this.addOutbox(task.executionId, "succeeded");
+
       await this.persist();
       return structuredClone(task);
     });
@@ -293,12 +308,14 @@ export class DurableTaskQueue {
         throw new IntegralError("task outcome message is required", 400);
       if (message.length > 100_000)
         throw new IntegralError("task outcome message is too large", 413);
+
       const task = this.find(executionId),
         priorAttempt = task.attempts.find(
           (item) => item.attemptId === attemptId,
         ),
         attempt = priorAttempt ?? this.runningAttempt(task, attemptId),
         existing = attempt.declaration;
+
       if (existing) {
         if (existing.outcome !== outcome || existing.message !== message)
           throw new IntegralError(
@@ -307,12 +324,14 @@ export class DurableTaskQueue {
           );
         return structuredClone(task);
       }
+
       this.runningAttempt(task, attemptId);
       attempt.declaration = {
         outcome,
         message,
         declaredAt: new Date(this.now()).toISOString(),
       };
+
       await this.persist();
       return structuredClone(task);
     });
@@ -330,9 +349,11 @@ export class DurableTaskQueue {
         );
       if (task.state !== "running" && priorAttempt?.finishedAt)
         return structuredClone(task);
+
       const attempt = this.runningAttempt(task, attemptId),
         declaration = attempt.declaration,
         timestamp = new Date(this.now()).toISOString();
+
       if (exitCode === 0 && declaration?.outcome === "complete") {
         attempt.finishedAt = timestamp;
         attempt.outcome = "succeeded";
@@ -349,11 +370,13 @@ export class DurableTaskQueue {
             : declaration?.outcome === "failed"
               ? declaration.message
               : "Pi exited without declaring task completion or failure";
+
         attempt.finishedAt = timestamp;
         attempt.outcome = "failed";
         attempt.exitCode = exitCode;
         attempt.error = error;
         task.lastError = error;
+
         if (task.triggerType === "recurring") {
           task.state = "failed";
           task.completedAt = timestamp;
@@ -365,6 +388,7 @@ export class DurableTaskQueue {
           ).toISOString();
         }
       }
+
       await this.persist();
       return structuredClone(task);
     });
@@ -383,13 +407,16 @@ export class DurableTaskQueue {
         );
       if (task.state !== "running" && priorAttempt?.finishedAt)
         return structuredClone(task);
+
       const attempt = this.runningAttempt(task, attemptId),
         timestamp = new Date(this.now()).toISOString();
+
       attempt.finishedAt = timestamp;
       attempt.outcome = "failed";
       attempt.error = error;
       if (exitCode !== undefined) attempt.exitCode = exitCode;
       task.lastError = error;
+
       if (task.triggerType === "recurring") {
         task.state = "failed";
         task.completedAt = timestamp;
@@ -400,6 +427,7 @@ export class DurableTaskQueue {
           this.now() + retryDelay(task.attempts.length),
         ).toISOString();
       }
+
       await this.persist();
       return structuredClone(task);
     });
@@ -415,6 +443,7 @@ export class DurableTaskQueue {
         );
       if (task.state === "completed")
         throw new IntegralError("completed task cannot be cancelled", 409);
+
       const timestamp = new Date(this.now()).toISOString();
       if (task.state === "running") {
         const attempt = task.attempts.at(-1);
@@ -424,10 +453,12 @@ export class DurableTaskQueue {
           attempt.error = "cancelled by operator";
         }
       }
+
       delete task.claimId;
       task.state = "cancelled";
       task.completedAt = timestamp;
       this.addOutbox(task.executionId, "cancelled", "cancelled by operator");
+
       await this.persist();
       return structuredClone(task);
     });
@@ -462,6 +493,7 @@ export class DurableTaskQueue {
   ): void {
     if (this.data.outbox.some((item) => item.executionId === executionId))
       return;
+
     this.data.outbox.push({
       executionId,
       outcome,

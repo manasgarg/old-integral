@@ -30,6 +30,7 @@ export class McpSidecarManager {
     const runtimes = new Map<string, McpRuntime>(),
       unavailable: string[] = [],
       diagnostics: string[] = [];
+
     for (const sidecar of sidecars) {
       if (!this.containers.createMcpSidecar) {
         unavailable.push(
@@ -37,6 +38,7 @@ export class McpSidecarManager {
         );
         continue;
       }
+
       const runtime = this.containers.createMcpSidecar(
         sidecar,
         this.config,
@@ -47,6 +49,7 @@ export class McpSidecarManager {
             session_id: spec.sessionId,
           }),
       );
+
       try {
         const catalog = await runtime.start();
         catalogs.push(catalog);
@@ -65,8 +68,10 @@ export class McpSidecarManager {
         await this.connectionHealth(sidecar.connection.name, false);
       }
     }
+
     if (runtimes.size) this.sessions.set(spec.sessionId, runtimes);
     await this.writeExtension(spec.home, catalogs);
+
     if (unavailable.length)
       spec.args.push(
         "--append-system-prompt",

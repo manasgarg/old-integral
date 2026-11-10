@@ -29,11 +29,13 @@ export async function runQueueCommand(
   dependencies: QueueOperationDependencies,
 ): Promise<number> {
   const command = args[0];
+
   if (command === "ls") {
     const snapshot = (await fetchJson(
       new URL("/integral/snapshot", endpoint),
       dependencies.fetch,
     )) as { queue: QueueItem[] };
+
     if (args.includes("--json"))
       dependencies.writeOutput(`${JSON.stringify(snapshot.queue, null, 2)}\n`);
     else
@@ -41,11 +43,13 @@ export async function runQueueCommand(
         dependencies.writeOutput(`${item.status}\t${item.id}\t${item.text}\n`);
     return 0;
   }
+
   if (command === "edit") {
     const id = args[1],
       text = args.slice(2).join(" ").trim();
     if (!id || !text)
       throw new IntegralError("usage: integral queue edit <id> <text>");
+
     await requestOk(
       new URL(`/integral/queue/${id}`, endpoint),
       {
@@ -58,9 +62,11 @@ export async function runQueueCommand(
     dependencies.writeOutput(`Edited ${id}.\n`);
     return 0;
   }
+
   if (command === "delete") {
     const id = args[1];
     if (!id) throw new IntegralError("usage: integral queue delete <id>");
+
     await requestOk(
       new URL(`/integral/queue/${id}`, endpoint),
       { method: "DELETE" },
@@ -69,6 +75,7 @@ export async function runQueueCommand(
     dependencies.writeOutput(`Deleted ${id}.\n`);
     return 0;
   }
+
   throw new IntegralError(`unknown queue command: ${command}`);
 }
 
@@ -93,6 +100,7 @@ export async function queueCommand(
   overrides: Partial<QueueDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionDependencies, ...overrides };
+
   if (
     !args[0] ||
     args.includes("--help") ||
@@ -102,6 +110,7 @@ export async function queueCommand(
     dependencies.writeOutput(HELP);
     return 0;
   }
+
   const paths = dependencies.resolvePaths();
   let endpoint: string;
   try {
@@ -112,5 +121,6 @@ export async function queueCommand(
       "coordinator is not reachable; start it with integral server start",
     );
   }
+
   return runQueueCommand(args, endpoint, dependencies);
 }

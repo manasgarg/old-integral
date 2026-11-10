@@ -110,6 +110,7 @@ const systemClock: RunnerClock = {
     setTimeout(() => void callback(), milliseconds),
   clearTimeout: (handle) => clearTimeout(handle as NodeJS.Timeout | undefined),
 };
+
 const SLOW_RUNNER_STAGE_MS = 30_000;
 
 const productionDependencies: RunnerDependencies = {
@@ -197,6 +198,7 @@ export class Runner {
   private piTurnCount = 0;
   private readonly runs: RunStore;
   private readonly dependencies: RunnerDependencies;
+
   constructor(
     private readonly paths: IntegralPaths,
     private readonly config: EffectiveConfig,
@@ -254,6 +256,7 @@ export class Runner {
     this.logger.event("debug", "runner.stage_started", "runner stage started", {
       ...details,
     });
+
     const slowTimer = this.dependencies.clock.setTimeout(() => {
       slowReported = true;
       this.logger.event(
@@ -267,9 +270,11 @@ export class Runner {
         },
       );
     }, SLOW_RUNNER_STAGE_MS);
+
     try {
       const result = await operation();
       const elapsed = this.dependencies.now() - started;
+
       if (!slowReported && elapsed >= SLOW_RUNNER_STAGE_MS)
         this.logger.event(
           "warn",
@@ -281,12 +286,14 @@ export class Runner {
             threshold_ms: SLOW_RUNNER_STAGE_MS,
           },
         );
+
       this.logger.event(
         "debug",
         "runner.stage_completed",
         "runner stage completed",
         { ...details, elapsed_ms: elapsed },
       );
+
       return result;
     } catch (error) {
       this.logger.event(
@@ -300,19 +307,23 @@ export class Runner {
       this.dependencies.clock.clearTimeout(slowTimer);
     }
   }
+
   async start(): Promise<http.Server> {
     await this.dependencies.ensurePiProfileRepository(this.paths, this.config);
     await this.dependencies.recoverAbandonedResourceProjections(
       this.paths,
       this.config,
     );
+
     await this.runs.initialize();
     this.token = await componentIdentity(this.paths);
+
     const network = `integral-${deploymentId(this.paths)}`;
     await this.dependencies.containers.ensureNetwork(network);
     this.dockerGateway =
       await this.dependencies.containers.networkGateway(network);
     await this.ensureGatewayListener().catch(() => undefined);
+
     const server = http.createServer((req, res) => {
       if (req.url === "/integral/health") {
         void readComponentState(this.paths, "runner").then((state) => {
@@ -339,15 +350,18 @@ export class Runner {
         void this.routeSteer(req, res);
       } else res.writeHead(404).end();
     });
+
     this.server = server;
     await this.dependencies.listen(
       server,
       this.config.server.runnerPort,
       "127.0.0.1",
     );
+
     this.schedule(0);
     return server;
   }
+
   private async routeSteer(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -364,11 +378,13 @@ export class Runner {
         res.writeHead(401).end("unauthorized\n");
         return;
       }
+
       const body = await runnerBodyJson(req),
         conversationId =
           typeof body.conversationId === "string" ? body.conversationId : "",
         messageId = typeof body.messageId === "string" ? body.messageId : "",
         text = typeof body.text === "string" ? body.text : "";
+
       if (
         !this.busy ||
         !this.pi ||
@@ -380,6 +396,7 @@ export class Runner {
         res.writeHead(409).end("turn is no longer steerable\n");
         return;
       }
+
       await this.pi.steer(text);
       this.steeredMessageIds.push(messageId);
       await this.piRun?.input(text, "steering", { messageId });
@@ -390,6 +407,7 @@ export class Runner {
         .end(`${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
+
   private async routeMcp(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -406,11 +424,13 @@ export class Runner {
         res.writeHead(401).end("unauthorized\n");
         return;
       }
+
       const body = await runnerBodyJson(req),
         sessionId = typeof body.sessionId === "string" ? body.sessionId : "",
         connection = typeof body.connection === "string" ? body.connection : "",
         tool = typeof body.tool === "string" ? body.tool : "",
         args = body.arguments;
+
       if (
         !sessionId ||
         !connection ||
@@ -420,12 +440,14 @@ export class Runner {
         Array.isArray(args)
       )
         throw new IntegralError("invalid MCP request", 400);
+
       const result = await this.mcpSidecars.callTool(
         sessionId,
         connection,
         tool,
         args as Record<string, unknown>,
       );
+
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(result));
     } catch (error) {
@@ -438,6 +460,7 @@ export class Runner {
         .end(`${error instanceof Error ? error.message : String(error)}\n`);
     }
   }
+
   private schedule(ms = 500): void {
     if (!this.stopped)
       this.polling = this.dependencies.clock.setTimeout(
@@ -445,6 +468,7 @@ export class Runner {
         ms,
       );
   }
+
   private async poll(): Promise<void> {
     await Promise.all([this.runOnce(), this.runTaskOnce()]);
     this.schedule();
@@ -457,6 +481,7 @@ export class Runner {
       runtime: TaskRuntime | undefined,
       exitCode: number | undefined,
       turnStarted: number | undefined;
+
     try {
       const [coordinatorState, gatewayState, generationRaw] = await Promise.all(
         [
@@ -477,8 +502,10 @@ export class Runner {
         gatewayState.connectionGeneration !== generation
       )
         return;
+
       await this.ensureGatewayListener();
       const modelConnections = await activeModelConnectionNames(this.paths);
+
       const claimed = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -488,14 +515,17 @@ export class Runner {
       );
       if (!claimed.ok)
         throw new IntegralError(`task claim failed: ${claimed.status}`);
+
       task = ((await claimed.json()) as { task?: ScheduledTask }).task;
       if (!task) return;
       if (!task.claimId)
         throw new IntegralError("claimed task has no claim ID");
+
       this.currentTask = { id: task.id, claimId: task.claimId };
       runtime = await this.createTaskRuntime(task);
       this.activeTaskRuntime = runtime;
       await runtime.start();
+
       const started = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -508,6 +538,7 @@ export class Runner {
       );
       if (!started.ok)
         throw new IntegralError(`task start failed: ${started.status}`);
+
       const running = (await started.json()) as ScheduledTask,
         attempt = running.attempts.at(-1);
       if (!attempt) throw new IntegralError("started task has no attempt");
@@ -517,6 +548,7 @@ export class Runner {
         attemptNumber: attempt.number,
         retryNumber: Math.max(0, attempt.number - 1),
       });
+
       const taskSession = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -536,15 +568,18 @@ export class Runner {
         throw new IntegralError(
           `task gateway identity update failed: ${taskSession.status}`,
         );
+
       await this.taskRun?.input(
         task.prompt,
         task.attempts.length > 0 ? "retry-instruction" : "original-request",
         { executionId: task.executionId },
       );
+
       turnStarted = this.dependencies.now();
       const answer = await runtime.prompt(task.prompt);
       await this.taskRun?.output(answer, this.dependencies.now() - turnStarted);
       exitCode = await runtime.finish();
+
       const finalized = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -562,6 +597,7 @@ export class Runner {
         throw new IntegralError(
           `task finalization failed: ${finalized.status}`,
         );
+
       const finalizedText = await finalized.text(),
         finalizedTask = finalizedText
           ? (JSON.parse(finalizedText) as ScheduledTask)
@@ -577,6 +613,7 @@ export class Runner {
           : finalizedTask?.state === "cancelled"
             ? "cancelled"
             : "failed";
+
       await this.finalizeRun(this.taskRun, {
         termination,
         ...(taskSucceeded
@@ -590,6 +627,7 @@ export class Runner {
           ? { declaration: finalizedAttempt.declaration }
           : {}),
       });
+
       this.currentTask = undefined;
     } catch (error) {
       await this.taskRun?.failure("task-failure", error, {
@@ -597,6 +635,7 @@ export class Runner {
           ? { turnElapsedMs: this.dependencies.now() - turnStarted }
           : {}),
       });
+
       const message = error instanceof Error ? error.message : String(error);
       await this.finalizeRun(this.taskRun, {
         termination: /timed out|timeout/i.test(message)
@@ -606,6 +645,7 @@ export class Runner {
             : "failed",
         error: message,
       });
+
       if (task && this.currentTask) {
         const attemptId = this.currentTask.attemptId,
           action = attemptId ? "fail" : "defer",
@@ -629,6 +669,7 @@ export class Runner {
           )
           .catch(() => undefined);
       }
+
       this.logger.event(
         "warn",
         "runner.task_failed",
@@ -643,12 +684,14 @@ export class Runner {
             }
           : {},
       );
+
       this.currentTask = undefined;
     } finally {
       await this.finalizeRun(this.taskRun, {
         termination: this.stopped ? "stopped" : "failed",
         ...(this.stopped ? {} : { error: "task execution did not complete" }),
       });
+
       if (runtime) {
         await this.mcpSidecars.stop(runtime.spec.sessionId);
         await this.revoke(runtime.spec.sessionToken);
@@ -662,6 +705,7 @@ export class Runner {
             .catch(() => undefined);
         await runtime.stop().catch(() => undefined);
       }
+
       await this.removeHistoryView(this.taskHistoryView);
       this.taskRun = undefined;
       this.taskHistoryView = undefined;
@@ -682,15 +726,18 @@ export class Runner {
       throw new IntegralError(
         `scheduled Pi image ${task.profile.piImage} is unavailable`,
       );
+
     const { spec, identity, resources, catalogs, sidecars } =
       await this.preparePiEnvironment(task.profile, task.profile.piImage);
     this.taskResources = resources;
+
     await this.dependencies.writeTaskExtension(spec.home);
     spec.args.push(
       "--extension",
       "/home/pi/.integral/extensions/integral-task.ts",
     );
     spec.args.push("--append-system-prompt", renderTaskContext(task));
+
     const previous = await this.runs.finalizedForExecution(task.executionId),
       recorder = await this.runs.begin({
         kind: "scheduled",
@@ -706,11 +753,13 @@ export class Runner {
           : {}),
         sensitiveValues: [identity.sessionToken],
       });
+
     await recordResourceProjection(recorder, resources);
     await recorder.event("host", "runtime-context", {
       text: renderTaskContext(task),
     });
     this.taskRun = recorder;
+
     let historyView: string | undefined, runtime: TaskRuntime | undefined;
     try {
       historyView = await this.runs.createHistoryView(recorder);
@@ -727,6 +776,7 @@ export class Runner {
           readonly: true,
         },
       );
+
       runtime = this.dependencies.containers.createTaskPi(
         spec,
         this.config,
@@ -750,6 +800,7 @@ export class Runner {
         },
         (event) => recorder.protocol(event),
       );
+
       const registered = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -768,6 +819,7 @@ export class Runner {
         throw new IntegralError(
           `task gateway session unavailable: ${registered.status}`,
         );
+
       await this.mcpSidecars.start(spec, catalogs, sidecars);
       return runtime;
     } catch (error) {
@@ -776,6 +828,7 @@ export class Runner {
         termination: "failed",
         error: error instanceof Error ? error.message : String(error),
       });
+
       await this.mcpSidecars.stop(identity.sessionId);
       await this.revoke(identity.sessionToken);
       await this.dependencies
@@ -789,10 +842,12 @@ export class Runner {
       throw error;
     }
   }
+
   async runOnce(): Promise<void> {
     if (this.busy || this.stopped) return;
     this.busy = true;
     let item: QueuedMessage | undefined, turnStarted: number | undefined;
+
     try {
       const [coordinatorState, gatewayState, generationRaw, sessionRaw] =
         await Promise.all([
@@ -803,10 +858,12 @@ export class Runner {
         ]);
       const generation = Number(generationRaw?.trim() || "0"),
         sessionGeneration = Number(sessionRaw?.trim() || generation);
+
       await updateComponentState(this.paths, "runner", {
         connectionGeneration: generation,
         status: "ready",
       });
+
       if (
         !coordinatorState ||
         !gatewayState ||
@@ -820,8 +877,10 @@ export class Runner {
         throw new IntegralError(
           "component configuration or connection generations disagree",
         );
+
       if (this.pi && this.piSessionGeneration !== sessionGeneration)
         await this.destroyPi();
+
       await this.ensureGatewayListener();
       const gateway = await this.dependencies.fetch(
         new URL(
@@ -830,6 +889,7 @@ export class Runner {
         ),
       );
       if (!gateway.ok) throw new IntegralError("gateway unavailable");
+
       const modelConnections = await activeModelConnectionNames(this.paths);
       const response = await this.dependencies.internalFetch(
         this.paths,
@@ -840,12 +900,14 @@ export class Runner {
       );
       if (!response.ok)
         throw new IntegralError(`claim failed: ${response.status}`);
+
       const body = (await response.json()) as {
         message?: QueuedMessage;
         context: ConversationEvent[];
         selection?: ModelSelection | null;
         conversationId?: string;
       };
+
       const conversationId = body.conversationId ?? "terminal";
       const selection = body.selection ?? undefined;
       item = body.message;
@@ -853,10 +915,12 @@ export class Runner {
         this.armIdle();
         return;
       }
+
       if (this.pi && this.piConversationId !== conversationId)
         await this.destroyPi("selection-changed");
       if (this.pi && !sameSelection(this.piSelection, selection))
         await this.destroyPi("selection-changed");
+
       this.currentMessageId = item.id;
       this.currentConversationId = conversationId;
       this.steeredMessageIds = [];
@@ -866,15 +930,18 @@ export class Runner {
         "runner received claimed conversation message",
         this.workLogContext({ attempt: item.attempts }),
       );
+
       if (!selection)
         throw new IntegralError(
           "conversation has no selected model connection and model",
         );
+
       this.dependencies.clock.clearTimeout(this.idle);
       const continuation = item.approvalContinuation;
       if (continuation && this.pi) await this.destroyPi("selection-changed");
       if (this.pi && (await this.mcpCatalogChanged()))
         await this.destroyPi("selection-changed");
+
       await this.observeStage("ensure-pi-session", () =>
         this.ensurePi(
           body.context,
@@ -884,6 +951,7 @@ export class Runner {
           item!.origin,
         ),
       );
+
       this.piConversationId = conversationId;
       const activeRun = this.piRun;
       await activeRun?.input(
@@ -900,6 +968,7 @@ export class Runner {
           ...(activeRun ? { runId: activeRun.runId } : {}),
         },
       );
+
       turnStarted = this.dependencies.now();
       this.logger.event(
         "info",
@@ -910,6 +979,7 @@ export class Runner {
           run_id: activeRun?.runId,
         }),
       );
+
       const answer = await this.observeStage(
         "pi-prompt",
         () => this.pi!.prompt(item!.text),
@@ -918,8 +988,10 @@ export class Runner {
           run_id: activeRun?.runId,
         },
       );
+
       await this.piRun?.output(answer, this.dependencies.now() - turnStarted);
       this.piTurnCount++;
+
       const completed = await this.dependencies.internalFetch(
         this.paths,
         "runner",
@@ -936,6 +1008,7 @@ export class Runner {
       );
       if (!completed.ok)
         throw new IntegralError(`completion failed: ${completed.status}`);
+
       this.logger.event(
         "info",
         "runner.turn_completed",
@@ -946,6 +1019,7 @@ export class Runner {
           elapsed_ms: this.dependencies.now() - turnStarted,
         }),
       );
+
       this.currentMessageId = undefined;
       this.currentConversationId = undefined;
     } catch (error) {
@@ -954,10 +1028,12 @@ export class Runner {
           ? { turnElapsedMs: this.dependencies.now() - turnStarted }
           : {}),
       });
+
       await updateComponentState(this.paths, "runner", {
         status: "degraded",
         error: error instanceof Error ? error.message : String(error),
       });
+
       if (item) {
         await this.dependencies
           .internalFetch(
@@ -978,6 +1054,7 @@ export class Runner {
         this.currentMessageId = undefined;
         this.currentConversationId = undefined;
       }
+
       if (
         this.pi &&
         /gateway|container|timed out|exited|rejected prompt/i.test(
@@ -992,6 +1069,7 @@ export class Runner {
             : "failed",
           error instanceof Error ? error.message : String(error),
         );
+
       const context = item
         ? {
             message_id: item.id,
@@ -1008,6 +1086,7 @@ export class Runner {
       this.busy = false;
     }
   }
+
   private async ensureGatewayListener(): Promise<void> {
     const response = await this.dependencies.internalFetch(
       this.paths,
@@ -1021,6 +1100,7 @@ export class Runner {
         `gateway Docker listener unavailable: ${response.status}`,
       );
   }
+
   private async ensurePi(
     context: ConversationEvent[],
     selection: ModelSelection,
@@ -1029,12 +1109,14 @@ export class Runner {
     origin?: QueuedMessage["origin"],
   ): Promise<void> {
     if (this.pi) return;
+
     this.logger.event(
       "info",
       "runner.provision_started",
       "started provisioning a Pi conversation session",
       this.workLogContext(),
     );
+
     const resolvedImage = await this.observeStage("resolve-image", () =>
       this.dependencies.containers.ensureImage(
         this.config,
@@ -1046,12 +1128,15 @@ export class Runner {
       throw new IntegralError(
         `selected Pi image ${selection.piImage} is unavailable; run /model to refresh the runtime selection`,
       );
+
     const { spec, identity, resources, catalogs, sidecars } =
       await this.observeStage("prepare-environment", () =>
         this.preparePiEnvironment(selection, selection.piImage),
       );
+
     if (context.length)
       spec.args.push("--append-system-prompt", renderContext(context));
+
     const parent = continuation?.originRunId
         ? undefined
         : await this.runs.latestFinalized("interactive"),
@@ -1078,15 +1163,18 @@ export class Runner {
           }),
         { session_id: identity.sessionId },
       );
+
     await this.observeStage(
       "record-resources",
       () => recordResourceProjection(recorder, resources),
       { session_id: identity.sessionId, run_id: recorder.runId },
     );
+
     if (context.length)
       await recorder.event("host", "runtime-context", {
         text: renderContext(context),
       });
+
     let historyView: string | undefined, pi: PiRuntime | undefined;
     try {
       historyView = await this.observeStage(
@@ -1094,6 +1182,7 @@ export class Runner {
         () => this.runs.createHistoryView(recorder),
         { session_id: identity.sessionId, run_id: recorder.runId },
       );
+
       spec.mounts.push(
         {
           source: historyView,
@@ -1106,6 +1195,7 @@ export class Runner {
           readonly: true,
         },
       );
+
       pi = this.dependencies.containers.createPi(
         spec,
         this.config,
@@ -1127,6 +1217,7 @@ export class Runner {
         },
         (event) => recorder.protocol(event),
       );
+
       const registered = await this.observeStage(
         "register-gateway-session",
         () =>
@@ -1160,6 +1251,7 @@ export class Runner {
         throw new IntegralError(
           `gateway session unavailable: ${registered.status}`,
         );
+
       await this.observeStage(
         "start-mcp-sidecars",
         () => this.mcpSidecars.start(spec, catalogs, sidecars),
@@ -1169,6 +1261,7 @@ export class Runner {
         session_id: identity.sessionId,
         run_id: recorder.runId,
       });
+
       this.pi = pi;
       this.piSelection = { ...selection };
       this.piSessionGeneration = sessionGeneration;
@@ -1182,6 +1275,7 @@ export class Runner {
         ]),
       );
       this.piTurnCount = 0;
+
       await this.observeStage(
         "publish-session-started",
         () =>
@@ -1207,6 +1301,7 @@ export class Runner {
           ),
         { session_id: identity.sessionId, run_id: recorder.runId },
       );
+
       this.logger.event(
         "info",
         "runner.provision_completed",
@@ -1222,6 +1317,7 @@ export class Runner {
         termination: "failed",
         error: error instanceof Error ? error.message : String(error),
       });
+
       await this.mcpSidecars.stop(identity.sessionId);
       await this.revoke(identity.sessionToken);
       await this.dependencies
@@ -1233,6 +1329,7 @@ export class Runner {
       throw error;
     }
   }
+
   private async preparePiEnvironment(selection: ModelSelection, image: string) {
     const all = await listConnections(this.paths),
       active = all.filter((connection) => connection.state === "active"),
@@ -1246,12 +1343,14 @@ export class Runner {
       identity = this.dependencies.newSessionIdentity(),
       ca = await this.dependencies.ensureCa(this.paths),
       sessionHomes = join(this.paths.state, "session-homes");
+
     await ensureDir(sessionHomes);
     const home = await this.observeStage(
       "create-session-home",
       () => this.dependencies.freshSessionHome(sessionHomes),
       { session_id: identity.sessionId },
     );
+
     const catalogs: McpCatalog[] = [],
       stdio: Array<{
         connection: Connection;
@@ -1259,13 +1358,16 @@ export class Runner {
       }> = [],
       unavailableMcp: string[] = [],
       mcpDiagnostics: string[] = [];
+
     for (const connection of mcp) {
       try {
         const raw = await credentialFor(this.paths, connection.name),
           credential = raw ? (oauthAccess(raw) ?? raw) : undefined;
+
         if (connection.transport === "stdio") {
           let parsed: unknown = { type: "stdio-env", values: {} };
           if (raw?.trim()) parsed = JSON.parse(raw);
+
           if (
             !parsed ||
             typeof parsed !== "object" ||
@@ -1275,6 +1377,7 @@ export class Runner {
             Array.isArray(parsed.values)
           )
             throw new IntegralError("invalid stdio secret credential");
+
           const values = parsed.values as Record<string, unknown>,
             secretValues: Record<string, string> = {};
           for (const name of connection.secretEnv ?? []) {
@@ -1282,15 +1385,18 @@ export class Runner {
               throw new IntegralError(`missing stdio secret ${name}`);
             secretValues[name] = values[name];
           }
+
           stdio.push({ connection, secretValues });
           continue;
         }
+
         const catalog = await this.mcpCatalogs.refresh(
           connection,
           credential,
           this.dependencies.fetch,
           true,
         );
+
         await clearConnectionDegraded(this.paths, connection.name);
         catalogs.push(catalog);
         mcpDiagnostics.push(
@@ -1308,11 +1414,13 @@ export class Runner {
             ? "authorization"
             : "discovery",
         );
+
         unavailableMcp.push(
           `${connection.name} (${error instanceof Error ? error.message : String(error)})`,
         );
       }
     }
+
     const resources = await this.observeStage(
       "prepare-resources",
       () =>
@@ -1324,6 +1432,7 @@ export class Runner {
         ),
       { session_id: identity.sessionId },
     );
+
     await this.observeStage(
       "write-session-files",
       async () => {
@@ -1336,8 +1445,10 @@ export class Runner {
       },
       { session_id: identity.sessionId },
     );
+
     const gatewayUrl = new URL(await componentEndpoint(this.paths, "gateway"));
     gatewayUrl.hostname = "host.integral.internal";
+
     const sidecars: McpSidecarSpec[] = stdio.map(
       ({ connection, secretValues }) => ({
         connection,
@@ -1351,6 +1462,7 @@ export class Runner {
         secretValues,
       }),
     );
+
     const spec = buildContainerSpec({
       config: this.config,
       gatewayUrl: gatewayUrl.toString(),
@@ -1365,6 +1477,7 @@ export class Runner {
       mcp,
       connections: active,
     });
+
     for (const extension of [
       "integral-mcp.ts",
       "integral-resources.ts",
@@ -1375,10 +1488,12 @@ export class Runner {
         "--extension",
         `/home/pi/.integral/extensions/${extension}`,
       );
+
     spec.args.push(
       "--append-system-prompt",
       "You run in an ephemeral Integral-managed container. A commit in a governed repository exists only in this run until repo_push succeeds. Before reporting repository work complete, either call repo_push and report its landed canonical commit, or, if you decide the commits should not land, undo those commits and their file changes so the checkout matches the canonical branch. Do not deliberately leave rejected work for recovery. The active image Dockerfile is in /home/pi/image; repo_push for image-recipe requires human approval and affects a replacement container, not this running filesystem. Use container_image_rebuild to request an approval-gated fresh rebuild of the unchanged recipe.",
     );
+
     const recoveries = (
       await Promise.all(
         resources.repositories.map(async ({ resource }) => ({
@@ -1399,6 +1514,7 @@ export class Runner {
         "--append-system-prompt",
         `Unresolved repository recovery exists: ${recoveries.join("; ")}. For each recovery, first find the run with the matching sessionId in /home/pi/history/runs/index.json and examine that run's activity log to understand why the work was created. Then decide: keep it by fetching and applying the recovery ref and landing it through repo_push, or reject it by calling repo_recovery_discard. Do not ignore or discard recovered work without examining its originating run.`,
       );
+
     spec.mounts.push(...resources.mounts);
     if (
       resources.unavailable.length ||
@@ -1423,6 +1539,7 @@ export class Runner {
             : []),
         ].join(" "),
       );
+
     return {
       identity,
       resources,
@@ -1431,6 +1548,7 @@ export class Runner {
       sidecars,
     };
   }
+
   private armIdle(): void {
     if (!this.pi || this.idle) return;
     this.idle = this.dependencies.clock.setTimeout(
@@ -1438,6 +1556,7 @@ export class Runner {
       this.config.runner.idleTimeoutSeconds * 1000,
     );
   }
+
   private async mcpCatalogChanged(): Promise<boolean> {
     const connections = (await listConnections(this.paths)).filter(
       (connection) =>
@@ -1445,6 +1564,7 @@ export class Runner {
         connection.transport !== "stdio" &&
         connection.state !== "DISABLED (no secret)",
     );
+
     for (const connection of connections) {
       try {
         const raw = await credentialFor(this.paths, connection.name),
@@ -1472,8 +1592,10 @@ export class Runner {
         );
       }
     }
+
     return connections.length !== this.piMcpCatalogs.size;
   }
+
   private async revoke(token: string): Promise<void> {
     await this.dependencies
       .internalFetch(
@@ -1488,17 +1610,20 @@ export class Runner {
       )
       .catch(() => undefined);
   }
+
   private async destroyPi(
     termination: RunTermination = "stopped",
     error?: string,
   ): Promise<void> {
     this.dependencies.clock.clearTimeout(this.idle);
     this.idle = undefined;
+
     const pi = this.pi;
     const conversationId = this.piConversationId ?? "terminal";
     const recorder = this.piRun,
       historyView = this.piHistoryView,
       resources = this.piResources;
+
     this.pi = undefined;
     this.piSelection = undefined;
     this.piSessionGeneration = undefined;
@@ -1508,11 +1633,13 @@ export class Runner {
     this.piResources = undefined;
     this.piMcpCatalogs = new Map();
     this.piTurnCount = 0;
+
     if (pi) {
       await this.finalizeRun(recorder, {
         termination,
         ...(error ? { error } : {}),
       });
+
       await this.mcpSidecars.stop(pi.spec.sessionId);
       await this.revoke(pi.spec.sessionToken);
       if (resources)
@@ -1521,6 +1648,7 @@ export class Runner {
           .catch(() => undefined);
       await pi.stop();
       await this.removeHistoryView(historyView);
+
       await this.dependencies
         .internalFetch(
           this.paths,
@@ -1539,9 +1667,11 @@ export class Runner {
         .catch(() => undefined);
     }
   }
+
   async stop(): Promise<void> {
     this.stopped = true;
     this.dependencies.clock.clearTimeout(this.polling);
+
     const messageId = this.currentMessageId;
     this.currentMessageId = undefined;
     if (messageId)
@@ -1557,6 +1687,7 @@ export class Runner {
           },
         )
         .catch(() => undefined);
+
     const task = this.currentTask;
     this.currentTask = undefined;
     if (task)
@@ -1576,6 +1707,7 @@ export class Runner {
           },
         )
         .catch(() => undefined);
+
     const taskRuntime = this.activeTaskRuntime;
     this.activeTaskRuntime = undefined;
     if (taskRuntime) {
@@ -1583,6 +1715,7 @@ export class Runner {
         termination: "stopped",
         error: "runner stopped",
       });
+
       await this.mcpSidecars.stop(taskRuntime.spec.sessionId);
       await this.revoke(taskRuntime.spec.sessionToken);
       if (this.taskResources)
@@ -1599,7 +1732,9 @@ export class Runner {
       this.taskHistoryView = undefined;
       this.taskResources = undefined;
     }
+
     await this.destroyPi("stopped");
+
     const server = this.server;
     if (server) await this.dependencies.close(server);
   }
@@ -1675,6 +1810,7 @@ export function selectModel(
   const active = connections.filter(
     (c) => c.kind === "model" && "state" in c && c.state === "active",
   );
+
   const selected = active.find(
     (connection) =>
       connection.name === selection.connection &&
@@ -1684,8 +1820,10 @@ export function selectModel(
     throw new IntegralError(
       `selected model connection ${selection.connection} is absent, disabled, or no longer matches provider ${selection.provider}`,
     );
+
   return selected;
 }
+
 export function renderContext(events: ConversationEvent[]): string {
   return `Continue this durable conversation. Prior messages:\n${events
     .filter((e) => e.text)

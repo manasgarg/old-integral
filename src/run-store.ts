@@ -136,6 +136,7 @@ export class RunStore {
     await ensureDir(this.paths.runs);
     await removeTree(this.paths.runViews);
     await ensureDir(this.paths.runViews);
+
     for (const entry of await readdir(this.paths.runs, {
       withFileTypes: true,
     })) {
@@ -143,6 +144,7 @@ export class RunStore {
       const directory = join(this.paths.runs, entry.name),
         metadata = await readMetadata(directory);
       if (!metadata || metadata.status !== "running") continue;
+
       const events = await readEvents(directory),
         recorder = new RunRecorder(
           directory,
@@ -153,6 +155,7 @@ export class RunStore {
           events,
           () => this.refreshIndex(),
         );
+
       await recorder.event("host", "interrupted", {
         error: "runner restarted before the run was finalized",
       });
@@ -161,11 +164,13 @@ export class RunStore {
         error: "runner restarted before the run was finalized",
       });
     }
+
     await this.refreshIndex();
   }
 
   async begin(options: BeginRunOptions): Promise<RunRecorder> {
     await ensureDir(this.paths.runs);
+
     const started = this.now(),
       runId = `${new Date(started).toISOString().replace(/[:.]/g, "-")}-${this.newId().slice(0, 8)}`,
       directory = join(this.paths.runs, runId),
@@ -202,6 +207,7 @@ export class RunStore {
           ? { retryNumber: options.retryNumber }
           : {}),
       };
+
     try {
       await mkdir(directory, { mode: 0o700 });
     } catch (error) {
@@ -209,12 +215,14 @@ export class RunStore {
         throw new Error(`run ID collision: ${runId}`, { cause: error });
       throw error;
     }
+
     await atomicWrite(join(directory, "run.json"), json(metadata));
     await atomicWrite(join(directory, "activity.jsonl"), "");
     await atomicWrite(
       join(directory, "signals.json"),
       json(summarize(metadata, [])),
     );
+
     const recorder = new RunRecorder(
       directory,
       metadata,
@@ -224,6 +232,7 @@ export class RunStore {
       [],
       () => this.refreshIndex(),
     );
+
     await this.refreshIndex();
     return recorder;
   }
@@ -244,6 +253,7 @@ export class RunStore {
   async finalizedForExecution(executionId: string): Promise<RunMetadata[]> {
     await ensureDir(this.paths.runs);
     const result: RunMetadata[] = [];
+
     for (const entry of await readdir(this.paths.runs, {
       withFileTypes: true,
     })) {
@@ -255,6 +265,7 @@ export class RunStore {
       )
         result.push(metadata);
     }
+
     return result.sort(
       (left, right) => (left.attemptNumber ?? 0) - (right.attemptNumber ?? 0),
     );
@@ -263,6 +274,7 @@ export class RunStore {
   async latestFinalized(kind: RunKind): Promise<RunMetadata | undefined> {
     await ensureDir(this.paths.runs);
     const result: RunMetadata[] = [];
+
     for (const entry of await readdir(this.paths.runs, {
       withFileTypes: true,
     })) {
@@ -271,6 +283,7 @@ export class RunStore {
       if (metadata?.status === "finalized" && metadata.kind === kind)
         result.push(metadata);
     }
+
     return result.sort(
       (left, right) =>
         Date.parse(right.startedAt) - Date.parse(left.startedAt) ||
@@ -282,6 +295,7 @@ export class RunStore {
     return this.indexOperations.run(async () => {
       await ensureDir(this.paths.runs);
       const records: RunMetadata[] = [];
+
       for (const entry of await readdir(this.paths.runs, {
         withFileTypes: true,
       })) {
@@ -289,11 +303,13 @@ export class RunStore {
         const metadata = await readMetadata(join(this.paths.runs, entry.name));
         if (metadata) records.push(metadata);
       }
+
       records.sort(
         (left, right) =>
           Date.parse(left.startedAt) - Date.parse(right.startedAt) ||
           left.runId.localeCompare(right.runId),
       );
+
       await atomicWrite(
         join(this.paths.runs, "index.json"),
         json({ schemaVersion: 1, runs: records }),
@@ -339,6 +355,7 @@ export class RunRecorder {
     data: unknown,
   ): Promise<void> {
     if (this.finalized) return Promise.resolve();
+
     const event: RunEvent = {
       schemaVersion: 1,
       eventId: this.newId(),
@@ -348,6 +365,7 @@ export class RunRecorder {
       type,
       data: redact(data, this.secrets),
     };
+
     return this.enqueue(async () => {
       await appendFile(join(this.directory, "activity.jsonl"), json(event), {
         mode: 0o600,
@@ -392,21 +410,25 @@ export class RunRecorder {
   protocol(event: PiProtocolEvent): void {
     const type = typeof event.type === "string" ? event.type : "unknown",
       usage = type === "message_end" ? usageSamples(event) : [];
+
     if (isToolEvent(type)) {
       const eventType = toolEventType(type),
         identity = toolIdentity(event);
       if (eventType === "tool-start" && identity)
         this.toolStarts.set(identity, this.now());
+
       const started = identity ? this.toolStarts.get(identity) : undefined,
         data =
           eventType === "tool-result" && started !== undefined
             ? { ...event, elapsedMs: Math.max(0, this.now() - started) }
             : event;
+
       if (eventType === "tool-result" && identity)
         this.toolStarts.delete(identity);
       this.background(this.event("pi", eventType, data));
     } else if (isFailureEvent(event))
       this.background(this.event("pi", "protocol-failure", event));
+
     if (type === "message_update") {
       const update = event.assistantMessageEvent;
       if (
@@ -418,6 +440,7 @@ export class RunRecorder {
           this.event("pi", "output-delta", { text: update.delta }),
         );
     }
+
     for (const sample of usage)
       this.background(
         this.event("provider", "usage", {
@@ -454,12 +477,14 @@ export class RunRecorder {
   async finalize(options: FinalizeRunOptions): Promise<void> {
     if (this.finalized) return;
     this.finalized = true;
+
     try {
       await this.chain;
       if (this.writeError)
         throw this.writeError instanceof Error
           ? this.writeError
           : new Error("run event write failed", { cause: this.writeError });
+
       const finished = this.now();
       this.metadata = {
         ...this.metadata,
@@ -479,6 +504,7 @@ export class RunRecorder {
             }
           : {}),
       };
+
       const signals = summarize(this.metadata, this.events);
       await atomicWrite(join(this.directory, "signals.json"), json(signals));
       await atomicWrite(join(this.directory, "run.json"), json(this.metadata));
@@ -517,6 +543,7 @@ async function readMetadata(
 ): Promise<RunMetadata | undefined> {
   const raw = await readText(join(directory, "run.json"));
   if (!raw) return undefined;
+
   try {
     const value = JSON.parse(raw) as Partial<RunMetadata>;
     if (
@@ -526,6 +553,7 @@ async function readMetadata(
       (value.kind !== "interactive" && value.kind !== "scheduled")
     )
       return undefined;
+
     return value as RunMetadata;
   } catch {
     return undefined;
@@ -547,19 +575,23 @@ function summarize(metadata: RunMetadata, events: RunEvent[]): LearningSignals {
     totals: NormalizedUsage = {},
     costs = new Map<string, number>();
   let requestCount = 0;
+
   for (const event of events) {
     addReference(counts, references, event.type, event.eventId);
     for (const category of learningCategories(event))
       if (category !== event.type)
         addReference(counts, references, category, event.eventId);
+
     if (event.type !== "usage" || !isObject(event.data)) continue;
     const normalized = event.data.normalized;
     if (!isObject(normalized)) continue;
     requestCount++;
+
     for (const key of usageKeys) {
       const value = normalized[key];
       if (typeof value === "number") totals[key] = (totals[key] ?? 0) + value;
     }
+
     const cost = normalized.cost;
     if (
       isObject(cost) &&
@@ -568,6 +600,7 @@ function summarize(metadata: RunMetadata, events: RunEvent[]): LearningSignals {
     )
       costs.set(cost.currency, (costs.get(cost.currency) ?? 0) + cost.amount);
   }
+
   const cacheDenominator =
       (totals.inputTokens ?? 0) + (totals.cacheReadTokens ?? 0),
     usage = {
@@ -582,6 +615,7 @@ function summarize(metadata: RunMetadata, events: RunEvent[]): LearningSignals {
         ...(costs.size === 0 ? (["cost"] as const) : []),
       ],
     };
+
   return {
     schemaVersion: 1,
     runId: metadata.runId,
@@ -609,8 +643,10 @@ function addReference(
 function learningCategories(event: RunEvent): string[] {
   const result: string[] = [],
     serialized = JSON.stringify(event.data).toLowerCase();
+
   if (event.type === "tool-result" && observableFailure(event.data)) {
     result.push("tool-failure");
+
     const tool = toolName(event.data)?.toLowerCase() ?? "";
     if (/exec|command|shell|bash|terminal/.test(tool))
       result.push("command-failure");
@@ -622,6 +658,7 @@ function learningCategories(event: RunEvent): string[] {
     )
       result.push("validation-failure");
   }
+
   if (/denied|refused|forbidden|policy rejected/.test(serialized))
     result.push("denied-operation");
   if (/timed?[- ]?out|timeout/.test(serialized)) result.push("timeout");
@@ -633,6 +670,7 @@ function learningCategories(event: RunEvent): string[] {
     /task-outcome-reminder|steering/.test(serialized)
   )
     result.push("steering");
+
   return [...new Set(result)];
 }
 
@@ -660,6 +698,7 @@ function observableFailure(value: unknown): boolean {
     )
       failed = true;
   });
+
   return failed;
 }
 
@@ -696,6 +735,7 @@ function collectUsage(value: unknown, samples: UsageSample[]): void {
     for (const item of value) collectUsage(item, samples);
     return;
   }
+
   if (!isObject(value)) return;
   for (const [key, candidate] of Object.entries(value)) {
     if (/usage/i.test(key) && isObject(candidate)) {
@@ -704,6 +744,7 @@ function collectUsage(value: unknown, samples: UsageSample[]): void {
         samples.push({ normalized, provider: structuredClone(candidate) });
       continue;
     }
+
     collectUsage(candidate, samples);
   }
 }
@@ -711,6 +752,7 @@ function collectUsage(value: unknown, samples: UsageSample[]): void {
 function normalizeUsage(usage: Record<string, unknown>): NormalizedUsage {
   const flattened = flatten(usage),
     result: NormalizedUsage = {};
+
   assignNumber(result, "inputTokens", flattened, [
     "input",
     "inputtokens",
@@ -750,6 +792,7 @@ function normalizeUsage(usage: Record<string, unknown>): NormalizedUsage {
     "totaltokens",
     "total_tokens",
   ]);
+
   const costSource = isObject(usage.cost) ? flatten(usage.cost) : flattened,
     amount = firstNumber(costSource, [
       "cost",
@@ -762,6 +805,7 @@ function normalizeUsage(usage: Record<string, unknown>): NormalizedUsage {
       firstString(costSource, ["currency", "costcurrency"]) ??
       firstString(flattened, ["currency", "costcurrency"]);
   if (amount !== undefined && currency) result.cost = { amount, currency };
+
   return result;
 }
 
@@ -814,6 +858,7 @@ function visit(
     for (const item of value) visit(item, callback);
     return;
   }
+
   if (!isObject(value)) return;
   for (const [key, candidate] of Object.entries(value)) {
     callback(key, candidate);

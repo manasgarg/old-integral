@@ -22,6 +22,7 @@ export interface OAuthUi {
     options: { id: string; label: string }[],
   ): Promise<string | undefined>;
 }
+
 interface TokenResponse {
   access_token?: string;
   refresh_token?: string;
@@ -29,6 +30,7 @@ interface TokenResponse {
   error?: string;
   error_description?: string;
 }
+
 export interface StoredOAuth {
   type: "oauth";
   access: string;
@@ -39,11 +41,13 @@ export interface StoredOAuth {
   issuer?: string;
   resource?: string;
 }
+
 export interface OAuthCallback {
   redirect: string;
   code: Promise<string>;
   close(): Promise<void>;
 }
+
 export type OAuthCallbackFactory = (
   state: string,
   expectedIssuer?: string,
@@ -102,6 +106,7 @@ export async function runModelOAuth(
   } finally {
     manualAbort.abort();
   }
+
   const checked = credential as
     | { type?: unknown; access?: unknown; refresh?: unknown; expires?: unknown }
     | undefined;
@@ -114,6 +119,7 @@ export async function runModelOAuth(
     throw new IntegralError(
       `${provider} OAuth did not return a usable credential`,
     );
+
   return JSON.stringify(checked);
 }
 
@@ -169,6 +175,7 @@ export async function runGenericOAuth(
     throw new IntegralError(
       "generic OAuth requires oauth or device-code authentication",
     );
+
   return JSON.stringify(
     await authorizationCode(connection, ui, request, callbackFactory),
   );
@@ -187,6 +194,7 @@ async function deviceCode(
     },
     request,
   );
+
   const device = (await start.json()) as {
     device_code?: string;
     user_code?: string;
@@ -196,6 +204,7 @@ async function deviceCode(
     expires_in?: number;
     error?: string;
   };
+
   if (
     !start.ok ||
     !device.device_code ||
@@ -205,11 +214,14 @@ async function deviceCode(
     throw new IntegralError(
       `device authorization failed: ${device.error ?? start.status}`,
     );
+
   ui.show(
     `Open ${device.verification_uri_complete ?? device.verification_uri} and enter code ${device.user_code}`,
   );
+
   const deadline = Date.now() + (device.expires_in ?? 600) * 1000;
   let interval = (device.interval ?? 5) * 1000;
+
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, interval));
     const response = await postForm(
@@ -222,16 +234,19 @@ async function deviceCode(
       request,
     );
     const token = (await response.json()) as TokenResponse;
+
     if (response.ok && token.access_token) return stored(token);
     if (token.error === "authorization_pending") continue;
     if (token.error === "slow_down") {
       interval += 5000;
       continue;
     }
+
     throw new IntegralError(
       `device authorization failed: ${token.error_description ?? token.error ?? response.status}`,
     );
   }
+
   throw new IntegralError("device authorization timed out");
 }
 
@@ -244,8 +259,10 @@ async function authorizationCode(
   const verifier = randomBytes(48).toString("base64url"),
     challenge = createHash("sha256").update(verifier).digest("base64url"),
     state = randomBytes(24).toString("base64url");
+
   const callback = await callbackFactory(state, connection.oauthIssuer);
   const redirect = callback.redirect;
+
   let clientId = connection.clientId,
     clientSecret: string | undefined;
   if (!clientId && connection.registrationUrl) {
@@ -269,15 +286,19 @@ async function authorizationCode(
         client_secret?: string;
         error?: string;
       };
+
     if (!registration.ok || !registered.client_id)
       throw new IntegralError(
         `OAuth client registration failed: ${registered.error ?? registration.status}`,
       );
+
     clientId = registered.client_id;
     clientSecret = registered.client_secret;
   }
+
   if (!clientId)
     throw new IntegralError("OAuth authorization requires a client ID");
+
   const authorization = new URL(connection.authorizationUrl!);
   authorization.searchParams.set("response_type", "code");
   authorization.searchParams.set("client_id", clientId);
@@ -293,7 +314,9 @@ async function authorizationCode(
     authorization.searchParams.set("access_type", "offline");
     authorization.searchParams.set("prompt", "consent");
   }
+
   ui.show(`Open this URL to authorize ${connection.name}:\n${authorization}`);
+
   const manualAbort = new AbortController();
   const never = () => new Promise<never>(() => undefined);
   const manualCode = ui
@@ -310,6 +333,7 @@ async function authorizationCode(
       if (manualAbort.signal.aborted) return never();
       throw error;
     });
+
   let timeout: NodeJS.Timeout | undefined;
   try {
     const authCode = await Promise.race([
@@ -323,6 +347,7 @@ async function authorizationCode(
           )),
       ),
     ]);
+
     const tokenValues: Record<string, string> = {
       grant_type: "authorization_code",
       code: authCode,
@@ -333,12 +358,14 @@ async function authorizationCode(
     if (clientSecret) tokenValues.client_secret = clientSecret;
     if (connection.oauthResource)
       tokenValues.resource = connection.oauthResource;
+
     const response = await postForm(connection.tokenUrl!, tokenValues, request);
     const token = (await response.json()) as TokenResponse;
     if (!response.ok || !token.access_token)
       throw new IntegralError(
         `OAuth token exchange failed: ${token.error_description ?? token.error ?? response.status}`,
       );
+
     return stored(token, {
       clientId,
       ...(clientSecret ? { clientSecret } : {}),
@@ -363,16 +390,20 @@ async function startLocalOAuthCallback(
     resolveCode = resolve;
     rejectCode = reject;
   });
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://callback");
+
     if (url.searchParams.get("state") !== state) {
       res.writeHead(400).end("Invalid OAuth state");
       return;
     }
+
     if (expectedIssuer && url.searchParams.get("iss") !== expectedIssuer) {
       res.writeHead(400).end("Invalid OAuth issuer");
       return;
     }
+
     const value = url.searchParams.get("code");
     if (!value) {
       const error = new IntegralError(
@@ -382,13 +413,16 @@ async function startLocalOAuthCallback(
       res.writeHead(400).end(error.message);
       return;
     }
+
     resolveCode(value);
     res.end("integral connection authorized; return to the terminal.\n");
   });
+
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
   });
+
   const port = (server.address() as { port: number }).port;
   return {
     redirect: `http://127.0.0.1:${port}/callback`,
@@ -404,6 +438,7 @@ export function authorizationCodeFromInput(
 ): string {
   const value = input.trim();
   if (!value) throw new IntegralError("missing OAuth authorization code");
+
   if (/^https?:\/\//i.test(value)) {
     let redirect: URL;
     try {
@@ -411,16 +446,20 @@ export function authorizationCodeFromInput(
     } catch {
       throw new IntegralError("invalid OAuth redirect URL");
     }
+
     const state = redirect.searchParams.get("state");
     if (state && state !== expectedState)
       throw new IntegralError("OAuth state mismatch");
+
     const issuer = redirect.searchParams.get("iss");
     if (expectedIssuer && issuer !== expectedIssuer)
       throw new IntegralError("OAuth issuer mismatch");
+
     const code = redirect.searchParams.get("code");
     if (!code) throw new IntegralError("OAuth redirect URL is missing code");
     return code;
   }
+
   return value;
 }
 
@@ -434,9 +473,11 @@ function stored(
     expires: Date.now() + (token.expires_in ?? 3600) * 1000,
     ...metadata,
   };
+
   if (token.refresh_token) result.refresh = token.refresh_token;
   return result;
 }
+
 function postForm(
   url: string,
   values: Record<string, string>,
@@ -474,11 +515,14 @@ export async function refreshOAuth(
     throw new IntegralError(
       `connection ${connection.name} has an invalid OAuth credential`,
     );
+
   if (parsed.expires > Date.now() + 60_000)
     return { access: parsed.access, serialized: raw };
+
   if (connection.kind === "model") {
     const runtime = await ensurePiRuntime(paths);
     const module = await loadPiRuntimeModule(runtime);
+
     let access: string | undefined, current: unknown;
     if (module.ModelRuntime) {
       const store = memoryCredentialStore(connection.provider!, parsed),
@@ -499,14 +543,17 @@ export async function refreshOAuth(
       });
       current = storage.get(connection.provider!);
     }
+
     if (!access || !current)
       throw new IntegralError(`OAuth refresh failed for ${connection.name}`);
     return { access, serialized: JSON.stringify(current) };
   }
+
   if (!parsed.refresh)
     throw new IntegralError(
       `OAuth credential expired for ${connection.name}; rotate or reconfigure it`,
     );
+
   const response = await postForm(
     connection.tokenUrl!,
     {
@@ -520,11 +567,13 @@ export async function refreshOAuth(
     },
     request,
   );
+
   const token = (await response.json()) as TokenResponse;
   if (!response.ok || !token.access_token)
     throw new IntegralError(
       `OAuth refresh failed for ${connection.name}: ${token.error_description ?? token.error ?? response.status}`,
     );
+
   if (!token.refresh_token) token.refresh_token = parsed.refresh;
   const next = stored(token, {
     ...(parsed.clientId ? { clientId: parsed.clientId } : {}),
@@ -532,6 +581,7 @@ export async function refreshOAuth(
     ...(parsed.issuer ? { issuer: parsed.issuer } : {}),
     ...(parsed.resource ? { resource: parsed.resource } : {}),
   });
+
   return { access: next.access, serialized: JSON.stringify(next) };
 }
 
@@ -546,6 +596,7 @@ function memoryCredentialStore(
   let credential: PiCredential | undefined = initial
     ? { ...initial }
     : undefined;
+
   return {
     async read(requested) {
       return requested === provider && credential

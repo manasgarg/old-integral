@@ -12,16 +12,19 @@ const certificateWork = new Map<
   string,
   Promise<{ key: string; cert: string }>
 >();
+
 export interface CaFiles {
   key: string;
   cert: string;
   bundle: string;
 }
+
 export async function ensureCa(paths: IntegralPaths): Promise<CaFiles> {
   await ensureDir(paths.ca);
   const key = join(paths.ca, "integral-ca.key"),
     cert = join(paths.ca, "integral-ca.pem"),
     bundle = join(paths.ca, "ca-bundle.pem");
+
   try {
     await access(key);
     await access(cert);
@@ -43,6 +46,7 @@ export async function ensureCa(paths: IntegralPaths): Promise<CaFiles> {
       cert,
     ]);
   }
+
   const integral = await readFile(cert);
   let system = Buffer.alloc(0);
   try {
@@ -50,10 +54,12 @@ export async function ensureCa(paths: IntegralPaths): Promise<CaFiles> {
   } catch {
     /* platform without this bundle */
   }
+
   await atomicWrite(
     bundle,
     Buffer.concat([system, Buffer.from("\n"), integral]),
   );
+
   return { key, cert, bundle };
 }
 
@@ -67,6 +73,7 @@ export async function certificateFor(
   const workId = `${paths.ca}:${id}`;
   const active = certificateWork.get(workId);
   if (active) return active;
+
   const work = ensureHostCertificate(
     paths,
     host,
@@ -93,12 +100,14 @@ async function ensureHostCertificate(
   await ensureDir(dir);
   const key = join(dir, `${id}.key`),
     cert = join(dir, `${id}.pem`);
+
   let hasKey = true;
   try {
     await access(key);
   } catch {
     hasKey = false;
   }
+
   if (hasKey) {
     try {
       const parsed = new X509Certificate(await readFile(cert)),
@@ -113,17 +122,20 @@ async function ensureHostCertificate(
       /* replace a missing or invalid cached certificate */
     }
   }
+
   const suffix = randomUUID(),
     temporaryKey = join(dir, `.${id}.${suffix}.key`),
     csr = join(dir, `.${id}.${suffix}.csr`),
     temporaryCert = join(dir, `.${id}.${suffix}.pem`),
     ext = join(dir, `.${id}.${suffix}.ext`);
   const san = /^[\d.:]+$/.test(host) ? `IP:${host}` : `DNS:${host}`;
+
   try {
     await atomicWrite(
       ext,
       `subjectAltName=${san}\nextendedKeyUsage=serverAuth\n`,
     );
+
     await exec(
       "openssl",
       hasKey
@@ -142,6 +154,7 @@ async function ensureHostCertificate(
             csr,
           ],
     );
+
     await exec("openssl", [
       "x509",
       "-req",
@@ -160,6 +173,7 @@ async function ensureHostCertificate(
       "-out",
       temporaryCert,
     ]);
+
     if (!hasKey) await rename(temporaryKey, key);
     await rename(temporaryCert, cert);
     return { key, cert };

@@ -4,22 +4,26 @@ import { IntegralError } from "./errors.ts";
 
 export const SENTINEL = "integral-managed-credential";
 export const WEB_CONNECTION_NAME = "integral-web";
+
 const webConnection: Connection = {
   name: WEB_CONNECTION_NAME,
   kind: "http",
   auth: "none",
   methods: ["GET"],
 };
+
 export const OAUTH_SENTINEL = `e30.${Buffer.from(
   JSON.stringify({
     "https://api.openai.com/auth": { chatgpt_account_id: SENTINEL },
   }),
 ).toString("base64url")}.${SENTINEL}`;
+
 export interface CredentialedConnection {
   connection: Connection;
   credential: string | undefined;
   injectedHeaders?: Record<string, string>;
 }
+
 export interface GatewayDecision {
   connection: Connection;
   url: URL;
@@ -29,6 +33,7 @@ export interface GatewayDecision {
 function normalizePort(url: URL): number {
   return Number(url.port || (url.protocol === "https:" ? 443 : 80));
 }
+
 function prefixMatches(path: string, prefix: string): boolean {
   if (prefix === "/") return true;
   const normalized = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
@@ -56,6 +61,7 @@ export function decideRequest(
       );
     }),
   );
+
   const webFallback =
     !match &&
     method.toUpperCase() === "GET" &&
@@ -63,6 +69,7 @@ export function decideRequest(
       (target.protocol === "https:" && normalizePort(target) === 443));
   if (!match && !webFallback)
     throw new IntegralError("policy denied the requested destination", 403);
+
   const clean: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (
@@ -71,12 +78,14 @@ export function decideRequest(
     )
       clean[key] = value;
   }
+
   if (match && match.connection.auth !== "none") {
     if (!match.credential)
       throw new IntegralError(
         `connection ${match.connection.name} has no usable credential; rotate or reconfigure it`,
         403,
       );
+
     const header = (match.connection.header ?? "Authorization").toLowerCase();
     const incoming = clean[header];
     if (
@@ -87,6 +96,7 @@ export function decideRequest(
     for (const [name, value] of Object.entries(clean))
       if (name !== header && String(value).toLowerCase().includes(SENTINEL))
         delete clean[name];
+
     clean[header] =
       match.connection.provider === "github"
         ? target.hostname.toLowerCase() === "github.com"
@@ -96,6 +106,7 @@ export function decideRequest(
     for (const [name, value] of Object.entries(match.injectedHeaders ?? {}))
       clean[name.toLowerCase()] = value;
   }
+
   return {
     connection: match?.connection ?? webConnection,
     url: target,

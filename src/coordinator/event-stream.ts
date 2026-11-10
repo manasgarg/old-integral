@@ -34,19 +34,23 @@ export class ClientEventStream {
   ): void {
     const attachmentId = randomUUID();
     this.attachments.add(attachmentId);
+
     response.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
       "x-integral-attachment-id": attachmentId,
     });
+
     this.broadcast("chat.attached", { attached: this.attached });
     response.write(`event: snapshot\ndata: ${JSON.stringify(snapshot())}\n\n`);
+
     const listener = (event: ClientEvent) =>
       response.write(
         `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
       );
     this.events.on("event", listener);
+
     request.once("close", () => {
       this.events.off("event", listener);
       this.attachments.delete(attachmentId);

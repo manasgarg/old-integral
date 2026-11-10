@@ -17,8 +17,10 @@ export async function componentEndpoint(
     throw new IntegralError(
       `${component} is not running; run integral server start`,
     );
+
   return state.endpoint;
 }
+
 export async function internalFetch(
   paths: IntegralPaths,
   caller: Component,
@@ -28,6 +30,7 @@ export async function internalFetch(
 ): Promise<Response> {
   const endpoint = await componentEndpoint(paths, target),
     token = await componentIdentity(paths);
+
   return fetch(new URL(path, endpoint), {
     ...init,
     headers: {
@@ -37,6 +40,7 @@ export async function internalFetch(
     },
   });
 }
+
 export async function verifiedFetch(
   paths: IntegralPaths,
   component: Component,
@@ -49,6 +53,7 @@ export async function verifiedFetch(
   );
   if (!response.ok)
     throw new IntegralError(`${component} request failed: ${response.status}`);
+
   const deployment = response.headers.get("content-type")?.includes("json")
     ? ((await response.clone().json()) as { deploymentId?: string })
         .deploymentId
@@ -57,5 +62,6 @@ export async function verifiedFetch(
     throw new IntegralError(
       `endpoint does not belong to expected ${component} deployment`,
     );
+
   return response;
 }

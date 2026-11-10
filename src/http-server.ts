@@ -17,6 +17,7 @@ export async function readRequestBody(
     Number(declared) > maxBytes
   )
     throw new IntegralError("request body is too large", 413);
+
   const chunks: Uint8Array[] = [];
   let bytes = 0;
   for await (const chunk of request) {
@@ -26,6 +27,7 @@ export async function readRequestBody(
       throw new IntegralError("request body is too large", 413);
     chunks.push(part);
   }
+
   return Buffer.concat(chunks);
 }
 

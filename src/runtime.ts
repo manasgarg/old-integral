@@ -17,6 +17,7 @@ export const nodeHttpServerRuntime: HttpServerRuntime = {
       server.listen(port, address, resolve);
     });
   },
+
   async close(server) {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

@@ -40,6 +40,7 @@ function validateTrigger(trigger: ScheduleTrigger, now: number): void {
     nextCronInstant(trigger.cron, trigger.timezone, now);
     return;
   }
+
   const instant = Date.parse(trigger.runAt);
   if (!Number.isFinite(instant) || instant <= now)
     throw new IntegralError("one-time schedule runAt must be a future instant");
@@ -101,12 +102,14 @@ export class ScheduleStore {
 
   async load(): Promise<void> {
     await ensureDir(this.paths.schedules);
+
     let initialized = true;
     try {
       await stat(join(this.paths.schedules, ".git"));
     } catch {
       initialized = false;
     }
+
     if (!initialized) {
       await this.git.run(this.paths.schedules, ["init", "--quiet", "."]);
       await this.git.run(this.paths.schedules, [
@@ -120,6 +123,7 @@ export class ScheduleStore {
         "scheduler@integral.invalid",
       ]);
     } else await this.recoverWorkingTree();
+
     this.definitions.clear();
     for (const name of await readdir(this.paths.schedules)) {
       if (!name.endsWith(".json")) continue;
@@ -136,6 +140,7 @@ export class ScheduleStore {
       "--porcelain",
     ]);
     if (!dirty.trim()) return;
+
     let hasHead = true;
     try {
       await this.git.run(this.paths.schedules, [
@@ -146,6 +151,7 @@ export class ScheduleStore {
     } catch {
       hasHead = false;
     }
+
     if (hasHead) {
       await this.git.run(this.paths.schedules, [
         "restore",
@@ -156,6 +162,7 @@ export class ScheduleStore {
       ]);
       return;
     }
+
     for (const name of await readdir(this.paths.schedules))
       if (name.endsWith(".json"))
         await rm(join(this.paths.schedules, name), { force: true });
@@ -184,6 +191,7 @@ export class ScheduleStore {
       validatePrompt(input.prompt);
       validateProfile(input.profile);
       validateTrigger(input.trigger, this.now());
+
       const timestamp = new Date(this.now()).toISOString(),
         definition: ScheduleDefinition = {
           id: this.newId(),
@@ -197,6 +205,7 @@ export class ScheduleStore {
           updatedAt: timestamp,
           ...(input.origin ? { origin: structuredClone(input.origin) } : {}),
         };
+
       await this.commit(definition, "create", actor);
       return structuredClone(definition);
     });
@@ -210,11 +219,13 @@ export class ScheduleStore {
     return this.operations.run(async () => {
       const current = this.current(id, input.expectedRevision);
       validateActor(actor);
+
       const trigger = input.trigger ?? current.trigger,
         prompt = input.prompt ?? current.prompt;
       validatePrompt(prompt);
       validateProfile(input.profile ?? current.profile);
       validateTrigger(trigger, this.now());
+
       const next: ScheduleDefinition = {
         ...current,
         revision: current.revision + 1,
@@ -223,6 +234,7 @@ export class ScheduleStore {
         profile: structuredClone(input.profile ?? current.profile),
         updatedAt: new Date(this.now()).toISOString(),
       };
+
       await this.commit(next, "update", actor);
       return structuredClone(next);
     });
@@ -237,12 +249,14 @@ export class ScheduleStore {
     return this.operations.run(async () => {
       const current = this.current(id, expectedRevision);
       validateActor(actor);
+
       const next = {
         ...current,
         revision: current.revision + 1,
         enabled,
         updatedAt: new Date(this.now()).toISOString(),
       };
+
       await this.commit(next, enabled ? "enable" : "disable", actor);
       return structuredClone(next);
     });
@@ -256,6 +270,7 @@ export class ScheduleStore {
     return this.operations.run(async () => {
       const current = this.current(id, expectedRevision);
       validateActor(actor);
+
       const next = {
         ...current,
         revision: current.revision + 1,
@@ -263,6 +278,7 @@ export class ScheduleStore {
         deleted: true,
         updatedAt: new Date(this.now()).toISOString(),
       };
+
       await this.commit(next, "delete", actor);
       return structuredClone(next);
     });
@@ -279,6 +295,7 @@ export class ScheduleStore {
       validateActor(actor);
       if (!/^[0-9a-f]{7,64}$/i.test(commit))
         throw new IntegralError("invalid schedule history commit");
+
       let raw: string;
       try {
         raw = await this.git.run(this.paths.schedules, [
@@ -288,6 +305,7 @@ export class ScheduleStore {
       } catch {
         throw new IntegralError(`schedule revision not found: ${commit}`, 404);
       }
+
       const restored = parseDefinition(raw, `${commit}:${id}`),
         next: ScheduleDefinition = {
           ...restored,
@@ -296,6 +314,7 @@ export class ScheduleStore {
           deleted: false,
           updatedAt: new Date(this.now()).toISOString(),
         };
+
       validatePrompt(next.prompt);
       validateTrigger(next.trigger, this.now());
       await this.commit(next, "restore", actor);
@@ -305,12 +324,14 @@ export class ScheduleStore {
 
   async history(id: string): Promise<ScheduleHistoryEntry[]> {
     this.get(id, true);
+
     const output = await this.git.run(this.paths.schedules, [
       "log",
       "--format=%H%x09%cI%x09%s",
       "--",
       this.filename(id),
     ]);
+
     return output
       .trim()
       .split("\n")
@@ -321,6 +342,7 @@ export class ScheduleStore {
             ScheduleHistoryEntry,
             "commit" | "committedAt"
           >;
+
         return { commit: commit!, committedAt: committedAt!, ...metadata };
       })
       .reverse();
@@ -360,6 +382,7 @@ export class ScheduleStore {
         actor,
         timestamp: definition.updatedAt,
       };
+
     await atomicWrite(file, `${JSON.stringify(definition, null, 2)}\n`);
     try {
       await this.git.run(this.paths.schedules, ["add", "--", basename(file)]);
@@ -378,6 +401,7 @@ export class ScheduleStore {
         .catch(() => undefined);
       throw error;
     }
+
     this.definitions.set(definition.id, structuredClone(definition));
   }
 }

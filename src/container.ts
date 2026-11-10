@@ -54,6 +54,7 @@ export interface PiRuntime {
   steer?(text: string): Promise<void>;
   stop(): Promise<void>;
 }
+
 export interface TaskRuntime extends PiRuntime {
   finish(): Promise<number>;
 }
@@ -103,6 +104,7 @@ export interface McpSidecarSpec {
   caBundle: string;
   secretValues: Record<string, string>;
 }
+
 const managed = new Set([
   "HOME",
   "PATH",
@@ -122,6 +124,7 @@ const managed = new Set([
   "NODE_USE_ENV_PROXY",
   "GH_TOKEN",
 ]);
+
 export function isManagedContainerVariable(name: string): boolean {
   return managed.has(name) || name.startsWith("INTEGRAL_");
 }
@@ -147,6 +150,7 @@ export function buildContainerSpec(options: {
   proxy.username = "integral";
   proxy.password = options.sessionToken;
   const proxyUrl = proxy.toString();
+
   const caPath = "/integral-ca/integral-ca.pem",
     bundlePath = "/integral-ca/ca-bundle.pem";
   const environment: Record<string, string> = {
@@ -168,16 +172,19 @@ export function buildContainerSpec(options: {
     PI_CODING_AGENT_DIR: "/home/pi/.pi/agent",
     NODE_USE_ENV_PROXY: "1",
   };
+
   const provider = options.model.provider!;
   // Pi sees only a sentinel. The gateway swaps it for the host credential inside the allowed boundary.
   if (options.model.auth !== "oauth" && options.model.auth !== "device-code")
     environment[
       provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"
     ] = SENTINEL;
+
   if (
     options.connections?.some((connection) => connection.provider === "github")
   )
     environment.GH_TOKEN = SENTINEL;
+
   const args = [
     "--mode",
     "rpc",
@@ -191,6 +198,7 @@ export function buildContainerSpec(options: {
     args.push("--api-key", SENTINEL);
   args.push("--model", options.selectedModel);
   args.push("--extension", "/home/pi/.integral/extensions/integral-web.mjs");
+
   const mounts = [
     { source: options.caCert, target: caPath, readonly: true },
     { source: options.caBundle, target: bundlePath, readonly: true },
@@ -201,6 +209,7 @@ export function buildContainerSpec(options: {
       readonly: true,
     },
   ];
+
   if (options.historyArchive)
     mounts.push({
       source: options.historyArchive,
@@ -213,6 +222,7 @@ export function buildContainerSpec(options: {
       target: "/home/pi/history/current",
       readonly: true,
     });
+
   return {
     image: options.image ?? options.config.runner.image,
     args,
@@ -252,6 +262,7 @@ export function dockerRunArgs(
     "--tmpfs",
     `/tmp:rw,noexec,nosuid,size=${config.runner.tmpfsMb}m`,
   ];
+
   for (const [name, value] of Object.entries(spec.environment))
     result.push("--env", `${name}=${value}`);
   for (const mount of spec.mounts)
@@ -259,6 +270,7 @@ export function dockerRunArgs(
       "--mount",
       `type=bind,source=${mount.source},target=${mount.target}${mount.readonly ? ",readonly" : ""}`,
     );
+
   return [...result, spec.image, "pi", ...spec.args];
 }
 
@@ -272,6 +284,7 @@ export function dockerMcpSidecarArgs(
   const proxy = new URL(spec.gatewayUrl);
   proxy.username = "integral";
   proxy.password = spec.sessionToken;
+
   const proxyUrl = proxy.toString(),
     name = `integral-mcp-${spec.sessionId}-${spec.connection.name.replace(/[^A-Za-z0-9_.-]/g, "-")}`,
     caPath = "/integral-ca/integral-ca.pem",
@@ -313,6 +326,7 @@ export function dockerMcpSidecarArgs(
       "--tmpfs",
       `/tmp:rw,noexec,nosuid,size=${config.runner.tmpfsMb}m`,
     ];
+
   for (const [key, value] of Object.entries(environment))
     args.push("--env", `${key}=${value}`);
   for (const [source, target] of [
@@ -323,6 +337,7 @@ export function dockerMcpSidecarArgs(
       "--mount",
       `type=bind,source=${source},target=${target},readonly`,
     );
+
   return [
     ...args,
     spec.image,
@@ -360,6 +375,7 @@ export class StdioMcpSidecar implements McpRuntime {
       throw new IntegralError(
         `MCP sidecar ${this.connection.name} is already running`,
       );
+
     const child = spawn(
       "docker",
       dockerMcpSidecarArgs(this.spec, this.config, this.network),
@@ -372,19 +388,24 @@ export class StdioMcpSidecar implements McpRuntime {
     createInterface({ input: child.stderr }).on("line", (line) =>
       this.diagnostic(this.sanitize(line)),
     );
+
     child.once("exit", (code) => {
       const error = new IntegralError(
         `MCP sidecar ${this.connection.name} exited (${code ?? "signal"})`,
       );
+
       for (const request of this.pending.values()) request.reject(error);
       this.pending.clear();
       if (this.child === child) this.child = undefined;
     });
+
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);
     });
+
     child.stdin.write(`${JSON.stringify(this.spec.secretValues)}\n`);
+
     try {
       const discovery = await this.request("server/discover", {});
       if (discovery.error === undefined) {
@@ -395,18 +416,22 @@ export class StdioMcpSidecar implements McpRuntime {
           capabilities: {},
           clientInfo: { name: "integral", version: INTEGRAL_VERSION },
         });
+
         const result = this.result(initialized, "initialize");
         if (typeof result.protocolVersion !== "string")
           throw new IntegralError(
             "MCP initialize result omitted protocolVersion",
           );
+
         this.protocolVersion = result.protocolVersion;
         this.notify("notifications/initialized", {});
       }
+
       const tools = [],
         diagnostics: string[] = [],
         names = new Set<string>(),
         seen = new Set<string>();
+
       let cursor: string | undefined;
       do {
         if (cursor && seen.has(cursor))
@@ -414,6 +439,7 @@ export class StdioMcpSidecar implements McpRuntime {
             "MCP tools/list repeated a pagination cursor",
           );
         if (cursor) seen.add(cursor);
+
         const page = toolsFromListResult(
           this.result(
             await this.request("tools/list", cursor ? { cursor } : {}),
@@ -424,12 +450,14 @@ export class StdioMcpSidecar implements McpRuntime {
         diagnostics.push(...page.diagnostics);
         cursor = page.nextCursor;
       } while (cursor);
+
       const duplicates = new Set<string>();
       for (const tool of tools)
         if (names.has(tool.name)) duplicates.add(tool.name);
         else names.add(tool.name);
       for (const name of duplicates)
         diagnostics.push(`${name}: MCP tool name is duplicated`);
+
       return {
         connection: this.connection,
         protocolVersion: this.protocolVersion,
@@ -469,6 +497,7 @@ export class StdioMcpSidecar implements McpRuntime {
       return Promise.reject(
         new IntegralError(`MCP sidecar ${this.connection.name} is not running`),
       );
+
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -480,6 +509,7 @@ export class StdioMcpSidecar implements McpRuntime {
         });
         reject(new IntegralError(`MCP ${method} timed out`));
       }, timeoutMs);
+
       const abort = () => {
         clearTimeout(timer);
         this.pending.delete(id);
@@ -489,6 +519,7 @@ export class StdioMcpSidecar implements McpRuntime {
         });
         reject(new IntegralError(`MCP ${method} was cancelled`));
       };
+
       if (signal?.aborted) return abort();
       this.pending.set(id, {
         resolve: (value) => {
@@ -502,6 +533,7 @@ export class StdioMcpSidecar implements McpRuntime {
           reject(error);
         },
       });
+
       signal?.addEventListener("abort", abort, { once: true });
       child.stdin.write(
         `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
@@ -530,6 +562,7 @@ export class StdioMcpSidecar implements McpRuntime {
       void this.stop();
       return;
     }
+
     if (typeof value.id !== "number") return;
     const request = this.pending.get(value.id);
     if (!request) return;
@@ -551,12 +584,14 @@ export class StdioMcpSidecar implements McpRuntime {
             : "unknown error";
       throw new IntegralError(`MCP ${method} failed: ${detail}`);
     }
+
     if (
       !response.result ||
       typeof response.result !== "object" ||
       Array.isArray(response.result)
     )
       throw new IntegralError(`MCP ${method} result must be an object`);
+
     return response.result as Record<string, unknown>;
   }
 
@@ -571,19 +606,23 @@ export class StdioMcpSidecar implements McpRuntime {
     const child = this.child;
     this.child = undefined;
     if (!child) return;
+
     for (const request of this.pending.values())
       request.reject(
         new IntegralError(`MCP sidecar ${this.connection.name} stopped`),
       );
     this.pending.clear();
+
     const exited = new Promise<boolean>((resolve) =>
       child.once("exit", () => resolve(true)),
     );
     child.stdin.end();
+
     const stopped = await Promise.race([
       exited,
       new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
     ]);
+
     if (!stopped) {
       spawnSync(
         "docker",
@@ -605,6 +644,7 @@ export async function writeMcpExtension(
 ): Promise<void> {
   const directory = join(sessionHome, ".integral", "extensions");
   await ensureDir(directory);
+
   const declarations = catalogs.flatMap((catalog) =>
     catalog.tools.map((tool) => ({
       connection: catalog.connection.name,
@@ -617,6 +657,7 @@ export async function writeMcpExtension(
       parameters: tool.inputSchema,
     })),
   );
+
   const source = `import { request } from "node:http";
 import { Type } from "typebox";
 const tools = ${JSON.stringify(declarations)};
@@ -644,6 +685,7 @@ export default function (pi) {
 }
 
 `;
+
   await atomicWrite(join(directory, "integral-mcp.ts"), source);
 }
 
@@ -664,6 +706,7 @@ export function mcpToolName(connection: string, tool: string): string {
     .update(`${connection}\0${tool}`)
     .digest("hex")
     .slice(0, 8);
+
   return `${readable}_${suffix}`;
 }
 
@@ -672,13 +715,16 @@ export async function writeEmailExtension(
   connections: Connection[],
 ): Promise<void> {
   if (!connections.length) return;
+
   const directory = join(sessionHome, ".integral", "extensions");
   await ensureDir(directory);
+
   const declarations = connections.map((connection) => ({
     name: connection.name,
     toolName: connection.name.replace(/[^A-Za-z0-9_]/g, "_"),
     capabilities: connection.capabilities,
   }));
+
   const source = `import { request } from "node:http";
 import { Type } from "typebox";
 const accounts = ${JSON.stringify(declarations)};
@@ -693,6 +739,7 @@ const schemas = {
 };
 export default function (pi) { for (const account of accounts) for (const capability of account.capabilities) pi.registerTool({ name: "email_" + account.toolName + "_" + capability, label: "Email " + account.name + " " + capability, description: capability + " email using the " + account.name + " account", parameters: schemas[capability], async execute(_id, params, signal) { const result = await call(account.name, capability, params, signal); return { content: [{ type: "text", text: JSON.stringify(result) }], details: { account: account.name, capability } }; } }); }
 `;
+
   await atomicWrite(join(directory, "integral-email.ts"), source);
 }
 
@@ -703,14 +750,17 @@ export async function writeDiscordExtension(
   if (!connections.length) return;
   if (connections.length !== 1)
     throw new IntegralError("only one Discord channel connection is supported");
+
   const directory = join(sessionHome, ".integral", "extensions");
   await ensureDir(directory);
+
   const source = `import { request } from "node:http";
 import { Type } from "typebox";
 function endpoint() { const proxy = new URL(process.env.HTTP_PROXY); const authorization = "Basic " + Buffer.from(decodeURIComponent(proxy.username) + ":" + decodeURIComponent(proxy.password)).toString("base64"); proxy.username = ""; proxy.password = ""; proxy.pathname = "/integral/discord"; proxy.search = ""; return { url: proxy.toString(), authorization }; }
 function send(text, signal) { return new Promise((resolve, reject) => { const target = endpoint(), payload = JSON.stringify({ text }), chunks = []; let settled = false; const finish = (action) => { if (settled) return; settled = true; signal?.removeEventListener("abort", abort); action(); }, req = request(target.url, { agent: false, method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload), "proxy-authorization": target.authorization } }, (res) => { res.on("data", (chunk) => chunks.push(chunk)); res.on("end", () => finish(() => { const body = Buffer.concat(chunks).toString("utf8"); if ((res.statusCode || 500) < 200 || (res.statusCode || 500) >= 300) reject(new Error(body.trim() || "Discord delivery failed")); else resolve(body ? JSON.parse(body) : { delivered: true }); })); res.on("error", (error) => finish(() => reject(error))); }), abort = () => req.destroy(new Error("Discord delivery was cancelled")); signal?.addEventListener("abort", abort, { once: true }); req.on("error", (error) => finish(() => reject(error))); req.end(payload); }); }
 export default function (pi) { pi.registerTool({ name: "discord_send", label: "Send Discord message", description: "Send text to the deployment's one configured Discord DM", parameters: Type.Object({ text: Type.String({ minLength: 1, maxLength: 100000 }) }), async execute(_id, params, signal) { const value = await send(params.text, signal); return { content: [{ type: "text", text: "Discord message sent." }], details: value }; } }); }
 `;
+
   await atomicWrite(join(directory, "integral-discord.ts"), source);
 }
 
@@ -720,6 +770,7 @@ export async function writeResourceExtension(
 ): Promise<void> {
   const directory = join(sessionHome, ".integral", "extensions");
   await ensureDir(directory);
+
   const repositories = projection.repositories.map(({ resource }) => ({
     id: resource.id,
     name: resource.connection,
@@ -730,6 +781,7 @@ export async function writeResourceExtension(
     name: resource.connection,
     mount: resource.mount,
   }));
+
   const source = `import { execFile } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { request } from "node:http";
@@ -756,6 +808,7 @@ export default function (pi) {
 }
 `;
   await atomicWrite(join(directory, "integral-resources.ts"), source);
+
   const bin = join(sessionHome, ".local", "bin"),
     helper = join(bin, "integral-lock"),
     lockSource = `#!/usr/bin/env node
@@ -774,6 +827,7 @@ try { code = await new Promise((resolve, reject) => { const child = spawn(comman
 finally { await call(path, "DELETE", { lease: acquired.lease }).catch(error => console.error("integral-lock: " + error.message)); }
 process.exitCode = code;
 `;
+
   await ensureDir(bin);
   await atomicWrite(helper, lockSource, 0o700);
   await chmod(helper, 0o700);
@@ -782,6 +836,7 @@ process.exitCode = code;
 export async function writeTaskExtension(sessionHome: string): Promise<void> {
   const directory = join(sessionHome, ".integral", "extensions");
   await ensureDir(directory);
+
   const source = `import { request } from "node:http";
 import { Type } from "typebox";
 let declaredOutcome;
@@ -794,6 +849,7 @@ export default function (pi) {
   pi.on("turn_end", async (event) => { if (declaredOutcome || event.toolResults?.length) return; pi.sendMessage({ customType: "integral-task-outcome-required", content: "You attempted to finish this scheduled task without declaring its outcome. Review the work and call exactly one of task_complete or task_fail now. Do not answer with ordinary text.", display: true }, { deliverAs: "steer", triggerTurn: true }); });
 }
 `;
+
   await atomicWrite(join(directory, "integral-task.ts"), source);
 }
 
@@ -804,6 +860,7 @@ export async function writePiCredential(
   const directory = join(sessionHome, ".integral");
   await ensureDir(directory);
   await ensureDir(join(sessionHome, ".pi", "agent"));
+
   const credential =
     model.auth === "oauth" || model.auth === "device-code"
       ? {
@@ -813,6 +870,7 @@ export async function writePiCredential(
           expires: Number.MAX_SAFE_INTEGER,
         }
       : { type: "api_key", key: SENTINEL };
+
   await atomicWrite(
     join(directory, "auth.json"),
     `${JSON.stringify({ [model.provider!]: credential })}\n`,
@@ -822,12 +880,14 @@ export async function writePiCredential(
 export function dockerAvailable(): boolean {
   return spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
 }
+
 function inspectImage(image: string): string | undefined {
   const result = spawnSync(
     "docker",
     ["image", "inspect", "--format", "{{.Id}}", image],
     { encoding: "utf8" },
   );
+
   return result.status === 0 && result.stdout.trim()
     ? result.stdout.trim()
     : undefined;
@@ -849,9 +909,11 @@ export function managedPiImage(
       readFileSync(modelBridge),
     ],
     hash = createHash("sha256");
+
   for (const input of inputs)
     hash.update(String(input.byteLength)).update("\0").update(input);
   hash.update("packages\0").update(JSON.stringify([...systemPackages].sort()));
+
   const recipe = hash.digest("hex").slice(0, 12);
   return `integral-pi:${INTEGRAL_VERSION}-recipe-${recipe}-pi-${version.replace(/[^0-9A-Za-z_.-]/g, "-")}`;
 }
@@ -869,6 +931,7 @@ export function ensureContainerImage(
     const selected = inspectImage(options.expectedImage);
     if (selected) return selected;
   }
+
   const systemPackages = [
     ...(options.systemPackages ?? DEFAULT_CONTAINER_PACKAGES),
   ].sort();
@@ -876,6 +939,7 @@ export function ensureContainerImage(
     config.runner.image === DEFAULT_PI_IMAGE
       ? managedPiImage(piVersion, undefined, systemPackages)
       : config.runner.image;
+
   const existing = inspectImage(requested);
   if (config.runner.pullPolicy === "never") {
     if (!existing)
@@ -884,17 +948,20 @@ export function ensureContainerImage(
       );
     return existing;
   }
+
   if (
     config.runner.pullPolicy === "if-not-present" &&
     existing &&
     !options.rebuild
   )
     return existing;
+
   if (config.runner.image === DEFAULT_PI_IMAGE) {
     const dockerfile = fileURLToPath(
       new URL("../../Dockerfile.pi", import.meta.url),
     );
     const root = fileURLToPath(new URL("../../", import.meta.url));
+
     const result = spawnSync(
       "docker",
       [
@@ -917,11 +984,13 @@ export function ensureContainerImage(
       throw new IntegralError(
         `cannot build Pi ${piVersion} image: ${result.stderr.trim()}`,
       );
+
     const identity = inspectImage(requested);
     if (!identity)
       throw new IntegralError(`cannot resolve Pi ${piVersion} image identity`);
     return identity;
   }
+
   const result = spawnSync("docker", ["pull", requested], {
     encoding: "utf8",
   });
@@ -929,6 +998,7 @@ export function ensureContainerImage(
     throw new IntegralError(
       `cannot pull Pi image ${requested}: ${result.stderr.trim()}`,
     );
+
   const identity = inspectImage(requested);
   if (!identity)
     throw new IntegralError(`cannot resolve Pi image identity: ${requested}`);
@@ -956,6 +1026,7 @@ export async function discoverPiModels(
     throw new IntegralError(
       `cannot discover models from Pi image: ${result.stderr.trim() || "container failed; the image must provide integral-pi-models"}`,
     );
+
   return parsePiModelList(result.stdout, providers);
 }
 
@@ -964,12 +1035,14 @@ export function parsePiModelList(
   providers: readonly string[],
 ): Array<{ provider: string; model: string }> {
   const allowed = new Set(providers);
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
   } catch {
     throw new IntegralError("Pi image returned an invalid model catalog");
   }
+
   if (!Array.isArray(parsed))
     throw new IntegralError("Pi image returned an invalid model catalog");
   return (parsed as unknown[]).filter(
@@ -1000,6 +1073,7 @@ export function discoverPiVersion(image: string): string {
     ],
     { encoding: "utf8" },
   );
+
   const version = result.stdout.trim();
   if (result.status !== 0 || !version)
     throw new IntegralError(
@@ -1007,11 +1081,13 @@ export function discoverPiVersion(image: string): string {
     );
   return version;
 }
+
 export async function createLockedNetwork(name: string): Promise<void> {
   const inspect = spawnSync("docker", ["network", "inspect", name], {
     stdio: "ignore",
   });
   if (inspect.status === 0) return;
+
   const created = spawnSync(
     "docker",
     ["network", "create", "--internal", name],
@@ -1022,6 +1098,7 @@ export async function createLockedNetwork(name: string): Promise<void> {
       `cannot create locked Docker network: ${created.stderr.trim()}`,
     );
 }
+
 export function dockerNetworkGateway(name: string): string {
   const result = spawnSync(
     "docker",
@@ -1055,6 +1132,7 @@ export class PiContainer {
     reject(error: Error): void;
     timer: NodeJS.Timeout;
   }> = [];
+
   constructor(
     readonly spec: ContainerSpec,
     private readonly config: EffectiveConfig,
@@ -1063,8 +1141,10 @@ export class PiContainer {
     private readonly observe: (event: PiProtocolEvent) => void = () =>
       undefined,
   ) {}
+
   async start(): Promise<void> {
     if (this.child) return;
+
     const child = spawn(
       "docker",
       dockerRunArgs(this.spec, this.config, this.network),
@@ -1072,18 +1152,22 @@ export class PiContainer {
     );
     this.child = child;
     this.exit = new Promise((resolve) => child.once("exit", resolve));
+
     createInterface({ input: child.stdout }).on("line", (line) =>
       this.protocol(line),
     );
     createInterface({ input: child.stderr }).on("line", (line) =>
       this.diagnostic(line.replace(/[\r\n]/g, " ")),
     );
+
     child.once("exit", (code) => {
       const error = new IntegralError(
         `Pi container exited unexpectedly (${code ?? "signal"})`,
       );
+
       this.pending?.reject(error);
       this.pending = undefined;
+
       for (const steering of this.steering) {
         clearTimeout(steering.timer);
         steering.reject(error);
@@ -1091,11 +1175,13 @@ export class PiContainer {
       this.steering.length = 0;
       this.child = undefined;
     });
+
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);
     });
   }
+
   private protocol(line: string): void {
     let raw: PiProtocolEvent;
     try {
@@ -1103,6 +1189,7 @@ export class PiContainer {
     } catch {
       return;
     }
+
     try {
       this.observe(raw);
     } catch (error) {
@@ -1110,12 +1197,14 @@ export class PiContainer {
         `run event observer failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+
     const response = raw as unknown as {
       type?: unknown;
       command?: unknown;
       success?: unknown;
       error?: unknown;
     };
+
     if (response.type === "response" && response.command === "steer") {
       const steering = this.steering.shift();
       if (steering) {
@@ -1132,8 +1221,10 @@ export class PiContainer {
       }
       return;
     }
+
     if (!this.pending) return;
     const event = interpretPiEvent(raw);
+
     if (event.type === "rejected") {
       const pending = this.pending;
       this.pending = undefined;
@@ -1141,6 +1232,7 @@ export class PiContainer {
       pending.reject(new IntegralError(event.error));
       return;
     }
+
     if (event.type === "text") this.response += event.text;
     if (event.type === "complete") {
       const pending = this.pending;
@@ -1149,29 +1241,35 @@ export class PiContainer {
       pending.resolve(this.response);
     }
   }
+
   prompt(text: string): Promise<string> {
     if (!this.child)
       return Promise.reject(new IntegralError("Pi container is not running"));
     if (this.pending)
       return Promise.reject(new IntegralError("Pi turn already in flight"));
+
     this.response = "";
     this.child.stdin.write(
       `${JSON.stringify({ type: "prompt", message: text })}\n`,
     );
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending = undefined;
         reject(new IntegralError("Pi turn timed out"));
         void this.stop();
       }, this.config.runner.turnTimeoutSeconds * 1000);
+
       this.pending = { resolve, reject, timer };
     });
   }
+
   steer(text: string): Promise<void> {
     if (!this.child)
       return Promise.reject(new IntegralError("Pi container is not running"));
     if (!this.pending)
       return Promise.reject(new IntegralError("Pi turn is not in flight"));
+
     return new Promise((resolve, reject) => {
       const request = {
         resolve,
@@ -1182,6 +1280,7 @@ export class PiContainer {
           reject(new IntegralError("Pi steering acknowledgement timed out"));
         }, 5_000),
       };
+
       this.steering.push(request);
       this.child!.stdin.write(
         `${JSON.stringify({ type: "steer", message: text })}\n`,
@@ -1195,11 +1294,13 @@ export class PiContainer {
       );
     });
   }
+
   async finish(): Promise<number> {
     const child = this.child,
       exit = this.exit;
     if (!child || !exit) throw new IntegralError("Pi container is not running");
     if (this.pending) throw new IntegralError("Pi turn is still in flight");
+
     child.stdin.end();
     const result = await Promise.race([
       exit,
@@ -1207,35 +1308,43 @@ export class PiContainer {
         setTimeout(() => resolve("timeout"), 5_000),
       ),
     ]);
+
     if (result === "timeout") {
       await this.stop();
       throw new IntegralError("Pi task did not exit cleanly after completion");
     }
+
     return result ?? 128;
   }
+
   async stop(): Promise<void> {
     const child = this.child;
     this.child = undefined;
+
     if (this.pending) {
       const pending = this.pending;
       this.pending = undefined;
       clearTimeout(pending.timer);
       pending.reject(new IntegralError("Pi container stopped"));
     }
+
     for (const steering of this.steering) {
       clearTimeout(steering.timer);
       steering.reject(new IntegralError("Pi container stopped"));
     }
     this.steering.length = 0;
+
     if (child) {
       const exited = new Promise<boolean>((resolve) =>
         child.once("exit", () => resolve(true)),
       );
       child.kill("SIGTERM");
+
       const stopped = await Promise.race([
         exited,
         new Promise<false>((resolve) => setTimeout(() => resolve(false), 5000)),
       ]);
+
       if (!stopped) {
         spawnSync(
           "docker",
@@ -1247,6 +1356,7 @@ export class PiContainer {
         await exited;
       }
     }
+
     await rm(this.spec.home, { recursive: true, force: true });
   }
 }
@@ -1271,6 +1381,7 @@ export async function freshSessionHome(
 ): Promise<string> {
   await ensureDir(parent);
   const home = await mkdtemp(join(parent, "integral-pi-"));
+
   try {
     await Promise.all([
       ensureDir(join(home, "history", "runs")),
@@ -1280,8 +1391,10 @@ export async function freshSessionHome(
     await rm(home, { recursive: true, force: true });
     throw error;
   }
+
   return home;
 }
+
 export function newSessionIdentity(): {
   sessionId: string;
   sessionToken: string;

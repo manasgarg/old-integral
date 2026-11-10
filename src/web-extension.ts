@@ -36,6 +36,7 @@ async function quietly<T>(action: () => Promise<T>): Promise<T> {
     console.warn = () => undefined;
     console.error = () => undefined;
   }
+
   try {
     return await action();
   } finally {
@@ -54,8 +55,10 @@ export async function fetchReadablePage(
 ): Promise<WebPageResult> {
   const timeout = AbortSignal.timeout(timeoutMilliseconds),
     deadline = signal ? AbortSignal.any([signal, timeout]) : timeout;
+
   try {
     new URL(url);
+
     const response = await request(url, {
       headers: browserHeaders,
       redirect: "follow",
@@ -67,6 +70,7 @@ export async function fetchReadablePage(
         requestedUrl: url,
         error: `HTTP ${response.status} ${response.statusText}`.trim(),
       };
+
     const finalUrl = response.url || url,
       body = await response.text();
     if (!(response.headers.get("content-type") ?? "").includes("html"))
@@ -77,6 +81,7 @@ export async function fetchReadablePage(
         title: finalUrl,
         text: body.trim(),
       };
+
     const { document } = parseHTML(body),
       extraction = await quietly(() =>
         Defuddle(document, finalUrl, {
@@ -84,6 +89,7 @@ export async function fetchReadablePage(
           removeImages: true,
         }),
       );
+
     return {
       ok: true,
       requestedUrl: url,
@@ -107,21 +113,25 @@ export async function mapWithConcurrency<Input, Output>(
 ): Promise<Output[]> {
   const output = new Array<Output>(items.length);
   let next = 0;
+
   const worker = async (): Promise<void> => {
     while (next < items.length) {
       const index = next++;
       output[index] = await action(items[index]!);
     }
   };
+
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, worker),
   );
+
   return output;
 }
 
 export function normalizeWebUrls(input: unknown): string[] {
   const raw = Array.isArray(input) ? input : [input],
     seen = new Set<string>();
+
   for (const item of raw) {
     if (typeof item !== "string") continue;
     for (const piece of item.split(/[\s,]+/)) {
@@ -135,6 +145,7 @@ export function normalizeWebUrls(input: unknown): string[] {
       }
     }
   }
+
   return [...seen];
 }
 
@@ -151,6 +162,7 @@ export function buildWebSearchUrl(query: string): string {
 export function unwrapDuckDuckGoLinks(markdown: string): string {
   const redirect =
     /(?:https?:)?\/\/(?:[a-z0-9-]+\.)?duckduckgo\.com\/l\/\?[^)\s"'<>]*?\buddg=([^&)\s"'<>]+)[^)\s"'<>]*/gi;
+
   return markdown.replace(redirect, (whole: string, encoded: string) => {
     try {
       return decodeURIComponent(encoded);
@@ -174,6 +186,7 @@ export function formatWebSearchResults(
   results: readonly { query: string; result: WebPageResult }[],
 ): string {
   const sections = [searchFollowUp];
+
   for (const { query, result } of results) {
     sections.push(`## Query: "${query}"`);
     if (!result.ok) {
@@ -184,11 +197,13 @@ export function formatWebSearchResults(
       `${capWebResult(unwrapDuckDuckGoLinks(result.text) || "_no results extracted_")}\n`,
     );
   }
+
   return sections.join("\n");
 }
 
 export function formatFetchedPages(results: readonly WebPageResult[]): string {
   const sections: string[] = [];
+
   for (const result of results) {
     if (!result.ok) {
       sections.push(
@@ -196,6 +211,7 @@ export function formatFetchedPages(results: readonly WebPageResult[]): string {
       );
       continue;
     }
+
     const header =
       result.finalUrl === result.requestedUrl
         ? result.finalUrl
@@ -204,6 +220,7 @@ export function formatFetchedPages(results: readonly WebPageResult[]): string {
       `## ${result.title}\n<${header}>\n\n${capWebResult(result.text) || "_no content extracted_"}\n`,
     );
   }
+
   return sections.join("\n");
 }
 
@@ -280,11 +297,13 @@ export default function integralWebTools(api: PiToolApi): void {
             result: await fetchReadablePage(buildWebSearchUrl(query), signal),
           }),
         );
+
       return {
         content: [{ type: "text", text: formatWebSearchResults(results) }],
       };
     },
   });
+
   api.registerTool({
     name: "fetch_pages",
     label: "fetch_pages",
@@ -304,6 +323,7 @@ export default function integralWebTools(api: PiToolApi): void {
             },
           ],
         };
+
       const results = await mapWithConcurrency(
         urls,
         WEB_FETCH_CONCURRENCY,
