@@ -140,6 +140,7 @@ async function withResourceLock<T>(
 ): Promise<T> {
   const digest = createHash("sha256").update(key).digest("hex"),
     lock = join(paths.storeLocks, `${digest}.lock`);
+
   for (let attempt = 0; ; attempt++) {
     let release: (() => Promise<void>) | undefined;
     try {
@@ -151,6 +152,7 @@ async function withResourceLock<T>(
       await new Promise((resolve) => setTimeout(resolve, 10));
       continue;
     }
+
     try {
       return await action();
     } finally {
@@ -169,6 +171,7 @@ export function validateMountPath(mount: string, connection?: string): string {
     throw new IntegralError("mount must be an absolute normalized path");
   if (mount === "/home/pi" || !mount.startsWith("/home/pi/"))
     throw new IntegralError("mount must be below /home/pi");
+
   if (connection === PI_PROFILE_NAME) {
     if (mount !== PI_PROFILE_MOUNT)
       throw new IntegralError(
@@ -176,6 +179,7 @@ export function validateMountPath(mount: string, connection?: string): string {
       );
     return mount;
   }
+
   const relativeMount = mount.slice("/home/pi/".length);
   for (const reserved of [".pi", "history"]) {
     if (relativeMount === reserved || relativeMount.startsWith(`${reserved}/`))
@@ -227,6 +231,7 @@ async function directoryBytes(root: string): Promise<number> {
     if (!value.isDirectory()) return;
     for (const entry of await readdir(path)) await visit(join(path, entry));
   };
+
   await visit(root);
   return total;
 }
@@ -240,6 +245,7 @@ async function repositoryBranch(
     "true"
   )
     throw new IntegralError("path is not a bare Git repository");
+
   const branch =
     requested ??
     (await git([
@@ -252,6 +258,7 @@ async function repositoryBranch(
     ]).catch(() => "")) ??
     "";
   const selected = branch || "main";
+
   const refs = await git([
     "--git-dir",
     path,
@@ -271,6 +278,7 @@ async function validateSource(
 ): Promise<{ path: string; identity: BackingIdentity; branch?: string }> {
   const source = connection.path!;
   if (!isAbsolute(source)) throw new IntegralError("path must be absolute");
+
   const canonical = await stat(source)
     .then(
       async () =>
@@ -281,6 +289,7 @@ async function validateSource(
         throw new IntegralError("resource path is missing");
       throw error;
     });
+
   if (canonical === "/")
     throw new IntegralError("resource path must not be the filesystem root");
   const managedRoot =
@@ -292,21 +301,25 @@ async function validateSource(
     throw new IntegralError(
       "resource path overlaps the Integral deployment root",
     );
+
   const value = await stat(canonical);
   if (!value.isDirectory())
     throw new IntegralError("resource path must be a directory");
   await access(canonical, fsConstants.R_OK | fsConstants.W_OK).catch(() => {
     throw new IntegralError("resource path must be readable and writable");
   });
+
   const result: { path: string; identity: BackingIdentity; branch?: string } = {
     path: canonical,
     identity: await backingIdentity(canonical),
   };
+
   if (connection.kind === "host-repo") {
     result.branch = await repositoryBranch(canonical, connection.branch);
     if ((await directoryBytes(canonical)) > config.repositories.maxRepoBytes)
       throw new IntegralError("repository exceeds repositories.max_repo_bytes");
   }
+
   return result;
 }
 
@@ -330,6 +343,7 @@ export async function readResource(
 ): Promise<ResourceRecord | undefined> {
   const raw = await readText(recordFile(paths, name));
   if (raw === undefined) return undefined;
+
   const value = JSON.parse(raw) as ResourceRecord;
   if (
     !value ||
@@ -340,6 +354,7 @@ export async function readResource(
     !Number.isInteger(value.revision)
   )
     throw new IntegralError(`invalid resource record: ${name}`);
+
   value.writePolicy ??= "direct";
   return value;
 }
@@ -358,14 +373,17 @@ export async function listResourceRecords(
   paths: IntegralPaths,
 ): Promise<ResourceRecord[]> {
   await prepareResourceStorage(paths);
+
   const files = (await readdir(paths.resources))
     .filter((file) => file.endsWith(".json"))
     .sort();
+
   const result: ResourceRecord[] = [];
   for (const file of files) {
     const value = await readResource(paths, basename(file, ".json"));
     if (value) result.push(value);
   }
+
   return result;
 }
 
@@ -410,14 +428,17 @@ async function addHostResourceUnlocked(
     throw new IntegralError(`connection ${connection.name} already exists`);
   if (connection.name === PI_PROFILE_NAME && connection.kind !== "host-repo")
     throw new IntegralError(`${PI_PROFILE_NAME} must be a host repository`);
+
   const mount = validateMountPath(connection.mount!, connection.name),
     source = await validateSource(paths, connection, config);
   await assertNoOverlap(paths, source.path, mount);
+
   const leases = await sessionsUsingPath(paths, source.path);
   if (leases.length)
     throw new IntegralError(
       "resource path is still referenced by an existing session",
     );
+
   const normalized: Connection = {
     ...connection,
     path: source.path,
@@ -425,6 +446,7 @@ async function addHostResourceUnlocked(
     ...(source.branch ? { branch: source.branch } : {}),
   };
   await saveConnection(paths, normalized);
+
   const record: ResourceRecord = {
     id: randomUUID(),
     connection: normalized.name,
@@ -437,12 +459,14 @@ async function addHostResourceUnlocked(
     revision: 1,
     writePolicy: "direct",
   };
+
   try {
     await writeResource(paths, record);
   } catch (error) {
     await removeConnection(paths, normalized.name).catch(() => undefined);
     throw error;
   }
+
   return record;
 }
 
@@ -454,12 +478,15 @@ export async function createResource(
   config: EffectiveConfig,
 ): Promise<ResourceRecord> {
   await prepareResourceStorage(paths);
+
   const id = randomUUID(),
     source = join(kind === "host-repo" ? paths.repositories : paths.stores, id);
+
   if (kind === "host-repo") {
     await ensureDir(source);
     await git(["init", "--bare", "--initial-branch=main", source]);
   } else await mkdir(source, { mode: 0o700 });
+
   try {
     return await addHostResource(
       paths,
@@ -505,6 +532,7 @@ export async function ensurePiProfileRepository(
           throw new IntegralError(
             `${PI_PROFILE_NAME} has invalid host metadata`,
           );
+
         if (existing.mount === LEGACY_PI_PROFILE_MOUNT) {
           const migrated: ResourceRecord = {
             ...existing,
@@ -519,20 +547,24 @@ export async function ensurePiProfileRepository(
                 }
               : {}),
           };
+
           if (existing.state !== "soft-deleted")
             await migratePiProfileConnection(paths, existing.path);
           await writeResource(paths, migrated);
           existing = migrated;
         }
+
         return existing;
       }
 
       const source = join(paths.repositories, randomUUID()),
         worktree = await mkdtemp(join(tmpdir(), "integral-pi-profile-"));
+
       try {
         await ensureDir(source);
         await git(["init", "--bare", "--initial-branch=main", source]);
         await git(["init", "--initial-branch=main"], worktree);
+
         await git(
           [
             "-c",
@@ -546,8 +578,10 @@ export async function ensurePiProfileRepository(
           ],
           worktree,
         );
+
         await git(["remote", "add", "origin", source], worktree);
         await git(["push", "origin", "main"], worktree);
+
         return await addHostResourceUnlocked(
           paths,
           {
@@ -580,14 +614,17 @@ async function availability(
     const code = (error as NodeJS.ErrnoException).code;
     return code === "EACCES" ? "permission_denied" : "missing";
   }
+
   if (!value.isDirectory()) return "wrong_type";
   try {
     await access(record.path, fsConstants.R_OK | fsConstants.W_OK);
   } catch {
     return record.kind === "host-store" ? "read_only" : "permission_denied";
   }
+
   if (!sameIdentity(await backingIdentity(record.path), record.identity))
     return "identity_changed";
+
   if (record.kind === "host-repo") {
     try {
       await repositoryBranch(record.path, record.branch);
@@ -595,6 +632,7 @@ async function availability(
       return "invalid_repository";
     }
   }
+
   return undefined;
 }
 
@@ -610,6 +648,7 @@ export async function refreshResource(
 ): Promise<ResourceRecord> {
   if (record.state === "soft-deleted") return record;
   const reason = await availability(record);
+
   if (!reason && record.state === "unavailable") {
     const next = {
       ...record,
@@ -621,6 +660,7 @@ export async function refreshResource(
     await bumpResourceGeneration(paths);
     return next;
   }
+
   if (reason && record.state === "active") {
     const next = {
       ...record,
@@ -632,6 +672,7 @@ export async function refreshResource(
     await bumpResourceGeneration(paths);
     return next;
   }
+
   return record;
 }
 
@@ -642,6 +683,7 @@ async function bumpResourceGeneration(
   const file = join(paths.state, "connection-generation"),
     current = Number((await readText(file))?.trim() || "0");
   const next = Number.isSafeInteger(current) ? current + 1 : 1;
+
   await atomicWrite(file, `${next}\n`);
   if (replaceSessions)
     await atomicWrite(join(paths.state, "session-generation"), `${next}\n`);
@@ -655,6 +697,7 @@ export async function softDeleteResource(
 ): Promise<ResourceRecord> {
   const resource = await readResource(paths, name);
   if (!resource) throw new IntegralError(`resource not found: ${name}`, 404);
+
   return await withResourceLock(paths, resource.id, () =>
     softDeleteResourceUnlocked(paths, name, expectedRevision, actor),
   );
@@ -671,6 +714,7 @@ async function softDeleteResourceUnlocked(
   if (current.revision !== expectedRevision)
     throw new IntegralError(`stale resource revision: ${name}`, 409);
   if (current.state === "soft-deleted") return current;
+
   const next: ResourceRecord = {
     ...current,
     state: "soft-deleted",
@@ -681,9 +725,11 @@ async function softDeleteResourceUnlocked(
       priorMount: current.mount,
     },
   };
+
   delete next.availabilityReason;
   await writeResource(paths, next);
   await bumpResourceGeneration(paths);
+
   return next;
 }
 
@@ -695,6 +741,7 @@ export async function restoreResource(
 ): Promise<ResourceRecord> {
   const resource = await readResource(paths, name);
   if (!resource) throw new IntegralError(`resource not found: ${name}`, 404);
+
   return await withResourceLock(paths, resource.id, () =>
     restoreResourceUnlocked(paths, name, expectedRevision, mount),
   );
@@ -712,20 +759,24 @@ async function restoreResourceUnlocked(
     throw new IntegralError(`stale resource revision: ${name}`, 409);
   if (current.state !== "soft-deleted")
     throw new IntegralError(`resource is not soft-deleted: ${name}`, 409);
+
   const validMount = validateMountPath(mount, current.connection),
     reason = await availability({ ...current, state: "active" });
   if (reason) throw new IntegralError(`resource_unavailable: ${reason}`, 409);
   await assertNoOverlap(paths, current.path, validMount, current.connection);
+
   const next: ResourceRecord = {
     ...current,
     mount: validMount,
     state: "active",
     revision: current.revision + 1,
   };
+
   delete next.tombstone;
   delete next.availabilityReason;
   await writeResource(paths, next);
   await bumpResourceGeneration(paths, true);
+
   return next;
 }
 
@@ -740,6 +791,7 @@ async function materializeRepository(
 ): Promise<RepositoryProjection> {
   const checkout = checkoutPath(sessionHome, record.mount);
   await ensureDir(dirname(checkout));
+
   const branch = record.branch ?? "main",
     canonicalHead = await git([
       "--git-dir",
@@ -762,6 +814,7 @@ async function materializeRepository(
     await ensureDir(checkout);
     await git(["init", "--initial-branch", `integral/${sessionId}`], checkout);
   }
+
   await git(["remote", "remove", "origin"], checkout).catch(() => undefined);
   await git(
     [
@@ -772,6 +825,7 @@ async function materializeRepository(
     ],
     checkout,
   );
+
   if (record.connection === PI_PROFILE_NAME) {
     const info = join(checkout, ".git", "info");
     await ensureDir(info);
@@ -780,6 +834,7 @@ async function materializeRepository(
       `${PI_PROFILE_CHECKOUT_EXCLUDES.join("\n")}\n`,
     );
   }
+
   return {
     resource: record,
     checkout,
@@ -800,8 +855,10 @@ export async function prepareResourceProjection(
     mounts: [],
     unavailable: [],
   };
+
   for (const original of await listResourceRecords(paths)) {
     const record = await refreshResource(paths, original);
+
     if (record.state === "unavailable") {
       result.unavailable.push({
         name: record.connection,
@@ -810,6 +867,7 @@ export async function prepareResourceProjection(
       });
       continue;
     }
+
     if (record.state !== "active") {
       if (record.connection === PI_PROFILE_NAME)
         result.unavailable.push({
@@ -819,6 +877,7 @@ export async function prepareResourceProjection(
         });
       continue;
     }
+
     await ensureDir(join(paths.resourceSessions, record.id));
     if (record.kind === "host-store") {
       await atomicWrite(
@@ -851,6 +910,7 @@ export async function prepareResourceProjection(
         );
       } catch {
         await rm(sessionFile(paths, record.id, sessionId), { force: true });
+
         const unavailable = await markUnavailable(
           paths,
           record,
@@ -864,6 +924,7 @@ export async function prepareResourceProjection(
       }
     }
   }
+
   const imageHead = await ensureImageRecipeRepository(paths),
     image = await materializeImageRecipe(paths, sessionHome, sessionId),
     imageIdentity = await backingIdentity(paths.imageRecipe),
@@ -879,11 +940,13 @@ export async function prepareResourceProjection(
       revision: 0,
       writePolicy: "approval-required",
     };
+
   result.repositories.push({
     resource: imageResource,
     checkout: image.checkout,
     initialHead: imageHead,
   });
+
   void config;
   return result;
 }
@@ -894,14 +957,17 @@ async function markUnavailable(
   reason: AvailabilityReason,
 ): Promise<ResourceRecord> {
   if (record.state !== "active") return record;
+
   const next = {
     ...record,
     state: "unavailable" as const,
     revision: record.revision + 1,
     availabilityReason: reason,
   };
+
   await writeResource(paths, next);
   await bumpResourceGeneration(paths);
+
   return next;
 }
 
@@ -910,12 +976,14 @@ async function sessionsUsingPath(
   path: string,
 ): Promise<string[]> {
   const result: string[] = [];
+
   for (const resource of await listResourceRecords(paths)) {
     if (resource.path !== path) continue;
     const directory = join(paths.resourceSessions, resource.id);
     for (const file of await readdir(directory).catch(() => [] as string[]))
       if (file.endsWith(".json")) result.push(basename(file, ".json"));
   }
+
   return result;
 }
 
@@ -926,8 +994,10 @@ async function snapshotStore(
   retention: number,
 ): Promise<void> {
   if (!retention) return;
+
   const root = join(paths.storeSnapshots, resource.id);
   await ensureDir(root);
+
   const existing = (await readdir(root)).sort(),
     previous = existing.at(-1);
   if (
@@ -936,6 +1006,7 @@ async function snapshotStore(
       (await treeFingerprint(join(root, previous)))
   )
     return;
+
   const target = join(
     root,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${sessionId}`,
@@ -945,6 +1016,7 @@ async function snapshotStore(
     dereference: false,
     errorOnExist: true,
   });
+
   const snapshots = (await readdir(root)).sort();
   for (const expired of snapshots.slice(
     0,
@@ -955,6 +1027,7 @@ async function snapshotStore(
 
 async function treeFingerprint(root: string): Promise<string> {
   const hash = createHash("sha256");
+
   const visit = async (directory: string, prefix: string): Promise<void> => {
     for (const entry of (
       await readdir(directory, { withFileTypes: true })
@@ -978,6 +1051,7 @@ async function treeFingerprint(root: string): Promise<string> {
       else hash.update("other\0");
     }
   };
+
   await visit(root, "");
   return hash.digest("hex");
 }
@@ -992,6 +1066,7 @@ export async function cleanupResourceProjection(
       ["status", "--porcelain"],
       repository.checkout,
     ).catch(() => "unreadable");
+
     const head = await git(
         ["rev-parse", "--verify", "HEAD"],
         repository.checkout,
@@ -1012,6 +1087,7 @@ export async function cleanupResourceProjection(
                 `refs/heads/${record.branch ?? "main"}`,
               ]).catch(() => "")
             : "";
+
     if (current || head !== canonicalHead)
       await createRepositoryRecovery(
         paths,
@@ -1021,14 +1097,17 @@ export async function cleanupResourceProjection(
         Boolean(head && head !== canonicalHead),
         Boolean(current),
       );
+
     await expireRecoveryArtifacts(paths, repository.resource.id, config);
     await rm(sessionFile(paths, repository.resource.id, projection.sessionId), {
       force: true,
     });
   }
+
   for (const store of projection.stores) {
     await withResourceLock(paths, store.id, async () => {
       const current = await readResource(paths, store.connection);
+
       if (
         current &&
         (await availability({ ...current, state: "active" })) === undefined
@@ -1040,6 +1119,7 @@ export async function cleanupResourceProjection(
           config.stores.snapshots,
         ).catch(() => undefined);
     });
+
     await rm(sessionFile(paths, store.id, projection.sessionId), {
       force: true,
     });
@@ -1055,6 +1135,7 @@ function recoverableEntry(
   if (!path) return true;
   if (path === ".git" || path.startsWith(".git/")) return false;
   if (resource.connection !== PI_PROFILE_NAME) return true;
+
   const absolute = `/${path}`;
   return !PI_PROFILE_CHECKOUT_EXCLUDES.some(
     (excluded) =>
@@ -1075,16 +1156,19 @@ async function createRepositoryRecovery(
     branch = resource.branch ?? "main",
     artifactId = `${sessionId}-${Date.now()}`,
     recoveryRef = `refs/integral/recovery/${sessionId}`;
+
   const canonical = await stat(resource.path).catch(() => undefined);
   if (!canonical?.isDirectory()) {
     const destination = join(paths.recovery, resource.id, artifactId);
     await ensureDir(dirname(destination));
+
     await cp(repository.checkout, destination, {
       recursive: true,
       dereference: false,
       filter: (source) =>
         recoverableEntry(resource, repository.checkout, source),
     });
+
     await atomicWrite(
       join(destination, ".integral-recovery.json"),
       `${JSON.stringify({
@@ -1096,8 +1180,10 @@ async function createRepositoryRecovery(
         uncommittedChanges,
       })}\n`,
     );
+
     return;
   }
+
   const staging = await mkdtemp(join(paths.state, "repository-recovery-"));
   try {
     const canonicalHead = await git([
@@ -1118,10 +1204,12 @@ async function createRepositoryRecovery(
         staging,
       ]);
     } else await git(["init", "--initial-branch", branch], staging);
+
     for (const entry of await readdir(staging)) {
       if (entry === ".git") continue;
       await rm(join(staging, entry), { recursive: true, force: true });
     }
+
     for (const entry of await readdir(repository.checkout)) {
       const source = join(repository.checkout, entry);
       if (!recoverableEntry(resource, repository.checkout, source)) continue;
@@ -1133,11 +1221,13 @@ async function createRepositoryRecovery(
           recoverableEntry(resource, repository.checkout, nested),
       });
     }
+
     await git(["add", "--all"], staging);
     const unchanged = await git(["diff", "--cached", "--quiet"], staging)
       .then(() => true)
       .catch(() => false);
     if (unchanged) return;
+
     await git(
       [
         "-c",
@@ -1150,6 +1240,7 @@ async function createRepositoryRecovery(
       ],
       staging,
     );
+
     const commit = await git(["rev-parse", "HEAD"], staging);
     await validateTree(join(staging, ".git"), commit, config);
     await git([
@@ -1159,6 +1250,7 @@ async function createRepositoryRecovery(
       staging,
       `+${commit}:${recoveryRef}`,
     ]);
+
     const destination = join(paths.recovery, resource.id, artifactId),
       createdAt = new Date().toISOString();
     await ensureDir(destination);
@@ -1188,6 +1280,7 @@ async function expireRecoveryArtifacts(
   const root = join(paths.recovery, resourceId),
     cutoff =
       Date.now() - config.repositories.recoveryRetentionDays * 86_400_000;
+
   for (const entry of await readdir(root).catch(() => [] as string[])) {
     const path = join(root, entry),
       value = await stat(path);
@@ -1198,6 +1291,7 @@ async function expireRecoveryArtifacts(
           resourceId === IMAGE_RECIPE_ID
             ? paths.imageRecipe
             : (await resourceForId(paths, resourceId))?.path;
+
         if (resourcePath)
           await git([
             "--git-dir",
@@ -1207,6 +1301,7 @@ async function expireRecoveryArtifacts(
             metadata.ref,
           ]).catch(() => undefined);
       }
+
       await rm(path, { recursive: true, force: true }).then(async () => {
         await ensureDir(dirname(paths.repositoryRecoveryAudit));
         await appendFile(
@@ -1238,6 +1333,7 @@ async function recoveryMetadata(
 ): Promise<RepositoryRecoveryMetadata> {
   const metadata = await readText(join(directory, ".integral-recovery.json"));
   if (!metadata) return {};
+
   try {
     return JSON.parse(metadata) as RepositoryRecoveryMetadata;
   } catch {
@@ -1285,10 +1381,12 @@ export async function listRepositoryRecovery(
     entries = (await readdir(root).catch(() => [] as string[]))
       .sort()
       .reverse();
+
   return await Promise.all(
     entries.map(async (entry) => {
       const directory = join(root, entry),
         parsed = await recoveryMetadata(directory);
+
       return {
         id: entry,
         createdAt:
@@ -1317,6 +1415,7 @@ export async function discardRepositoryRecovery(
     !/^[A-Za-z0-9._-]+$/.test(artifactId)
   )
     throw new IntegralError("invalid recovery artifact", 400);
+
   const resource = await resourceForId(paths, resourceId),
     resourcePath =
       resourceId === IMAGE_RECIPE_ID ? paths.imageRecipe : resource?.path;
@@ -1325,12 +1424,14 @@ export async function discardRepositoryRecovery(
     (resourceId !== IMAGE_RECIPE_ID && resource?.kind !== "host-repo")
   )
     throw new IntegralError("repository not found", 404);
+
   const directory = join(paths.recovery, resourceId, artifactId),
     metadata = await recoveryMetadata(directory);
   if (!metadata.ref)
     throw new IntegralError("recovery artifact not found", 404);
   if (!metadata.ref.startsWith("refs/integral/recovery/"))
     throw new IntegralError("invalid recovery ref", 409);
+
   await git(["--git-dir", resourcePath, "update-ref", "-d", metadata.ref]);
   await rm(directory, { recursive: true, force: true });
   await ensureDir(dirname(paths.repositoryRecoveryAudit));
@@ -1356,8 +1457,10 @@ export async function recoverAbandonedResourceProjections(
   )) {
     const directory = join(paths.resourceSessions, resourceId),
       resource = await resourceForId(paths, resourceId);
+
     for (const file of await readdir(directory).catch(() => [] as string[])) {
       if (!file.endsWith(".json")) continue;
+
       const marker = await readText(join(directory, file));
       let session: ResourceSessionRecord | undefined;
       try {
@@ -1369,11 +1472,13 @@ export async function recoverAbandonedResourceProjections(
       }
       if (!session?.checkout || !resource || resource.kind !== "host-repo")
         continue;
+
       const checkout = await stat(session.checkout).catch(() => undefined);
       if (!checkout?.isDirectory()) {
         await rm(join(directory, file), { force: true });
         continue;
       }
+
       await run("docker", [
         "rm",
         "--force",
@@ -1416,6 +1521,7 @@ async function snapshotPaths(root: string): Promise<string[]> {
         await visit(join(directory, entry.name), name);
     }
   };
+
   await visit(root, "");
   return result.sort();
 }
@@ -1427,14 +1533,17 @@ export async function listStoreSnapshots(
   const resource = await resourceForId(paths, id);
   if (!resource || resource.kind !== "host-store")
     throw new IntegralError("store not found", 404);
+
   const root = join(paths.storeSnapshots, resource.id),
     entries = (await readdir(root).catch(() => [] as string[]))
       .sort()
       .reverse();
+
   return await Promise.all(
     entries.map(async (snapshotId) => {
       const value = await stat(join(root, snapshotId));
       const session = /-([0-9a-f-]{36})$/i.exec(snapshotId)?.[1];
+
       return {
         id: snapshotId,
         createdAt: value.mtime.toISOString(),
@@ -1472,6 +1581,7 @@ async function restoreStoreSnapshotUnlocked(
 ): Promise<ResourceRecord> {
   if (!/^[A-Za-z0-9._-]+$/.test(snapshotId))
     throw new IntegralError("invalid snapshot ID", 400);
+
   const original = await resourceForId(paths, id);
   if (!original || original.kind !== "host-store")
     throw new IntegralError("store not found", 404);
@@ -1480,6 +1590,7 @@ async function restoreStoreSnapshotUnlocked(
       `stale resource revision: ${original.connection}`,
       409,
     );
+
   const current = await refreshResource(paths, original);
   if (current.state !== "active")
     throw new IntegralError(
@@ -1488,16 +1599,19 @@ async function restoreStoreSnapshotUnlocked(
         : "resource_unavailable",
       409,
     );
+
   const source = join(paths.storeSnapshots, current.id, snapshotId);
   const sourceValue = await stat(source).catch(() => undefined);
   if (!sourceValue?.isDirectory())
     throw new IntegralError("snapshot not found", 404);
+
   await snapshotStore(
     paths,
     current,
     `pre-restore-${randomUUID()}`,
     Math.max(1, config.stores.snapshots),
   );
+
   for (const entry of await readdir(current.path))
     await rm(join(current.path, entry), { recursive: true, force: true });
   for (const entry of await readdir(source))
@@ -1507,6 +1621,7 @@ async function restoreStoreSnapshotUnlocked(
       force: false,
       errorOnExist: true,
     });
+
   const next = { ...current, revision: current.revision + 1 };
   await writeResource(paths, next);
   await bumpResourceGeneration(paths, true);
@@ -1535,6 +1650,7 @@ async function repositoryBundlePushUnlocked(
   const resource = await resourceForId(paths, id);
   if (!resource || resource.kind !== "host-repo")
     throw new IntegralError("repository not found", 404);
+
   const current = await refreshResource(paths, resource);
   if (current.state === "soft-deleted")
     throw new IntegralError("resource_soft_deleted", 409);
@@ -1547,15 +1663,18 @@ async function repositoryBundlePushUnlocked(
       "repository requires a specialized approval-gated landing",
       409,
     );
+
   if (!/^[0-9a-f]{40,64}$/i.test(proposed))
     throw new IntegralError("invalid proposed commit", 400);
   if (bundle.byteLength > config.repositories.maxRepoBytes)
     throw new IntegralError("repository bundle exceeds configured limit", 413);
+
   const quarantine = join(paths.state, "resource-quarantine", randomUUID());
   await ensureDir(quarantine);
   const bundleFile = join(quarantine, "proposal.bundle"),
     repo = join(quarantine, "repo.git"),
     incoming = `refs/integral/incoming/${randomUUID()}`;
+
   try {
     await writeFile(bundleFile, bundle, { mode: 0o600 });
     await git(["init", "--bare", repo]);
@@ -1568,6 +1687,7 @@ async function repositoryBundlePushUnlocked(
     ]);
     await git(["--git-dir", repo, "fsck", "--strict"]);
     await validateTree(repo, proposed, config);
+
     const branch = current.branch ?? "main",
       prior = await git([
         "--git-dir",
@@ -1576,6 +1696,7 @@ async function repositoryBundlePushUnlocked(
         "--verify",
         `refs/heads/${branch}`,
       ]).catch(() => "");
+
     if (prior)
       await git([
         "--git-dir",
@@ -1590,6 +1711,7 @@ async function repositoryBundlePushUnlocked(
           409,
         );
       });
+
     const changedPaths = (
       await git([
         "--git-dir",
@@ -1604,6 +1726,7 @@ async function repositoryBundlePushUnlocked(
     )
       .split("\n")
       .filter(Boolean);
+
     await git([
       "--git-dir",
       current.path,
@@ -1620,6 +1743,7 @@ async function repositoryBundlePushUnlocked(
       prior || "0000000000000000000000000000000000000000",
     ]);
     await git(["--git-dir", current.path, "update-ref", "-d", incoming]);
+
     return { ...(prior ? { prior } : {}), landed: proposed, changedPaths };
   } finally {
     await git(["--git-dir", current.path, "update-ref", "-d", incoming]).catch(
@@ -1639,6 +1763,7 @@ async function validateTree(
     ["--git-dir", gitDir, "ls-tree", "-rz", "-l", proposed],
     { encoding: "buffer", maxBuffer: config.repositories.maxRepoBytes + 1 },
   );
+
   let total = 0;
   for (const entry of raw.stdout.toString("utf8").split("\0").filter(Boolean)) {
     const match = /^(\d+) (\w+) ([0-9a-f]+)\s+(\d+|-)\t(.+)$/.exec(entry);
@@ -1648,6 +1773,7 @@ async function validateTree(
       throw new IntegralError(`Git links are not allowed: ${path}`);
     if (path!.split("/").some((part) => part === ".." || part === ""))
       throw new IntegralError(`unsafe repository path: ${path}`);
+
     if (size !== "-") {
       const bytes = Number(size);
       if (bytes > config.repositories.maxFileBytes)
@@ -1657,6 +1783,7 @@ async function validateTree(
       total += bytes;
     }
   }
+
   if (total > config.repositories.maxRepoBytes)
     throw new IntegralError("repository exceeds configured limit");
 }

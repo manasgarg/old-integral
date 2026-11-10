@@ -13,6 +13,7 @@ export function interpretPiProtocol(line: string): PiProtocolResult {
   } catch {
     return { type: "ignored" };
   }
+
   return interpretPiEvent(event);
 }
 
@@ -29,12 +30,14 @@ export function interpretPiEvent(event: PiProtocolEvent): PiProtocolResult {
           ? `Pi rejected prompt: ${event.error}`
           : "Pi rejected prompt",
     };
+
   if (event.type === "message_update") {
     const delta = event.assistantMessageEvent as
       Record<string, unknown> | undefined;
     if (delta?.type === "text_delta" && typeof delta.delta === "string")
       return { type: "text", text: delta.delta };
   }
+
   if (
     event.type === "agent_end" &&
     event.willRetry !== true &&
@@ -47,12 +50,14 @@ export function interpretPiEvent(event: PiProtocolEvent): PiProtocolResult {
         message.role === "assistant" &&
         message.stopReason === "error",
     );
+
     if (failed && typeof failed.errorMessage === "string")
       return {
         type: "rejected",
         error: `Pi provider failed: ${failed.errorMessage}`,
       };
   }
+
   return event.type === "agent_end" && event.willRetry !== true
     ? { type: "complete" }
     : { type: "ignored" };

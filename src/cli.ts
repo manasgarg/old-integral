@@ -87,6 +87,7 @@ Commands:
 
 Run integral <command> --help for command details.
 `;
+
 const CONFIG_HELP = `Usage: integral config <command>
 
 Commands:
@@ -95,6 +96,7 @@ Commands:
   show       show effective configuration after overrides
   validate   validate configuration without side effects
 `;
+
 const CONNECTION_HELP = `Usage: integral connection <command>
 
 Commands:
@@ -125,12 +127,14 @@ Host-resource paths:
   --path resolves relative paths from the current directory
   --mount resolves relative paths below /home/pi
 `;
+
 const SERVER_HELP = `Usage: integral server start [--component <name>]
        integral server status [--json]
 
 Combined mode is the default. --component <name> starts one component only.
 Component values: coordinator, runner, gateway, scheduler
 `;
+
 const TALK_HELP = `/help                         show this help
 /status                       show shared chat status (integral status)
 /model [<pattern>...]         change model (integral model [<pattern>...])
@@ -149,9 +153,11 @@ const TALK_HELP = `/help                         show this help
 
 Host administration remains in the shell: integral server, talk, schedule, image, config, version, and connection add (including credential rotation) or rm. Structured --json output is CLI-only.
 `;
+
 const TALK_USER_STYLE = "\u001b[48;5;238m\u001b[97m";
 const TALK_STYLE_RESET = "\u001b[0m";
 const TALK_WORK_FRAMES = ["∮   ", "∮·  ", "∮·· ", "∮···"] as const;
+
 const VERSION_HELP = `Usage: integral version
 
 Print the integral, Node.js, and supported Pi versions.
@@ -161,6 +167,7 @@ function flag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 }
+
 function flags(args: string[], name: string): string[] {
   const values: string[] = [];
   for (let index = 0; index < args.length; index++)
@@ -168,12 +175,15 @@ function flags(args: string[], name: string): string[] {
       values.push(args[index + 1]!);
   return values;
 }
+
 function has(args: string[], name: string): boolean {
   return args.includes(name);
 }
+
 function helpRequested(args: string[]): boolean {
   return has(args, "--help") || has(args, "-h");
 }
+
 function writeJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -265,6 +275,7 @@ function renderEffectiveConfig(
     ],
     ["stores", [["snapshots", config.stores.snapshots, "stores.snapshots"]]],
   ];
+
   const lines = ["Effective configuration"];
   for (const [section, values] of sections) {
     lines.push("", `[${section}]`);
@@ -273,6 +284,7 @@ function renderEffectiveConfig(
         `${key} = ${typeof value === "string" ? JSON.stringify(value) : value}${source ? `  # source: ${config.sources[source]}` : ""}`,
       );
   }
+
   lines.push("", "[connections]", `names = ${JSON.stringify(connections)}`, "");
   return lines.join("\n");
 }
@@ -289,16 +301,19 @@ export async function main(args: string[]): Promise<number> {
       process.stdout.write(TOP_HELP);
       return 0;
     }
+
     if (command === "version" || command === "--version" || command === "-V") {
       if (helpRequested(rest)) {
         process.stdout.write(VERSION_HELP);
         return 0;
       }
+
       process.stdout.write(
         `integral ${INTEGRAL_VERSION}\nNode.js ${process.versions.node}\nPi runtime: ${PI_VERSION}\n`,
       );
       return 0;
     }
+
     if (command === "config") return await configCommand(rest);
     if (command === "connection") return await connectionCommand(rest);
     if (command === "image") return await imageCommand(rest);
@@ -323,16 +338,20 @@ async function configCommand(args: string[]): Promise<number> {
     process.stdout.write(CONFIG_HELP);
     return 0;
   }
+
   const paths = resolvePaths();
+
   if (command === "path") {
     process.stdout.write(`${paths.mainConfig}\n`);
     return 0;
   }
+
   if (command === "init") {
     await initConfig(paths);
     process.stdout.write(`Created ${paths.mainConfig}\n`);
     return 0;
   }
+
   if (command === "validate") {
     const errors: string[] = [];
     let config: EffectiveConfig | undefined;
@@ -341,13 +360,16 @@ async function configCommand(args: string[]): Promise<number> {
     } catch (error) {
       errors.push(messageOf(error));
     }
+
     const loaded = await loadConnections(paths);
     errors.push(...loaded.errors);
+
     const result = {
       valid: errors.length === 0,
       errors,
       fingerprint: config?.fingerprint,
     };
+
     if (has(args, "--json")) writeJson(result);
     else
       process.stdout.write(
@@ -357,10 +379,13 @@ async function configCommand(args: string[]): Promise<number> {
       );
     return errors.length ? 1 : 0;
   }
+
   if (command === "show") {
     const config = await loadConfig(paths),
       loaded = await loadConnections(paths);
+
     if (loaded.errors.length) throw new IntegralError(loaded.errors.join("\n"));
+
     const result = {
       server: config.server,
       runner: config.runner,
@@ -369,11 +394,13 @@ async function configCommand(args: string[]): Promise<number> {
       connections: loaded.connections.map((c) => c.name),
       sources: config.sources,
     };
+
     if (has(args, "--json")) writeJson(result);
     else
       process.stdout.write(renderEffectiveConfig(config, result.connections));
     return 0;
   }
+
   throw new IntegralError(`unknown config command: ${command}`);
 }
 
@@ -388,6 +415,7 @@ async function showConnections(
   writeOutput: (text: string) => void,
 ): Promise<void> {
   const rows = await listConnections(paths);
+
   if (json)
     writeOutput(
       `${JSON.stringify(
@@ -444,21 +472,27 @@ export async function connectionCommand(args: string[]): Promise<number> {
     process.stdout.write(CONNECTION_HELP);
     return 0;
   }
+
   if (command === "catalog") {
     showConnectionCatalog((text) => process.stdout.write(text));
     return 0;
   }
+
   const paths = resolvePaths();
+
   if (command === "ls") {
     await showConnections(paths, has(args, "--json"), (text) =>
       process.stdout.write(text),
     );
     return 0;
   }
+
   if (command === "add") {
     await prepareStorage(paths);
+
     const guided = !args[1],
       setupArgs = guided ? await guidedConnection() : args.slice(1);
+
     if (setupArgs[0] === "discord") {
       const existing = (await loadConnections(paths)).connections.find(
         (connection) => connection.kind === "channel",
@@ -468,12 +502,14 @@ export async function connectionCommand(args: string[]): Promise<number> {
         throw new IntegralError(
           "only one channel connection may be configured",
         );
+
       let askForUserId: ((message: string) => Promise<string>) | undefined;
       let userIdInput: ReturnType<typeof createInterface> | undefined;
       if (input.isTTY) {
         userIdInput = createInterface({ input, output });
         askForUserId = (message) => userIdInput!.question(message);
       }
+
       let userId: string;
       try {
         userId = await selectDiscordUserId(
@@ -483,10 +519,12 @@ export async function connectionCommand(args: string[]): Promise<number> {
       } finally {
         userIdInput?.close();
       }
+
       const credential = await readCredential(
         has(setupArgs, "--credential-stdin"),
       );
       const verified = await verifyDiscordBot(credential, userId);
+
       const setup = validateConnection({
         name,
         kind: "channel",
@@ -497,12 +535,14 @@ export async function connectionCommand(args: string[]): Promise<number> {
         user_id: verified.userId,
         channel_id: verified.channelId,
       });
+
       const result = await saveConnection(paths, setup, credential);
       process.stdout.write(
         `${result.rotated ? "Rotated" : "Added"} ${name} (bot ${verified.botUserId}, user ${verified.userId}, DM ${verified.channelId}). Start or restart integral server start to begin listening.\n`,
       );
       return 0;
     }
+
     let setup = await explicitConnection(setupArgs);
     if (
       setup.kind === "mcp" &&
@@ -510,6 +550,7 @@ export async function connectionCommand(args: string[]): Promise<number> {
       (guided || !flag(setupArgs, "--auth"))
     )
       setup = (await discoverMcpAuthorization(setup)) ?? setup;
+
     const entry = CATALOG.find(
       (e) => e.name === (setup.provider ?? setup.kind),
     );
@@ -517,6 +558,7 @@ export async function connectionCommand(args: string[]): Promise<number> {
       throw new IntegralError(
         `${setup.provider ?? setup.kind} does not support ${setup.auth} authentication`,
       );
+
     if (setup.kind === "host-repo" || setup.kind === "host-store") {
       const resource = await addHostResource(
         paths,
@@ -528,6 +570,7 @@ export async function connectionCommand(args: string[]): Promise<number> {
       );
       return 0;
     }
+
     let credential: string | undefined, catalog: McpCatalog | undefined;
     if (setup.transport === "stdio" && setup.secretEnv?.length)
       credential = await readStdioCredentials(
@@ -538,27 +581,33 @@ export async function connectionCommand(args: string[]): Promise<number> {
       credential = await readCredential(has(setupArgs, "--credential-stdin"));
     else if (setup.auth === "oauth" || setup.auth === "device-code")
       credential = await authenticateOAuth(paths, setup);
+
     if (setup.kind === "mcp" && setup.transport !== "stdio")
       catalog = await discoverRemoteMcp(
         setup,
         credential ? (oauthAccess(credential) ?? credential) : undefined,
       );
     if (has(setupArgs, "--verify")) await verifySetup(setup, credential);
+
     const result = await saveConnection(paths, setup, credential);
     process.stdout.write(
       `${result.rotated ? "Rotated" : "Added"} ${setup.name} (${setup.provider ?? setup.kind}, ${setup.auth}${catalog ? `, ${catalog.protocolVersion}, ${catalog.tools.length} tools` : ""})\n`,
     );
     return 0;
   }
+
   if (command === "rm") {
     const name = args[1];
     if (!name) throw new IntegralError("connection name is required");
+
     const found = (await listConnections(paths)).find((c) => c.name === name);
     if (!found) throw new IntegralError(`connection not found: ${name}`);
+
     const rl = createInterface({ input, output });
     try {
       if (found.kind === "host-repo" || found.kind === "host-store") {
         const revision = found.lifecycleRevision!;
+
         if (
           !(await confirm(
             rl,
@@ -568,19 +617,23 @@ export async function connectionCommand(args: string[]): Promise<number> {
           process.stdout.write("Connection unchanged.\n");
           return 0;
         }
+
         await softDeleteResource(paths, name, revision, "operator");
         process.stdout.write(
           `Soft-deleted ${name}; existing sessions retain their checkout or mount until they end.\n`,
         );
         return 0;
       }
+
       if (found.auth !== "none") {
         const yes = await confirm(rl, `Remove credential for ${name}? [y/N] `);
         if (!yes) {
           process.stdout.write("Connection unchanged.\n");
           return 0;
         }
+
         await removeCredential(paths, name);
+
         if (
           !(await confirm(rl, `Remove connection record for ${name}? [y/N] `))
         ) {
@@ -595,6 +648,7 @@ export async function connectionCommand(args: string[]): Promise<number> {
         process.stdout.write("Connection unchanged.\n");
         return 0;
       }
+
       await removeConnection(paths, name);
       process.stdout.write(`Removed ${name}.\n`);
       return 0;
@@ -602,6 +656,7 @@ export async function connectionCommand(args: string[]): Promise<number> {
       rl.close();
     }
   }
+
   throw new IntegralError(`unknown connection command: ${command}`);
 }
 
@@ -609,15 +664,18 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
   const entryName = args[0]!,
     entry = CATALOG.find((e) => e.name === entryName);
   if (!entry) throw new IntegralError(`unknown catalog entry: ${entryName}`);
+
   const name = flag(args, "--name") ?? entryName;
   const requestedAuth = flag(args, "--auth"),
     transport = flag(args, "--transport");
+
   let ask: ((message: string) => Promise<string>) | undefined;
   let rl: ReturnType<typeof createInterface> | undefined;
   if (!requestedAuth && entry.auth.length > 1 && input.isTTY) {
     rl = createInterface({ input, output });
     ask = (message) => rl!.question(message);
   }
+
   let auth: AuthMethod;
   try {
     auth =
@@ -627,7 +685,9 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
   } finally {
     rl?.close();
   }
+
   const raw: Record<string, unknown> = { name, kind: entry.kind, auth };
+
   if (entry.name === "github") {
     raw.provider = entry.name;
     raw.hosts = [...entry.hosts];
@@ -643,6 +703,7 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
     raw.transport = "stdio";
     raw.command = flag(args, "--command");
     raw.args = flags(args, "--arg");
+
     const env: Record<string, string> = {};
     for (const item of flags(args, "--env")) {
       const separator = item.indexOf("=");
@@ -653,12 +714,15 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
         throw new IntegralError(`duplicate --env name: ${key}`);
       env[key] = item.slice(separator + 1);
     }
+
     raw.env = env;
     raw.secret_env = flags(args, "--secret-env");
     raw.allowed_urls = flags(args, "--allow-url");
   } else raw.url = flag(args, "--url");
+
   const methods = flag(args, "--methods");
   if (methods) raw.methods = methods.split(",");
+
   for (const [option, key] of [
     ["--path-prefix", "path_prefix"],
     ["--header", "header"],
@@ -676,6 +740,7 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
     const value = flag(args, option);
     if (value) raw[key] = value;
   }
+
   for (const [option, key] of [
     ["--capabilities", "capabilities"],
     ["--allowed-recipients", "allowed_recipients"],
@@ -683,6 +748,7 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
     const value = flag(args, option);
     if (value) raw[key] = commaSeparated(value);
   }
+
   let details: ReturnType<typeof createInterface> | undefined;
   try {
     await completeEmailOptions(
@@ -698,6 +764,7 @@ export async function explicitConnection(args: string[]): Promise<Connection> {
   } finally {
     details?.close();
   }
+
   return validateConnection(raw);
 }
 
@@ -714,14 +781,17 @@ export async function completeEmailOptions(
   ask?: (message: string) => Promise<string>,
 ): Promise<void> {
   if (provider !== "gmail" && provider !== "mailgun") return;
+
   if (raw.capabilities === undefined && provider === "mailgun")
     raw.capabilities = ["send"];
+
   if (raw.capabilities === undefined && ask) {
     const defaults = "read,search,send";
     raw.capabilities = commaSeparated(
       (await ask(`Capabilities [${defaults}]: `)).trim() || defaults,
     );
   }
+
   if (provider === "gmail") {
     if (raw.account === undefined && ask)
       raw.account = await ask("Account email: ");
@@ -733,6 +803,7 @@ export async function completeEmailOptions(
     if (raw.from_address === undefined && ask)
       raw.from_address = await ask("From address: ");
   }
+
   if (
     Array.isArray(raw.capabilities) &&
     raw.capabilities.includes("send") &&
@@ -756,11 +827,13 @@ export async function selectAuthentication(
       );
     return requested as AuthMethod;
   }
+
   if (supported.length === 1) return supported[0]!;
   if (!ask)
     throw new IntegralError(
       `authentication method is required in a non-interactive terminal; use --auth with one of: ${supported.join(", ")}`,
     );
+
   const selected = (await ask(`Authentication (${supported.join("/")}): `))
     .trim()
     .toLowerCase();
@@ -768,6 +841,7 @@ export async function selectAuthentication(
     throw new IntegralError(
       `authentication method must be one of: ${supported.join(", ")}`,
     );
+
   return selected as AuthMethod;
 }
 
@@ -780,12 +854,14 @@ export async function selectDiscordUserId(
     (
       await ask?.("Human allowed to DM the bot (numeric Discord user ID): ")
     )?.trim();
+
   if (!userId)
     throw new IntegralError("Discord user ID is required; use --user-id");
   if (!/^\d{16,22}$/.test(userId))
     throw new IntegralError(
       "Discord user ID must be the 16-22 digit numeric ID of the human allowed to DM the bot, not a username",
     );
+
   return userId;
 }
 
@@ -797,6 +873,7 @@ export async function guidedConnection(overrides?: {
     throw new IntegralError(
       "guided connection setup requires an interactive terminal",
     );
+
   const rl = overrides ? undefined : createInterface({ input, output }),
     ask = overrides
       ? (message: string) => overrides.ask(message)
@@ -804,21 +881,26 @@ export async function guidedConnection(overrides?: {
     write = overrides
       ? (text: string) => overrides.write(text)
       : (text: string) => process.stdout.write(text);
+
   try {
     write(
       CATALOG.map(
         (e, i) => `${i + 1}. ${e.name} (${e.kind}; ${e.auth.join(", ")})`,
       ).join("\n") + "\n",
     );
+
     const selected = Number(await ask("Select connection: ")) - 1,
       entry = CATALOG[selected];
     if (!entry) throw new IntegralError("invalid selection");
+
     const name = (await ask(`Name [${entry.name}]: `)).trim() || entry.name;
+
     if (entry.kind === "mcp") {
       const transport = (
           await ask("Transport (auto/streamable-http/sse/stdio) [auto]: ")
         ).trim(),
         args = [entry.name, "--name", name, "--auth", "none"];
+
       if (transport === "stdio") {
         args.push("--transport", "stdio", "--command", await ask("Command: "));
         while (true) {
@@ -831,8 +913,10 @@ export async function guidedConnection(overrides?: {
         if (transport && transport !== "auto")
           args.push("--transport", transport);
       }
+
       return args;
     }
+
     const defaultAuth =
         "defaultAuth" in entry ? entry.defaultAuth : entry.auth[0],
       chosenAuth =
@@ -843,12 +927,15 @@ export async function guidedConnection(overrides?: {
                 `Authentication (${entry.auth.join("/")}) [${defaultAuth}]: `,
               )
             ).trim() || defaultAuth;
+
     const args = [entry.name, "--name", name, "--auth", chosenAuth];
+
     if (entry.kind === "http" && entry.name !== "github") {
       args.push("--url", await ask("URL: "));
       const path = (await ask("Path prefix [URL path]: ")).trim();
       if (path) args.push("--path-prefix", path);
     }
+
     if (
       entry.kind === "http" &&
       (chosenAuth === "oauth" || chosenAuth === "device-code")
@@ -861,19 +948,23 @@ export async function guidedConnection(overrides?: {
         "--client-id",
         await ask("Client ID: "),
       );
+
       if (chosenAuth === "device-code")
         args.push(
           "--device-authorization-url",
           await ask("Device authorization URL: "),
         );
     }
+
     if (entry.kind === "email") {
       const defaultCapabilities =
           entry.name === "gmail" ? "read,search,send" : "send",
         capabilities =
           (await ask(`Capabilities [${defaultCapabilities}]: `)).trim() ||
           defaultCapabilities;
+
       args.push("--capabilities", capabilities);
+
       if (entry.name === "gmail")
         args.push(
           "--account",
@@ -888,12 +979,14 @@ export async function guidedConnection(overrides?: {
           "--from",
           await ask("From address: "),
         );
+
       if (capabilities.split(",").includes("send"))
         args.push(
           "--allowed-recipients",
           await ask("Allowed recipients (comma-separated): "),
         );
     }
+
     if (entry.kind === "host-repo" || entry.kind === "host-store") {
       args.push(
         "--path",
@@ -901,16 +994,19 @@ export async function guidedConnection(overrides?: {
         "--mount",
         await ask("Pi mount path (absolute or relative to /home/pi): "),
       );
+
       if (entry.kind === "host-repo") {
         const branch = (await ask("Canonical branch [symbolic HEAD]: ")).trim();
         if (branch) args.push("--branch", branch);
       }
     }
+
     return args;
   } finally {
     rl?.close();
   }
 }
+
 async function readCredential(fromStdin: boolean): Promise<string> {
   if (fromStdin) {
     const rl = createInterface({ input, output });
@@ -922,15 +1018,18 @@ async function readCredential(fromStdin: boolean): Promise<string> {
       rl.close();
     }
   }
+
   if (!input.isTTY)
     throw new IntegralError(
       "credential input requires a terminal or --credential-stdin",
     );
+
   process.stdout.write("Credential (hidden; stored outside configuration): ");
   const value = await new Promise<string>((resolve, reject) => {
     let text = "";
     input.setRawMode(true);
     input.resume();
+
     const data = (chunk: Buffer) => {
       for (const byte of chunk) {
         if (byte === 3) {
@@ -938,31 +1037,38 @@ async function readCredential(fromStdin: boolean): Promise<string> {
           reject(new IntegralError("credential entry cancelled"));
           return;
         }
+
         if (byte === 10 || byte === 13) {
           cleanup();
           process.stdout.write("\n");
           resolve(text);
           return;
         }
+
         if (byte === 127 || byte === 8) text = text.slice(0, -1);
         else if (byte >= 32) text += String.fromCharCode(byte);
       }
     };
+
     const cleanup = () => {
       input.off("data", data);
       input.setRawMode(false);
       input.pause();
     };
+
     input.on("data", data);
   });
+
   if (!value.trim()) throw new IntegralError("credential must not be empty");
   return value.trim();
 }
+
 async function readStdioCredentials(
   names: string[],
   fromStdin: boolean,
 ): Promise<string> {
   const values: Record<string, string> = {};
+
   if (fromStdin) {
     const rl = createInterface({ input, output });
     try {
@@ -981,20 +1087,24 @@ async function readStdioCredentials(
       values[name] = await readCredential(false);
     }
   }
+
   return JSON.stringify({ type: "stdio-env", values });
 }
+
 async function authenticateOAuth(
   paths: IntegralPaths,
   connection: Connection,
 ): Promise<string> {
   if (!input.isTTY)
     throw new IntegralError("OAuth setup requires an interactive terminal");
+
   const rl = createInterface({ input, output });
   const ui = {
     show: (message: string) => process.stdout.write(`${message}\n`),
     prompt: (message: string, signal?: AbortSignal) =>
       signal ? rl.question(message, { signal }) : rl.question(message),
   };
+
   try {
     return connection.kind === "model"
       ? await runModelOAuth(
@@ -1008,6 +1118,7 @@ async function authenticateOAuth(
     rl.close();
   }
 }
+
 async function verifySetup(
   connection: Connection,
   credential?: string,
@@ -1017,24 +1128,29 @@ async function verifySetup(
       ? "https://api.github.com/user"
       : connection.url;
   if (!url) return;
+
   const headers: Record<string, string> = {},
     effective = credential
       ? (oauthAccess(credential) ?? credential)
       : undefined;
+
   if (connection.provider === "github" && effective)
     headers.Authorization = `token ${effective}`;
   else if (connection.auth !== "none")
     headers[connection.header ?? "Authorization"] =
       `${connection.scheme ?? "Bearer"} ${effective}`;
+
   const response = await fetch(url, {
     method: connection.provider === "github" ? "GET" : "HEAD",
     headers,
   });
+
   if (!response.ok)
     throw new IntegralError(
       `connection verification failed: HTTP ${response.status}`,
     );
 }
+
 async function confirm(
   rl: ReturnType<typeof createInterface>,
   question: string,
@@ -1048,7 +1164,9 @@ async function serverCommand(args: string[]): Promise<number> {
     process.stdout.write(SERVER_HELP);
     return 0;
   }
+
   const paths = resolvePaths();
+
   if (command === "status") {
     const status = await serverStatus(paths);
     if (has(args, "--json")) writeJson(status);
@@ -1059,16 +1177,20 @@ async function serverCommand(args: string[]): Promise<number> {
           `${component}: ${status.components[component].status}${status.components[component].endpoint ? ` (${status.components[component].endpoint})` : ""}\n`,
         );
     }
+
     return status.overall === "healthy" ? 0 : 1;
   }
+
   if (command === "start") {
     const selected = flag(args, "--component");
     if (selected && !COMPONENTS.includes(selected as Component))
       throw new IntegralError(`invalid component: ${selected}`);
+
     const config = await loadConfig(paths);
     await startComponents(paths, config, selected as Component | undefined);
     return 0;
   }
+
   throw new IntegralError(`unknown server command: ${command}`);
 }
 
@@ -1155,10 +1277,12 @@ export function createTalkTerminal(overrides?: {
       setInterval: globalThis.setInterval,
       clearInterval: globalThis.clearInterval,
     };
+
   let activePrompt: string | undefined,
     working = false,
     frame = 0,
     animation: unknown;
+
   const displayedPrompt = () =>
       `${working ? `${TALK_WORK_FRAMES[frame]}\n` : ""}${activePrompt ?? ""}`,
     clearDisplayedPrompt = (hasWorkingLine: boolean) => {
@@ -1172,15 +1296,18 @@ export function createTalkTerminal(overrides?: {
     },
     redrawPrompt = (hadWorkingLine: boolean) => {
       if (!activePrompt || !destination.isTTY) return;
+
       const pendingInput = terminal.line,
         pendingCursor = terminal.cursor;
       if (activePrompt === humanLabel(true))
         destination.write(TALK_STYLE_RESET);
+
       clearDisplayedPrompt(hadWorkingLine);
       destination.write(`${displayedPrompt()}${pendingInput}`);
       if (pendingCursor < pendingInput.length)
         controls.moveCursor(destination, pendingCursor - pendingInput.length);
     };
+
   return {
     colors: Boolean(destination.isTTY) && process.env.NO_COLOR === undefined,
     async question(prompt) {
@@ -1197,10 +1324,12 @@ export function createTalkTerminal(overrides?: {
         destination.write(text);
         return;
       }
+
       const pendingInput = terminal.line,
         pendingCursor = terminal.cursor;
       if (activePrompt === humanLabel(true))
         destination.write(TALK_STYLE_RESET);
+
       clearDisplayedPrompt(working);
       destination.write(text);
       destination.write(`${displayedPrompt()}${pendingInput}`);
@@ -1209,12 +1338,14 @@ export function createTalkTerminal(overrides?: {
     },
     setWorking(next) {
       if (working === next || !destination.isTTY) return;
+
       const hadWorkingLine = working;
       working = next;
       frame = 0;
       if (animation !== undefined) clock.clearInterval(animation);
       animation = undefined;
       redrawPrompt(hadWorkingLine);
+
       if (working)
         animation = clock.setInterval(() => {
           frame = (frame + 1) % TALK_WORK_FRAMES.length;
@@ -1246,12 +1377,14 @@ export async function modelCommand(
   overrides: Partial<ModelCommandDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionModelDependencies, ...overrides };
+
   if (helpRequested(args)) {
     dependencies.writeOutput(
       "Usage: integral model [<pattern>...]\n\nShow or change the shared conversation model without attaching a talk session. In integral talk, use /model [<pattern>...].\n",
     );
     return 0;
   }
+
   const terminal = dependencies.createTerminal();
   try {
     await chooseConversationModel(
@@ -1272,12 +1405,14 @@ export async function talkCommand(
   overrides: Partial<TalkDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionTalkDependencies, ...overrides };
+
   if (helpRequested(args)) {
     dependencies.writeOutput(
       `Usage: integral talk [<pattern>...]\n\nAttach this terminal to the one durable deployment conversation. Optional patterns search connection, provider, and model names.\n${TALK_HELP}`,
     );
     return 0;
   }
+
   const paths = dependencies.resolvePaths();
   let endpoint: string;
   try {
@@ -1288,6 +1423,7 @@ export async function talkCommand(
       "coordinator is not reachable; start it with integral server start",
     );
   }
+
   const abort = new AbortController();
   const rl = dependencies.createTerminal(),
     terminalId = dependencies.createTerminalId();
@@ -1301,19 +1437,23 @@ export async function talkCommand(
       dependencies.writeOutput,
       args.length === 0,
     );
+
     const response = await dependencies.fetch(
       new URL("/integral/events", endpoint),
       {
         signal: abort.signal,
       },
     );
+
     if (!response.ok || !response.body)
       throw new IntegralError("could not attach to coordinator");
+
     let attachmentId = response.headers.get("x-integral-attachment-id");
     if (!attachmentId)
       throw new IntegralError(
         "coordinator did not issue a terminal attachment identity",
       );
+
     follow = followCoordinatorEvents(
       response,
       paths,
@@ -1328,6 +1468,7 @@ export async function talkCommand(
         attachmentId = nextAttachmentId;
       },
     );
+
     while (true) {
       let line: string;
       try {
@@ -1335,9 +1476,11 @@ export async function talkCommand(
       } catch {
         break;
       }
+
       const text = line.trim();
       if (!text) continue;
       if (text === "/exit") break;
+
       try {
         if (text === "/help") {
           dependencies.writeOutput(TALK_HELP);
@@ -1347,6 +1490,7 @@ export async function talkCommand(
           await runStatusCommand([], endpoint, dependencies);
           continue;
         }
+
         const model = text.match(/^\/model(?:\s+(.*))?$/);
         if (model) {
           await chooseConversationModel(
@@ -1358,14 +1502,17 @@ export async function talkCommand(
           );
           continue;
         }
+
         if (text === "/connection catalog") {
           showConnectionCatalog(dependencies.writeOutput);
           continue;
         }
+
         if (text === "/connection ls") {
           await showConnections(paths, false, dependencies.writeOutput);
           continue;
         }
+
         if (text.startsWith("/queue ")) {
           const queueArgs = text.slice("/queue ".length).split(/\s+/);
           if (queueArgs.includes("--json"))
@@ -1375,6 +1522,7 @@ export async function talkCommand(
           await runQueueCommand(queueArgs, endpoint, dependencies);
           continue;
         }
+
         const tasks = text.match(/^\/tasks(?:\s+(.*))?$/);
         if (tasks) {
           const taskArgs = tasks[1]?.trim().split(/\s+/).filter(Boolean) ?? [];
@@ -1385,12 +1533,14 @@ export async function talkCommand(
           await runTaskCommand(taskArgs, endpoint, dependencies);
           continue;
         }
+
         if (text === "/approvals") {
           await runApprovalCommand(["ls"], endpoint, dependencies, {
             attachmentId,
           });
           continue;
         }
+
         const approvalDecision = text.match(/^\/(approve|deny)\s+(\S+)$/);
         if (approvalDecision) {
           await runApprovalCommand(
@@ -1401,10 +1551,12 @@ export async function talkCommand(
           );
           continue;
         }
+
         if (text.startsWith("/")) {
           dependencies.writeError("Unknown local command. Enter /help.\n");
           continue;
         }
+
         await requestOk(
           new URL("/integral/messages", endpoint),
           {
@@ -1418,6 +1570,7 @@ export async function talkCommand(
         dependencies.writeError(`integral: ${messageOf(error)}\n`);
       }
     }
+
     return 0;
   } finally {
     rl.setWorking?.(false);
@@ -1445,48 +1598,58 @@ async function chooseConversationModel(
     new URL("/integral/models", endpoint),
     fetcher,
   )) as ModelMenu;
+
   if (!menu.choices.length)
     throw new IntegralError(
       "no provider and model choices are available; run integral connection add",
     );
+
   const current = menu.choices.find((choice) =>
     sameModel(menu.current ?? undefined, choice),
   );
+
   if (menu.current && !current)
     writeOutput(
       `Previous model ${menu.current.connection} (${menu.current.provider}) / ${menu.current.model} is no longer available.\n`,
     );
+
   if (reuseCurrent && current) {
     if (!sameSelection(menu.current ?? undefined, current))
       await saveConversationSelection(current, endpoint, fetcher);
     return current;
   }
+
   let displayed = menu.choices,
     pendingTerms = [...initialTerms];
   while (true) {
     renderModelChoices(displayed, current, menu.piVersion, writeOutput);
+
     const raw = pendingTerms.length
       ? pendingTerms.join(" ")
       : (
           await terminal.question(current ? "Model [current]: " : "Model: ")
         ).trim();
     pendingTerms = [];
+
     if (!raw && current) {
       if (!sameSelection(menu.current ?? undefined, current))
         await saveConversationSelection(current, endpoint, fetcher);
       return current;
     }
+
     if (!raw) {
       writeOutput("Select a model by number or search terms.\n");
       displayed = menu.choices;
       continue;
     }
+
     const number = /^\d+$/.test(raw) ? Number(raw) : undefined;
     let matches: ModelChoice[];
     if (number !== undefined) {
       const choice = displayed[number - 1];
       matches = choice ? [choice] : [];
     } else matches = matchModelChoices(displayed, raw.split(/\s+/));
+
     if (matches.length === 1) {
       const selected = matches[0]!;
       if (!sameSelection(menu.current ?? undefined, selected))
@@ -1496,6 +1659,7 @@ async function chooseConversationModel(
       );
       return selected;
     }
+
     if (matches.length > 1) {
       writeOutput(
         "Multiple models match; narrow the search or choose a number.\n",
@@ -1535,6 +1699,7 @@ function renderModelChoices(
 ): void {
   const lines = [`Available models${piVersion ? ` (Pi ${piVersion})` : ""}:`];
   let prior = "";
+
   choices.forEach((choice, index) => {
     const group = `${choice.connection}\u0000${choice.provider}`;
     if (group !== prior) {
@@ -1545,6 +1710,7 @@ function renderModelChoices(
       `  ${index + 1}. ${choice.model}${sameSelection(current, choice) ? " [current]" : ""}`,
     );
   });
+
   lines.push(
     "Enter a number or case-insensitive search terms.",
     "Search directly with: integral model <pattern>..., integral talk <pattern>..., or /model <pattern>...",
@@ -1573,8 +1739,10 @@ async function followCoordinatorEvents(
     sawSnapshot: false,
     lastConversationSequence: 0,
   };
+
   let response: Response | undefined = initialResponse,
     reconnecting = false;
+
   while (!signal.aborted) {
     try {
       if (!response) {
@@ -1582,15 +1750,18 @@ async function followCoordinatorEvents(
           paths,
           "coordinator",
         );
+
         await dependencies.verifiedFetch(
           paths,
           "coordinator",
           "/integral/health",
         );
+
         response = await dependencies.fetch(
           new URL("/integral/events", endpoint),
           { signal },
         );
+
         if (!response.ok || !response.body)
           throw new IntegralError("could not attach to coordinator");
         const attachmentId = response.headers.get("x-integral-attachment-id");
@@ -1598,9 +1769,11 @@ async function followCoordinatorEvents(
           throw new IntegralError(
             "coordinator did not issue a terminal attachment identity",
           );
+
         connected(endpoint, attachmentId);
         if (reconnecting) writeOutput("integral: coordinator reconnected\n");
       }
+
       await consumeEvents(
         response.body!,
         writeOutput,
@@ -1609,15 +1782,18 @@ async function followCoordinatorEvents(
         setWorking,
         state,
       );
+
       if (signal.aborted) return;
       throw new IntegralError("coordinator event stream ended");
     } catch {
       if (signal.aborted) return;
+
       setWorking(false);
       if (!reconnecting)
         dependencies.writeError(
           "integral: coordinator disconnected; reconnecting\n",
         );
+
       reconnecting = true;
       response = undefined;
       await reconnectDelay(signal);
@@ -1627,12 +1803,14 @@ async function followCoordinatorEvents(
 
 async function reconnectDelay(signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
+
   await new Promise<void>((resolve) => {
     const done = () => {
       clearTimeout(timer);
       signal.removeEventListener("abort", done);
       resolve();
     };
+
     const timer = setTimeout(done, 500);
     signal.addEventListener("abort", done, { once: true });
   });
@@ -1651,52 +1829,65 @@ async function consumeEvents(
 ): Promise<void> {
   const reader = stream.getReader(),
     decoder = new TextDecoder();
+
   let buffer = "",
     sessionActive = false,
     inFlight = false,
     working = false;
+
   const updateWorking = () => {
     const next = sessionActive && inFlight;
     if (next === working) return;
     working = next;
     setWorking(working);
   };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
+
     buffer += decoder.decode(value, { stream: true });
+
     let boundary;
     while ((boundary = buffer.indexOf("\n\n")) >= 0) {
       const block = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
+
       const event = block.match(/^event: (.+)$/m)?.[1],
         data = block.match(/^data: (.+)$/m)?.[1];
       if (!data) continue;
+
       const value = JSON.parse(data) as Record<string, unknown>;
+
       if (event === "snapshot") {
         const snapshot = value as {
           conversation: { type: string; text?: string; sequence?: number }[];
           queue?: { status: string }[];
           approvals?: Array<Record<string, unknown>>;
         };
+
         const latestSession = snapshot.conversation
           .filter((item) => item.type === "session")
           .at(-1);
+
         sessionActive = latestSession?.text === "started";
         inFlight =
           snapshot.queue?.some((item) => item.status === "in-flight") ?? false;
         updateWorking();
+
         const firstSnapshot = !state.sawSnapshot;
         for (const item of snapshot.conversation) {
           const unseen =
             firstSnapshot ||
             (typeof item.sequence === "number" &&
               item.sequence > state.lastConversationSequence);
+
           if (typeof item.sequence === "number")
             state.lastConversationSequence = Math.max(
               state.lastConversationSequence,
               item.sequence,
             );
+
           if (unseen && item.text && item.type !== "session") {
             writeOutput(
               item.type === "user"
@@ -1705,6 +1896,7 @@ async function consumeEvents(
             );
           }
         }
+
         state.sawSnapshot = true;
         if (firstSnapshot)
           for (const approval of snapshot.approvals ?? [])
@@ -1717,11 +1909,13 @@ async function consumeEvents(
           terminalId?: string;
           sequence?: number;
         };
+
         if (typeof item.sequence === "number")
           state.lastConversationSequence = Math.max(
             state.lastConversationSequence,
             item.sequence,
           );
+
         if (item.text && item.terminalId !== terminalId)
           writeOutput(humanMessage(item.text, colors));
       } else if (
@@ -1733,11 +1927,13 @@ async function consumeEvents(
           text?: string;
           sequence?: number;
         };
+
         if (typeof item.sequence === "number")
           state.lastConversationSequence = Math.max(
             state.lastConversationSequence,
             item.sequence,
           );
+
         inFlight = false;
         updateWorking();
         if (item.text) writeOutput(`∮ ${item.text}\n`);

@@ -27,7 +27,9 @@ interface DiscordIngressState {
 
 export class DiscordIngressStore {
   private state: DiscordIngressState = { accepted: [] };
+
   constructor(private readonly file: string) {}
+
   async load(): Promise<void> {
     const raw = await readText(this.file);
     if (!raw) return;
@@ -36,12 +38,15 @@ export class DiscordIngressStore {
       throw new IntegralError("invalid Discord ingress state");
     this.state = parsed;
   }
+
   has(messageId: string): boolean {
     return this.state.accepted.includes(messageId);
   }
+
   position(): string | undefined {
     return this.state.lastMessageId;
   }
+
   async record(messageId: string): Promise<void> {
     if (this.has(messageId)) return;
     this.state.accepted.push(messageId);
@@ -51,6 +56,7 @@ export class DiscordIngressStore {
       BigInt(messageId) > BigInt(this.state.lastMessageId)
     )
       this.state.lastMessageId = messageId;
+
     await atomicWrite(this.file, `${JSON.stringify(this.state)}\n`);
   }
 }
@@ -59,6 +65,7 @@ export function discordChunks(text: string, limit = 2_000): string[] {
   if (!text) return [];
   const result: string[] = [];
   let rest = text;
+
   while (rest.length > limit) {
     let end = rest.lastIndexOf("\n", limit);
     if (end < Math.floor(limit / 2)) end = rest.lastIndexOf(" ", limit);
@@ -67,6 +74,7 @@ export function discordChunks(text: string, limit = 2_000): string[] {
     result.push(rest.slice(0, end));
     rest = rest.slice(end).replace(/^\n/, "");
   }
+
   if (rest) result.push(rest);
   return result;
 }
@@ -111,6 +119,7 @@ export class DiscordJsListener implements DiscordListener {
   private channel: DMChannel | undefined;
   private typingTimer: NodeJS.Timeout | undefined;
   private serial = Promise.resolve();
+
   constructor(
     private readonly connection: Connection,
     private readonly token: string,
@@ -123,6 +132,7 @@ export class DiscordJsListener implements DiscordListener {
     )
       throw new IntegralError("Discord connection is incomplete");
   }
+
   async start(): Promise<void> {
     this.client.on("messageCreate", (message) => this.receive(message));
     this.client.on("interactionCreate", (interaction) => {
@@ -132,6 +142,7 @@ export class DiscordJsListener implements DiscordListener {
         interaction.user.id !== this.connection.userId
       )
         return;
+
       void (async () => {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
@@ -141,12 +152,14 @@ export class DiscordJsListener implements DiscordListener {
           } catch {
             subcommand = undefined;
           }
+
           const options: Record<string, string> = {};
           for (const option of interaction.options.data.flatMap(
             (value) => value.options ?? [value],
           ))
             if (typeof option.value === "string")
               options[option.name] = option.value;
+
           const chunks = discordChunks(
             await this.callbacks.command(
               interaction.commandName,
@@ -154,6 +167,7 @@ export class DiscordJsListener implements DiscordListener {
               options,
             ),
           );
+
           await interaction.editReply(chunks.shift() ?? "Done.");
           for (const chunk of chunks)
             await interaction.followUp({
@@ -167,7 +181,9 @@ export class DiscordJsListener implements DiscordListener {
         }
       })();
     });
+
     this.client.on("error", (error) => this.callbacks.failure(error));
+
     await this.client.login(this.token);
     const fetched = await this.client.channels.fetch(
       this.connection.channelId!,
@@ -175,15 +191,18 @@ export class DiscordJsListener implements DiscordListener {
     if (!fetched?.isDMBased())
       throw new IntegralError("configured Discord channel is not a DM");
     this.channel = fetched as DMChannel;
+
     await this.registerCommands();
     await this.recover();
   }
+
   private async registerCommands(): Promise<void> {
     const direct = <
       T extends { setContexts(...contexts: InteractionContextType[]): T },
     >(
       builder: T,
     ) => builder.setContexts(InteractionContextType.BotDM);
+
     const commands = [
       direct(
         new SlashCommandBuilder()
@@ -313,12 +332,15 @@ export class DiscordJsListener implements DiscordListener {
           ),
       ),
     ];
+
     await this.client.application?.commands.set(
       commands.map((command) => command.toJSON()),
     );
   }
+
   private async recover(): Promise<void> {
     if (!this.channel) return;
+
     let after = this.callbacks.recoveryPosition(),
       hasMore = true;
     while (hasMore) {
@@ -333,13 +355,16 @@ export class DiscordJsListener implements DiscordListener {
               !message.author.bot,
           )
           .sort((left, right) => (BigInt(left.id) < BigInt(right.id) ? -1 : 1));
+
       for (const message of eligible) this.receive(message);
       await this.serial;
+
       const last = eligible.at(-1)?.id;
       hasMore = Boolean(last && last !== after && messages.size === 100);
       if (last) after = last;
     }
   }
+
   private receive(message: Message): void {
     if (
       message.channelId !== this.connection.channelId ||
@@ -347,6 +372,7 @@ export class DiscordJsListener implements DiscordListener {
       message.author.bot
     )
       return;
+
     const value = normalized(message);
     this.serial = this.serial
       .then(async () => {
@@ -359,18 +385,22 @@ export class DiscordJsListener implements DiscordListener {
         ),
       );
   }
+
   async stop(): Promise<void> {
     if (this.typingTimer) clearInterval(this.typingTimer);
     await this.serial;
     await this.client.destroy();
   }
+
   async reply(text: string): Promise<void> {
     if (!this.channel) throw new IntegralError("Discord DM is unavailable");
     for (const chunk of discordChunks(text)) await this.channel.send(chunk);
   }
+
   async typing(active: boolean): Promise<void> {
     if (this.typingTimer) clearInterval(this.typingTimer);
     this.typingTimer = undefined;
+
     if (!active || !this.channel) return;
     await this.channel.sendTyping();
     this.typingTimer = setInterval(
@@ -404,20 +434,24 @@ export async function verifyDiscordBot(
         ...init?.headers,
       },
     });
+
     if (!response.ok)
       throw new IntegralError(
         `Discord verification failed (${response.status})`,
       );
     return (await response.json()) as Record<string, unknown>;
   };
+
   const [bot, application] = await Promise.all([
     call("/users/@me"),
     call("/oauth2/applications/@me"),
   ]);
+
   const dm = await call("/users/@me/channels", {
     method: "POST",
     body: JSON.stringify({ recipient_id: userId }),
   });
+
   for (const [label, value] of [
     ["bot user", bot.id],
     ["application", application.id],
@@ -425,6 +459,7 @@ export async function verifyDiscordBot(
   ] as Array<[string, unknown]>)
     if (typeof value !== "string")
       throw new IntegralError(`Discord did not return a ${label} ID`);
+
   return {
     applicationId: application.id as string,
     botUserId: bot.id as string,

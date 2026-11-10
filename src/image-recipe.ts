@@ -22,6 +22,7 @@ import { acquireLock, ensureDir } from "./fs.ts";
 import type { IntegralPaths } from "./paths.ts";
 
 const run = promisify(execFile);
+
 export const IMAGE_RECIPE_ID = "integral-image-recipe";
 export const IMAGE_RECIPE_NAME = "image-recipe";
 export const IMAGE_RECIPE_MOUNT = "/home/pi/image";
@@ -59,12 +60,14 @@ async function git(args: string[], cwd?: string): Promise<string> {
         GIT_TERMINAL_PROMPT: "0",
       },
     });
+
     return result.stdout.trim();
   } catch (error) {
     const stderr =
       error && typeof error === "object" && "stderr" in error
         ? String(error.stderr).trim()
         : "";
+
     throw new IntegralError(stderr || "image recipe Git operation failed");
   }
 }
@@ -94,6 +97,7 @@ export async function bundledFoundationalImage(): Promise<string> {
   const reference = (await readFile(bundledDockerfile(), "utf8")).match(
     /^FROM\s+(\S+)/m,
   )?.[1];
+
   if (!reference)
     throw new IntegralError("bundled Pi Dockerfile has no foundational image");
   return reference;
@@ -104,18 +108,22 @@ async function foundationalMigration(
   head: string,
 ): Promise<FoundationalMigration | undefined> {
   if (settledFoundationHeads.get(paths.imageRecipe) === head) return undefined;
+
   const dockerfile = await imageRecipeDockerfile(paths, head),
     to = await bundledFoundationalImage(),
     froms = [...dockerfile.matchAll(/^FROM\s+(\S+)/gm)],
     from = froms.length === 1 ? froms[0]![1] : undefined;
+
   if (from && from !== to && RETIRED_FOUNDATIONAL_IMAGES.includes(from)) {
     const source = `${dockerfile.replace(/^FROM\s+\S+/m, `FROM ${to}`).trimEnd()}\n`;
     const valid = await validateImageDockerfile(source).then(
       () => true,
       () => false,
     );
+
     if (valid) return { source, from, to };
   }
+
   settledFoundationHeads.set(paths.imageRecipe, head);
   return undefined;
 }
@@ -128,6 +136,7 @@ async function landFoundationalMigration(
   migration: FoundationalMigration,
 ): Promise<string | undefined> {
   const working = await mkdtemp(join(tmpdir(), "integral-image-migrate-"));
+
   try {
     await git(["clone", "--no-local", paths.imageRecipe, working]);
     await git(["checkout", "--detach", prior], working);
@@ -145,14 +154,17 @@ async function landFoundationalMigration(
       ],
       working,
     );
+
     const landed = await git(["rev-parse", "HEAD"], working),
       treeDigest = await git(["rev-parse", "HEAD^{tree}"], working);
+
     try {
       await git(["push", "origin", "HEAD:refs/heads/main"], working);
     } catch (error) {
       if ((await imageRecipeHead(paths)) !== prior) return undefined;
       throw error;
     }
+
     await appendImageAudit(paths, {
       action: "recipe.migrate",
       actor: "Integral",
@@ -162,6 +174,7 @@ async function landFoundationalMigration(
       priorFoundationalImageReference: migration.from,
       foundationalImageReference: migration.to,
     });
+
     settledFoundationHeads.set(paths.imageRecipe, landed);
     return landed;
   } finally {
@@ -181,12 +194,15 @@ export async function ensureImageRecipeRepository(
   const ready = await stat(paths.imageRecipe)
     .then((value) => value.isDirectory())
     .catch(() => false);
+
   if (ready) {
     const head = await imageRecipeHead(paths);
     if (!(await foundationalMigration(paths, head))) return head;
   }
+
   await ensureDir(paths.state);
   const lock = join(paths.state, "image-recipe-init.lock");
+
   for (let attempt = 0; ; attempt++) {
     let release: (() => Promise<void>) | undefined;
     try {
@@ -197,6 +213,7 @@ export async function ensureImageRecipeRepository(
       await new Promise((resolve) => setTimeout(resolve, 10));
       continue;
     }
+
     try {
       return await ensureImageRecipeRepositoryUnlocked(paths);
     } finally {
@@ -211,6 +228,7 @@ async function ensureImageRecipeRepositoryUnlocked(
   const exists = await stat(paths.imageRecipe)
     .then((value) => value.isDirectory())
     .catch(() => false);
+
   if (exists) {
     await git([
       "--git-dir",
@@ -218,20 +236,25 @@ async function ensureImageRecipeRepositoryUnlocked(
       "rev-parse",
       "--is-bare-repository",
     ]);
+
     for (let attempt = 0; attempt < 5; attempt++) {
       const head = await imageRecipeHead(paths),
         migration = await foundationalMigration(paths, head);
       if (!migration) return head;
+
       const landed = await landFoundationalMigration(paths, head, migration);
       if (landed) return landed;
     }
+
     throw new IntegralError(
       "image recipe kept changing while moving it to the current foundational image",
       409,
     );
   }
+
   await ensureDir(dirname(paths.imageRecipe));
   const working = await mkdtemp(join(tmpdir(), "integral-image-seed-"));
+
   try {
     await git(["init", "--initial-branch", "main"], working);
     await copyFile(bundledDockerfile(), join(working, "Dockerfile"));
@@ -248,6 +271,7 @@ async function ensureImageRecipeRepositoryUnlocked(
       ],
       working,
     );
+
     await git([
       "init",
       "--bare",
@@ -255,11 +279,13 @@ async function ensureImageRecipeRepositoryUnlocked(
       "main",
       paths.imageRecipe,
     ]);
+
     await git(["remote", "add", "origin", paths.imageRecipe], working);
     await git(["push", "origin", "HEAD:main"], working);
   } finally {
     await rm(working, { recursive: true, force: true });
   }
+
   return await imageRecipeHead(paths);
 }
 
@@ -293,6 +319,7 @@ export async function materializeImageRecipe(
 ): Promise<{ checkout: string; head: string }> {
   const head = await ensureImageRecipeRepository(paths),
     checkout = join(sessionHome, "image");
+
   await git([
     "clone",
     "--no-local",
@@ -301,10 +328,12 @@ export async function materializeImageRecipe(
     paths.imageRecipe,
     checkout,
   ]);
+
   await git(["checkout", "-b", `integral/${sessionId}`], checkout);
   await git(["config", "user.name", "Pi"], checkout);
   await git(["config", "user.email", "pi@integral.local"], checkout);
   await git(["remote", "remove", "origin"], checkout);
+
   await git(
     [
       "remote",
@@ -314,12 +343,14 @@ export async function materializeImageRecipe(
     ],
     checkout,
   );
+
   return { checkout, head };
 }
 
 export async function validateImageDockerfile(source: string): Promise<void> {
   if (!source.trim() || Buffer.byteLength(source) > 1_000_000)
     throw new IntegralError("image Dockerfile must be between 1 byte and 1 MB");
+
   const baseline = await readFile(bundledDockerfile(), "utf8"),
     requiredFrom = baseline.match(/^FROM\s+\S+/m)?.[0],
     from = source.match(/^FROM\s+\S+/gm) ?? [];
@@ -327,6 +358,7 @@ export async function validateImageDockerfile(source: string): Promise<void> {
     throw new IntegralError(
       `image Dockerfile must retain the foundational boundary: ${requiredFrom}`,
     );
+
   const users = source.match(/^USER\s+\S+[ \t]*$/gm) ?? [],
     workdirs = source.match(/^WORKDIR\s+\S+[ \t]*$/gm) ?? [];
   if (users.at(-1) !== "USER 1000:1000")
@@ -341,6 +373,7 @@ export async function validateImageDockerfile(source: string): Promise<void> {
     throw new IntegralError(
       "image Dockerfile may not override Integral's runtime command boundary",
     );
+
   const transfers = source.match(/^(?:ADD|COPY)\s+.*$/gm) ?? [];
   if (
     transfers.some(
@@ -360,6 +393,7 @@ async function validateCommit(
 ): Promise<{ treeDigest: string; dockerfile: string }> {
   if (!/^[0-9a-f]{40,64}$/i.test(commit))
     throw new IntegralError("invalid image recipe commit", 400);
+
   const files = (
     await git(["--git-dir", gitDir, "ls-tree", "-r", "--name-only", commit])
   )
@@ -367,6 +401,7 @@ async function validateCommit(
     .filter(Boolean);
   if (files.length !== 1 || files[0] !== "Dockerfile")
     throw new IntegralError("image recipe must contain only Dockerfile");
+
   const dockerfile = await git([
     "--git-dir",
     gitDir,
@@ -374,6 +409,7 @@ async function validateCommit(
     `${commit}:Dockerfile`,
   ]);
   await validateImageDockerfile(dockerfile);
+
   return {
     treeDigest: await git([
       "--git-dir",
@@ -392,11 +428,13 @@ export async function stageImageProposal(
 ): Promise<ImageProposal> {
   if (bundle.byteLength > 32 * 1024 * 1024)
     throw new IntegralError("image recipe bundle is too large", 413);
+
   const baseCommit = await ensureImageRecipeRepository(paths),
     quarantine = await mkdtemp(join(tmpdir(), "integral-image-proposal-")),
     bundleFile = join(quarantine, "proposal.bundle"),
     repo = join(quarantine, "repo.git"),
     proposalRef = `refs/integral/proposals/${randomUUID()}`;
+
   try {
     await writeFile(bundleFile, bundle, { mode: 0o600 });
     await git(["init", "--bare", repo]);
@@ -416,6 +454,7 @@ export async function stageImageProposal(
       baseCommit,
       proposed,
     ]);
+
     const { treeDigest } = await validateCommit(repo, proposed),
       changedPaths = (
         await git([
@@ -440,6 +479,7 @@ export async function stageImageProposal(
         "--",
         "Dockerfile",
       ]);
+
     await git([
       "--git-dir",
       paths.imageRecipe,
@@ -447,6 +487,7 @@ export async function stageImageProposal(
       bundleFile,
       `${proposed}:${proposalRef}`,
     ]);
+
     return {
       baseCommit,
       proposedCommit: proposed,
@@ -470,6 +511,7 @@ export async function activateImageProposal(
       `image recipe proposal is stale: expected ${proposal.baseCommit}, current ${current}`,
       409,
     );
+
   const actual = await git([
     "--git-dir",
     paths.imageRecipe,
@@ -479,9 +521,11 @@ export async function activateImageProposal(
   ]);
   if (actual !== proposal.proposedCommit)
     throw new IntegralError("image recipe proposal ref changed", 409);
+
   const validated = await validateCommit(paths.imageRecipe, actual);
   if (validated.treeDigest !== proposal.treeDigest)
     throw new IntegralError("image recipe proposal tree changed", 409);
+
   await git([
     "--git-dir",
     paths.imageRecipe,
@@ -511,11 +555,14 @@ export async function commitImageDockerfile(
   actor: string,
 ): Promise<{ prior: string; landed: string; treeDigest: string }> {
   await validateImageDockerfile(source);
+
   const prior = await ensureImageRecipeRepository(paths),
     working = await mkdtemp(join(tmpdir(), "integral-image-edit-"));
+
   try {
     await git(["clone", "--no-local", paths.imageRecipe, working]);
     await writeFile(join(working, "Dockerfile"), source);
+
     const changed = await git(["status", "--porcelain"], working);
     if (!changed)
       return {
@@ -528,6 +575,7 @@ export async function commitImageDockerfile(
           `${prior}^{tree}`,
         ]),
       };
+
     await git(["add", "Dockerfile"], working);
     await git(
       [
@@ -541,9 +589,11 @@ export async function commitImageDockerfile(
       ],
       working,
     );
+
     const landed = await git(["rev-parse", "HEAD"], working);
     await git(["push", "origin", "HEAD:main"], working);
     const treeDigest = await git(["rev-parse", "HEAD^{tree}"], working);
+
     await appendImageAudit(paths, {
       action: "recipe.edit",
       actor,
@@ -551,6 +601,7 @@ export async function commitImageDockerfile(
       landed,
       treeDigest,
     });
+
     return { prior, landed, treeDigest };
   } finally {
     await rm(working, { recursive: true, force: true });
@@ -569,12 +620,15 @@ export async function buildImageRecipe(
       "image recipes can only build Integral's managed Pi image",
       409,
     );
+
   await ensureImageRecipeRepository(paths);
   const validated = await validateCommit(paths.imageRecipe, commit),
     foundationalImageReference =
       validated.dockerfile.match(/^FROM\s+(\S+)/m)?.[1];
+
   const context = await mkdtemp(join(tmpdir(), "integral-image-build-")),
     tag = `integral-pi:${INTEGRAL_VERSION}-image-${commit.slice(0, 12)}`;
+
   try {
     const dockerfile = await imageRecipeDockerfile(paths, commit);
     await writeFile(join(context, "Dockerfile"), `${dockerfile.trimEnd()}\n`);
@@ -583,6 +637,7 @@ export async function buildImageRecipe(
       modelBridge(),
       join(context, "bin", "integral-pi-models.mjs"),
     );
+
     const built = spawnSync(
       "docker",
       [
@@ -605,6 +660,7 @@ export async function buildImageRecipe(
       throw new IntegralError(
         `image recipe build failed: ${built.stderr.trim()}`,
       );
+
     const inspected = spawnSync(
       "docker",
       ["image", "inspect", "--format", "{{.Id}}", tag],
@@ -612,6 +668,7 @@ export async function buildImageRecipe(
     );
     if (inspected.status !== 0 || !inspected.stdout.trim())
       throw new IntegralError("built image identity is unavailable");
+
     const version = spawnSync(
         "docker",
         ["run", "--rm", "--network", "none", tag, "pi", "--version"],
@@ -635,16 +692,19 @@ export async function buildImageRecipe(
       );
     if (version.status !== 0 || inventory.status !== 0)
       throw new IntegralError("built image package inventory is unavailable");
+
     const piVersion = version.stdout
       .trim()
       .match(/\d+\.\d+\.\d+(?:[-+][^\s]+)?/)?.[0];
     if (!piVersion) throw new IntegralError("built Pi version is unavailable");
+
     const result = {
       recipeCommit: commit,
       image: inspected.stdout.trim(),
       piVersion,
       packages: inventory.stdout.trim().split("\n").filter(Boolean).sort(),
     };
+
     await appendImageAudit(paths, {
       action: "image.build",
       actor,
@@ -653,6 +713,7 @@ export async function buildImageRecipe(
       treeDigest: validated.treeDigest,
       ...result,
     });
+
     return result;
   } finally {
     await rm(context, { recursive: true, force: true });
@@ -669,6 +730,7 @@ export async function appendImageAudit(
     `${JSON.stringify({ schemaVersion: 1, at: new Date().toISOString(), ...value })}\n`,
     { mode: 0o600 },
   );
+
   const handle = await open(paths.imageAudit, "r+");
   try {
     await handle.sync();

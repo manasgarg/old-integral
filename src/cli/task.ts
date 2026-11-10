@@ -43,6 +43,7 @@ function renderTask(
     );
     return;
   }
+
   for (const [key, value] of Object.entries(task))
     write(
       `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}\n`,
@@ -56,12 +57,14 @@ export async function runTaskCommand(
 ): Promise<number> {
   const command = args[0] ?? "ls",
     json = args.includes("--json");
+
   if (command === "ls") {
     const snapshot = (await fetchJson(
         new URL("/integral/snapshot", endpoint),
         dependencies.fetch,
       )) as { tasks: ScheduledTask[] },
       tasks = snapshot.tasks;
+
     if (json) dependencies.writeOutput(`${JSON.stringify(tasks, null, 2)}\n`);
     else if (!tasks.length) dependencies.writeOutput("No tasks.\n");
     else
@@ -69,31 +72,38 @@ export async function runTaskCommand(
         renderTask(task, false, (text) => dependencies.writeOutput(text));
     return 0;
   }
+
   if (command === "show") {
     const id = args[1];
     if (!id) throw new IntegralError("usage: integral task show <id>");
+
     const snapshot = (await fetchJson(
         new URL("/integral/snapshot", endpoint),
         dependencies.fetch,
       )) as { tasks: ScheduledTask[] },
       task = snapshot.tasks.find((candidate) => candidate.executionId === id);
     if (!task) throw new IntegralError(`task not found: ${id}`, 404);
+
     if (json) dependencies.writeOutput(`${JSON.stringify(task, null, 2)}\n`);
     else renderTask(task, true, (text) => dependencies.writeOutput(text));
     return 0;
   }
+
   if (command === "cancel") {
     const id = args[1];
     if (!id) throw new IntegralError("usage: integral task cancel <id>");
+
     const task = (await requestJson(
       new URL(`/integral/tasks/${encodeURIComponent(id)}/cancel`, endpoint),
       { method: "POST", body: "{}" },
       dependencies.fetch,
     )) as ScheduledTask;
+
     if (json) dependencies.writeOutput(`${JSON.stringify(task, null, 2)}\n`);
     else renderTask(task, true, (text) => dependencies.writeOutput(text));
     return 0;
   }
+
   throw new IntegralError(`unknown task command: ${command}`);
 }
 
@@ -102,10 +112,12 @@ export async function taskCommand(
   overrides: Partial<TaskDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionDependencies, ...overrides };
+
   if (args.includes("--help") || args.includes("-h") || args[0] === "help") {
     dependencies.writeOutput(HELP);
     return 0;
   }
+
   const paths = dependencies.resolvePaths();
   let endpoint: string;
   try {
@@ -116,5 +128,6 @@ export async function taskCommand(
       "coordinator is not reachable; start it with integral server start",
     );
   }
+
   return runTaskCommand(args, endpoint, dependencies);
 }

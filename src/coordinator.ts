@@ -141,12 +141,14 @@ function omitInternalTaskIdentifiers(
     /\b[A-F0-9]{64}\b/g,
     "[internal identifier omitted]",
   );
+
   for (const identifier of [entry.taskId, entry.executionId, entry.scheduleId])
     if (identifier)
       sanitized = sanitized.replaceAll(
         identifier,
         "[internal identifier omitted]",
       );
+
   return sanitized;
 }
 
@@ -178,6 +180,7 @@ export interface CoordinatorDependencies {
     callbacks: DiscordListenerCallbacks,
   ): DiscordListener;
 }
+
 const productionDependencies: CoordinatorDependencies = {
   servers: nodeHttpServerRuntime,
   intervals: nodeIntervalRuntime,
@@ -197,12 +200,14 @@ const productionDependencies: CoordinatorDependencies = {
   createDiscordListener: (connection, token, callbacks) =>
     new DiscordJsListener(connection, token, callbacks),
 };
+
 export class Coordinator {
   readonly queue: DurableQueue;
   readonly conversation: ConversationStore;
   readonly modelSelection: ModelSelectionStore;
   readonly tasks: DurableTaskQueue;
   readonly approvals: ApprovalStore;
+
   private readonly eventStream = new ClientEventStream();
   readonly events = this.eventStream.events;
   private server: http.Server | undefined;
@@ -215,6 +220,7 @@ export class Coordinator {
       reject(error: Error): void;
     }
   >();
+
   private token = "";
   private refreshTimer: unknown;
   private refreshWork: Promise<void> | undefined;
@@ -228,6 +234,7 @@ export class Coordinator {
   private readonly dependencies: CoordinatorDependencies;
   private readonly scopes = new Map<string, ConversationScope>();
   private discordScope: ConversationScope | undefined;
+
   constructor(
     private readonly paths: IntegralPaths,
     private readonly config: EffectiveConfig,
@@ -240,29 +247,35 @@ export class Coordinator {
     );
     this.conversation = new ConversationStore(paths.conversation);
     this.modelSelection = new ModelSelectionStore(paths.modelSelection);
+
     this.scopes.set("terminal", {
       id: "terminal",
       queue: this.queue,
       conversation: this.conversation,
       modelSelection: this.modelSelection,
     });
+
     this.tasks = new DurableTaskQueue(paths);
     this.approvals = new ApprovalStore(paths, () => this.dependencies.now());
   }
+
   async start(): Promise<http.Server> {
     await this.queue.load();
     await this.conversation.load();
     await this.modelSelection.load();
     await this.tasks.load();
     await this.approvals.load();
+
     this.token = await componentIdentity(this.paths);
     const server = http.createServer((req, res) => void this.route(req, res));
     this.server = server;
+
     await this.dependencies.servers.listen(
       server,
       this.config.server.coordinatorPort,
       "127.0.0.1",
     );
+
     await this.startDiscord().catch((error: unknown) =>
       this.logger?.event(
         "warn",
@@ -270,34 +283,43 @@ export class Coordinator {
         error instanceof Error ? error.message : String(error),
       ),
     );
+
     this.refreshTimer = this.dependencies.intervals.setInterval(
       () => void this.refresh().catch(() => undefined),
       500,
     );
+
     this.catalogRefresh = this.dependencies.defer(() => {
       this.catalogRefresh = undefined;
       void this.modelCatalog().catch(() => undefined);
     });
+
     for (const approval of this.approvals
       .records()
       .filter((record) => record.status === "approved"))
       this.dependencies.defer(() => void this.executeApproval(approval));
+
     return server;
   }
+
   private async startDiscord(): Promise<void> {
     const loaded = await loadConnections(this.paths);
     const connections = loaded.connections.filter(
       (connection) =>
         connection.kind === "channel" && connection.provider === "discord",
     );
+
     if (connections.length > 1)
       throw new IntegralError(
         "only one Discord channel connection may be active",
       );
+
     const connection = connections[0];
     if (!connection?.channelId) return;
+
     const token = (await credentialFor(this.paths, connection.name))?.trim();
     if (!token) return;
+
     const directory = join(
         this.paths.channels,
         `discord-${connection.channelId}`,
@@ -311,14 +333,17 @@ export class Coordinator {
         modelSelection: new ModelSelectionStore(join(directory, "model.json")),
       },
       ingress = new DiscordIngressStore(join(directory, "ingress.json"));
+
     await Promise.all([
       scope.queue.load(),
       scope.conversation.load(),
       scope.modelSelection.load(),
       ingress.load(),
     ]);
+
     if (!scope.modelSelection.get() && this.modelSelection.get())
       await scope.modelSelection.set(this.modelSelection.get()!);
+
     const listener = this.dependencies.createDiscordListener(
       connection,
       token,
@@ -342,6 +367,7 @@ export class Coordinator {
             ),
       },
     );
+
     scope.discord = {
       listener,
       ingress,
@@ -350,6 +376,7 @@ export class Coordinator {
     };
     this.discordScope = scope;
     this.scopes.set(scope.id, scope);
+
     try {
       await listener.start();
       await clearConnectionDegraded(this.paths, connection.name);
@@ -358,6 +385,7 @@ export class Coordinator {
       throw error;
     }
   }
+
   private async discordCommand(
     scope: ConversationScope,
     name: string,
@@ -373,6 +401,7 @@ export class Coordinator {
         "/tasks ls|show|cancel — inspect or cancel durable tasks",
         "/approvals ls|show|approve|deny — manage all governed requests",
       ].join("\n");
+
     if (name === "status") {
       const selection = this.modelSelection.get(),
         [gateway, runner, scheduler] = await Promise.all([
@@ -388,6 +417,7 @@ export class Coordinator {
               .at(-1);
           return `${candidate.id}: ${queue.filter((item) => item.status === "queued").length} queued, ${queue.find((item) => item.status === "in-flight")?.id ?? "idle"}, session ${session?.text === "started" ? session.sessionId : "none"}`;
         });
+
       return [
         `Discord listener: connected`,
         `Gateway: ${gateway?.status ?? "unavailable"}; runner: ${runner?.status ?? "unavailable"}; scheduler: ${scheduler?.status ?? "unavailable"}`,
@@ -396,6 +426,7 @@ export class Coordinator {
         `Tasks: ${this.tasks.snapshot().filter((task) => !["completed", "failed", "cancelled"].includes(task.state)).length} active`,
       ].join("\n");
     }
+
     if (name === "model") {
       const catalog = await this.modelCatalog(),
         search = options.search?.trim(),
@@ -403,6 +434,7 @@ export class Coordinator {
           catalog.choices,
           search ? search.split(/\s+/) : [],
         );
+
       if (search && matches.length === 1) {
         await this.selectConversationModel(
           matches[0]!.connection,
@@ -410,14 +442,17 @@ export class Coordinator {
         );
         return `Selected ${matches[0]!.connection}/${matches[0]!.model}.`;
       }
+
       const current = this.modelSelection.get(),
         heading = current
           ? `Current: ${current.connection}/${current.model}`
           : "Current: not selected";
+
       if (!matches.length)
         return `${heading}\nNo models matched; narrow or change the search.`;
       return `${heading}\n${matches.map((choice) => `${choice.connection}/${choice.model}`).join("\n")}${search && matches.length > 1 ? "\nMore than one model matched; narrow the search." : ""}`;
     }
+
     if (name === "queue") {
       if (!subcommand || subcommand === "ls") {
         const items = [...this.scopes.values()].flatMap((candidate) =>
@@ -425,6 +460,7 @@ export class Coordinator {
             .snapshot()
             .map((item) => ({ ...item, conversationId: candidate.id })),
         );
+
         return items.length
           ? items
               .map(
@@ -434,12 +470,14 @@ export class Coordinator {
               .join("\n")
           : "All conversation queues are empty.";
       }
+
       if (!options.id)
         throw new IntegralError("A queue message ID is required.");
       const owner = [...this.scopes.values()].find((candidate) =>
         candidate.queue.snapshot().some((item) => item.id === options.id),
       );
       if (!owner) throw new IntegralError("Queue message not found.", 404);
+
       if (subcommand === "edit") {
         if (!options.text)
           throw new IntegralError("Replacement text is required.");
@@ -447,20 +485,24 @@ export class Coordinator {
         await owner.conversation.editUser(options.id, options.text);
         return `Updated queue message ${options.id}.`;
       }
+
       if (subcommand === "delete") {
         await owner.queue.delete(options.id);
         await owner.conversation.deleteUser(options.id);
         return `Deleted queue message ${options.id}.`;
       }
     }
+
     if (name === "tasks") {
       const tasks = this.tasks.snapshot(),
         render = (task: ScheduledTask) =>
           `${task.state}  ${task.executionId}  ${task.scheduledFor}  ${task.prompt}`;
+
       if (!subcommand || subcommand === "ls")
         return tasks.length
           ? tasks.map(render).join("\n")
           : "There are no tasks.";
+
       if (!options.id) throw new IntegralError("A task ID is required.");
       const task = tasks.find(
         (candidate) => candidate.executionId === options.id,
@@ -470,14 +512,17 @@ export class Coordinator {
       if (subcommand === "cancel")
         return render(await this.tasks.cancel(options.id));
     }
+
     if (name === "approvals") {
       const approvals = this.approvals.snapshot(),
         render = (approval: PublicApproval) =>
           `${approval.id}  ${approval.status}  ${approval.summary}`;
+
       if (!subcommand || subcommand === "ls")
         return approvals.length
           ? approvals.map(render).join("\n")
           : "There are no approval requests.";
+
       if (!options.id) throw new IntegralError("An approval ID is required.");
       if (subcommand === "show")
         return render(publicApproval(this.approvals.get(options.id)));
@@ -492,8 +537,10 @@ export class Coordinator {
           ),
         );
     }
+
     throw new IntegralError("Unsupported Discord command.", 400);
   }
+
   private async deliverDiscord(
     scope: ConversationScope,
     text: string,
@@ -501,6 +548,7 @@ export class Coordinator {
     const listener = scope.discord?.listener;
     if (!listener) return false;
     await listener.typing(false).catch(() => undefined);
+
     try {
       await listener.reply(text);
       return true;
@@ -514,14 +562,17 @@ export class Coordinator {
       return false;
     }
   }
+
   private async notifyGatewayHealth(
     status: "ready" | "degraded",
     error?: string,
   ): Promise<boolean> {
     const scope = this.discordScope;
     if (!scope?.discord) return false;
+
     const file = join(this.paths.state, "discord-gateway-health.json"),
       raw = await readText(file);
+
     let previous: DeliveredGatewayHealth | undefined;
     if (raw)
       try {
@@ -535,6 +586,7 @@ export class Coordinator {
       } catch {
         /* Replace malformed notification state after the next delivery. */
       }
+
     const secrets = await credentialSecretValues(this.paths),
       reason =
         status === "degraded"
@@ -546,6 +598,7 @@ export class Coordinator {
               .trim()
               .slice(0, 300)
           : undefined;
+
     if (sameGatewayHealth(previous, status, reason)) return true;
     if (!previous && status === "ready") {
       await atomicWrite(
@@ -554,6 +607,7 @@ export class Coordinator {
       );
       return true;
     }
+
     const text =
       status === "degraded"
         ? `Integral cannot currently process new messages because its gateway is degraded. Reason: ${reason}. New messages remain safely queued. Run \`integral connection ls\` to see the affected connection.`
@@ -574,6 +628,7 @@ export class Coordinator {
     );
     return true;
   }
+
   private async submitDiscord(
     scope: ConversationScope,
     ingress: DiscordIngressStore,
@@ -581,6 +636,7 @@ export class Coordinator {
   ): Promise<boolean> {
     return this.exclusiveWork(async () => {
       if (ingress.has(message.id)) return false;
+
       const origin = {
           provider: "discord" as const,
           externalId: message.id,
@@ -591,6 +647,7 @@ export class Coordinator {
         alreadyRecorded = scope.conversation
           .snapshot()
           .some((event) => event.origin?.externalId === message.id);
+
       if (!alreadyRecorded)
         await scope.conversation.append({
           type: "user",
@@ -598,6 +655,7 @@ export class Coordinator {
           text: item.text,
           origin,
         });
+
       await ingress.record(message.id);
       this.logger?.event(
         "info",
@@ -605,7 +663,9 @@ export class Coordinator {
         "accepted Discord conversation message",
         { message_id: item.id, conversation_id: scope.id },
       );
+
       await scope.discord?.listener.typing(true).catch(() => undefined);
+
       if (!scope.modelSelection.get()) {
         await this.deliverDiscord(
           scope,
@@ -613,12 +673,14 @@ export class Coordinator {
         );
         return true;
       }
+
       if (
         scope.queue
           .snapshot()
           .some((candidate) => candidate.status === "in-flight")
       ) {
         await scope.queue.markSteering(item.id);
+
         const response = await this.dependencies
           .internalFetch(
             this.paths,
@@ -637,14 +699,17 @@ export class Coordinator {
           .catch(() => undefined);
         if (!response?.ok) await scope.queue.release(item.id);
       }
+
       return true;
     });
   }
+
   private async refresh(): Promise<void> {
     if (this.refreshWork) {
       this.refreshCoalesced++;
       return this.refreshWork;
     }
+
     const started = this.dependencies.now(),
       work = Promise.all([
         this.adoptGeneration(),
@@ -652,8 +717,10 @@ export class Coordinator {
         this.flushTaskOutbox(),
         this.expireApprovals(),
       ]).then(() => undefined);
+
     this.refreshWork = work;
     let failed = false;
+
     try {
       await work;
     } catch (error) {
@@ -672,6 +739,7 @@ export class Coordinator {
       this.refreshWork = undefined;
       const coalesced = this.refreshCoalesced;
       this.refreshCoalesced = 0;
+
       if (coalesced && !failed) {
         this.logger?.event(
           "warn",
@@ -685,10 +753,12 @@ export class Coordinator {
       }
     }
   }
+
   private async adoptExternalModelSelection(): Promise<void> {
     const previous = this.modelSelection.get();
     await this.modelSelection.load();
     const current = this.modelSelection.get();
+
     if (!sameSelection(previous, current) && current) {
       await this.setSharedModelSelection(current);
       this.modelCatalogs.clear();
@@ -699,6 +769,7 @@ export class Coordinator {
 
   async flushTaskOutbox(): Promise<void> {
     if (this.outboxFlush) return this.outboxFlush;
+
     const work = this.flushTaskOutboxOnce();
     this.outboxFlush = work;
     try {
@@ -711,7 +782,9 @@ export class Coordinator {
   private async flushTaskOutboxOnce(): Promise<void> {
     const outbox = this.tasks.outbox();
     if (!outbox.length) return;
+
     const secrets = await credentialSecretValues(this.paths);
+
     for (const entry of outbox) {
       if (
         entry.outcome === "failed" &&
@@ -739,6 +812,7 @@ export class Coordinator {
               `${description} failed at ${failedAt}: ${reason}.${retryGuidance}`,
               entry,
             );
+
           if (!(await this.deliverDiscord(scope, text))) continue;
           await scope.conversation.append({ type: "notification", text });
           await this.tasks.markOutboxNotificationDelivered(entry.executionId);
@@ -755,6 +829,7 @@ export class Coordinator {
           );
         }
       }
+
       const response = await this.dependencies
         .internalFetch(
           this.paths,
@@ -764,6 +839,7 @@ export class Coordinator {
           { method: "POST", body: JSON.stringify(entry) },
         )
         .catch(() => undefined);
+
       if (response?.ok) {
         await this.tasks.acknowledgeOutbox(entry.executionId);
         this.logger?.event(
@@ -790,23 +866,29 @@ export class Coordinator {
         );
     }
   }
+
   private async adoptGeneration(): Promise<void> {
     const generation = Number(
       (
         await readText(join(this.paths.state, "connection-generation"))
       )?.trim() || "0",
     );
+
     const changed = this.connectionGeneration !== generation;
     this.connectionGeneration = generation;
+
     await updateComponentState(this.paths, "coordinator", {
       connectionGeneration: generation,
       status: "ready",
     });
+
     if (changed) void this.modelCatalog(generation).catch(() => undefined);
   }
+
   private broadcast(type: string, data: unknown): ClientEvent {
     return this.eventStream.broadcast(type, data);
   }
+
   private snapshot(
     scope: ConversationScope = this.scopes.get("terminal")!,
   ): Record<string, unknown> {
@@ -821,6 +903,7 @@ export class Coordinator {
       attached: this.eventStream.attached,
     };
   }
+
   private internal(
     req: IncomingMessage,
     expected: Component | Component[] = "runner",
@@ -832,6 +915,7 @@ export class Coordinator {
       deploymentId(this.paths),
     );
   }
+
   async modelMenu(): Promise<{
     choices: ModelChoice[];
     current: ModelChoice | null;
@@ -844,6 +928,7 @@ export class Coordinator {
       ...(catalog.piVersion ? { piVersion: catalog.piVersion } : {}),
     };
   }
+
   async selectConversationModel(
     connection: string,
     model: string,
@@ -858,6 +943,7 @@ export class Coordinator {
           "cannot change model selection while a Pi turn is in flight",
           409,
         );
+
       const catalog = await this.modelCatalog(),
         choice = catalog.choices.find(
           (candidate) =>
@@ -868,14 +954,17 @@ export class Coordinator {
           "selected model connection or model is no longer available",
           409,
         );
+
       const previous = this.modelSelection.get();
       if (!sameSelection(previous, choice)) {
         await this.setSharedModelSelection(choice);
         this.broadcast("conversation.selection", choice);
       }
+
       return choice;
     });
   }
+
   private async setSharedModelSelection(
     selection: ModelSelection,
   ): Promise<void> {
@@ -885,6 +974,7 @@ export class Coordinator {
       ),
     );
   }
+
   async containerPackageInventory(): Promise<Record<string, unknown>> {
     const state = await loadContainerPackageState(this.paths),
       selection = this.modelSelection.get();
@@ -895,6 +985,7 @@ export class Coordinator {
       piImage: selection?.piImage ?? null,
     };
   }
+
   async changeContainerPackages(input: {
     operation: ContainerPackageOperation;
     packages: unknown;
@@ -908,12 +999,14 @@ export class Coordinator {
           "container packages can only be changed for Integral's managed Pi image",
           409,
         );
+
       const selection = this.modelSelection.get();
       if (!selection)
         throw new IntegralError(
           "select a model before changing container packages",
           409,
         );
+
       const current = await loadContainerPackageState(this.paths),
         requested = validateContainerPackageNames(input.packages);
       const repeated = current.lastApprovalId === input.approvalId,
@@ -928,18 +1021,22 @@ export class Coordinator {
         next = planned
           ? { ...planned, lastApprovalId: input.approvalId }
           : undefined;
+
       if (!next) return this.containerPackageInventory();
+
       const image = await this.dependencies.ensureImage(
           this.config,
           selection.piVersion,
           { systemPackages: next.packages, rebuild: !repeated },
         ),
         updatedSelection = { ...selection, piImage: image };
+
       if (!repeated) await saveContainerPackageState(this.paths, next);
       await this.setSharedModelSelection(updatedSelection);
       this.modelCatalogs.clear();
       this.modelCatalogLoads.clear();
       this.broadcast("conversation.selection", updatedSelection);
+
       this.logger?.event(
         "info",
         "container.packages_updated",
@@ -954,6 +1051,7 @@ export class Coordinator {
           pi_image: image,
         },
       );
+
       return {
         revision: next.revision,
         packages: next.packages,
@@ -975,6 +1073,7 @@ export class Coordinator {
     response: ServerResponse,
   ): Promise<PublicApproval> {
     let waiting: Promise<PublicApproval> | undefined;
+
     await this.exclusiveWork(async () => {
       if (!input.sessionId.trim())
         throw new IntegralError("approval origin session is required", 400);
@@ -983,12 +1082,14 @@ export class Coordinator {
           "container packages can only be changed for Integral's managed Pi image",
           409,
         );
+
       const selection = this.modelSelection.get();
       if (!selection)
         throw new IntegralError(
           "select a model before changing container packages",
           409,
         );
+
       const packages = validateContainerPackageNames(input.packages),
         state = await loadContainerPackageState(this.paths);
       planContainerPackageChange(
@@ -997,6 +1098,7 @@ export class Coordinator {
         packages,
         input.expectedRevision,
       );
+
       const record = await this.approvals.create({
         request: {
           kind: "container-packages",
@@ -1009,6 +1111,7 @@ export class Coordinator {
         selection,
         ...(input.route ? { route: input.route } : {}),
       });
+
       waiting = this.waitForApproval(record, input.sessionId, response);
       this.broadcast("approval.requested", publicApproval(record));
       await this.notifyDiscordApproval(record, "requested");
@@ -1028,6 +1131,7 @@ export class Coordinator {
     response: ServerResponse,
   ): Promise<PublicApproval> {
     let waiting: Promise<PublicApproval> | undefined;
+
     await this.exclusiveWork(async () => {
       if (!input.sessionId.trim())
         throw new IntegralError("approval origin session is required", 400);
@@ -1036,12 +1140,14 @@ export class Coordinator {
           "image recipes can only change Integral's managed Pi image",
           409,
         );
+
       const selection = this.modelSelection.get();
       if (!selection)
         throw new IntegralError(
           "select a model before changing the Pi image",
           409,
         );
+
       let proposal: ImageProposal | undefined;
       if (input.operation === "proposal") {
         if (!input.bundle || !input.proposed)
@@ -1055,6 +1161,7 @@ export class Coordinator {
           input.proposed,
         );
       }
+
       const baseCommit =
           proposal?.baseCommit ??
           (await this.dependencies.imageRecipeHead(this.paths)),
@@ -1085,6 +1192,7 @@ export class Coordinator {
           selection,
           ...(input.route ? { route: input.route } : {}),
         });
+
       waiting = this.waitForApproval(record, input.sessionId, response);
       this.broadcast("approval.requested", publicApproval(record));
       await this.notifyDiscordApproval(record, "requested");
@@ -1130,9 +1238,11 @@ export class Coordinator {
         "approval requires an attached human terminal",
         403,
       );
+
     const decisionIdentity = localOperator
       ? "operator"
       : (trustedChannelActor ?? attachmentId);
+
     const existing = this.approvals.get(id);
     if (
       existing.status === "pending" &&
@@ -1141,9 +1251,11 @@ export class Coordinator {
       await this.expireApprovals();
       throw new IntegralError(`approval ${id} is already expired`, 409);
     }
+
     const decided = await this.exclusiveWork(() =>
       this.approvals.decide(id, outcome, decisionIdentity),
     );
+
     this.broadcast("approval.decided", publicApproval(decided));
     if (outcome === "approved") return this.executeApproval(decided);
     await this.deliverApproval(decided);
@@ -1174,6 +1286,7 @@ export class Coordinator {
         }),
       );
     }
+
     this.broadcast("approval.resolved", publicApproval(resolved));
     await this.deliverApproval(resolved);
     return publicApproval(resolved);
@@ -1185,6 +1298,7 @@ export class Coordinator {
   ): Promise<Record<string, unknown>> {
     const packageState = await loadContainerPackageState(this.paths),
       selection = this.modelSelection.get();
+
     if (
       packageState.lastApprovalId !== record.id &&
       !sameSelection(selection, record.origin.selection)
@@ -1193,6 +1307,7 @@ export class Coordinator {
         "approval is stale because the selected Pi runtime changed",
         409,
       );
+
     return await this.changeContainerPackages({
       operation: request.operation,
       packages: request.packages,
@@ -1209,6 +1324,7 @@ export class Coordinator {
     const selectedCommit = request.proposedCommit ?? request.baseCommit,
       activeCommit = await this.dependencies.imageRecipeHead(this.paths),
       rawCheckpoint = await readText(this.paths.imageState);
+
     let checkpoint:
       { approvalId: string; result: ImageBuildResult } | undefined;
     if (rawCheckpoint)
@@ -1220,6 +1336,7 @@ export class Coordinator {
       } catch {
         throw new IntegralError("invalid managed image execution state");
       }
+
     if (
       activeCommit !== request.baseCommit &&
       activeCommit !== request.proposedCommit
@@ -1228,6 +1345,7 @@ export class Coordinator {
         `image recipe approval is stale: active commit is ${activeCommit}`,
         409,
       );
+
     const selection = this.modelSelection.get();
     if (
       checkpoint?.approvalId !== record.id &&
@@ -1237,6 +1355,7 @@ export class Coordinator {
         "image recipe approval is stale because the selected image changed",
         409,
       );
+
     const result =
       checkpoint?.approvalId === record.id
         ? checkpoint.result
@@ -1247,11 +1366,13 @@ export class Coordinator {
             `approval:${record.id}`,
             { priorImage: request.priorImage, approvalId: record.id },
           );
+
     if (checkpoint?.approvalId !== record.id)
       await atomicWrite(
         this.paths.imageState,
         `${JSON.stringify({ approvalId: record.id, result })}\n`,
       );
+
     if (request.operation === "proposal" && activeCommit === request.baseCommit)
       await this.dependencies.activateImageProposal(this.paths, {
         baseCommit: request.baseCommit,
@@ -1261,21 +1382,26 @@ export class Coordinator {
         changedPaths: request.changedPaths,
         diff: request.diff,
       });
+
     await atomicWrite(
       this.paths.activeImage,
       `${JSON.stringify({ schemaVersion: 1, recipeCommit: selectedCommit, result })}\n`,
     );
+
     if (!selection)
       throw new IntegralError("selected model is unavailable", 409);
+
     const updated = {
       ...selection,
       piVersion: result.piVersion,
       piImage: result.image,
     };
+
     await this.setSharedModelSelection(updated);
     this.modelCatalogs.clear();
     this.modelCatalogLoads.clear();
     this.broadcast("conversation.selection", updated);
+
     return {
       recipeCommit: result.recipeCommit,
       piVersion: result.piVersion,
@@ -1294,6 +1420,7 @@ export class Coordinator {
   private async deliverApproval(record: ApprovalRecord): Promise<void> {
     if (!isTerminalApproval(record)) return;
     await this.notifyDiscordApproval(record, record.status);
+
     const waiter = this.approvalWaiters.get(record.id);
     if (waiter) {
       this.approvalWaiters.delete(record.id);
@@ -1309,6 +1436,7 @@ export class Coordinator {
   ): Promise<void> {
     const route = record.origin.route;
     if (!route) return;
+
     const scope = this.scopes.get(route.conversationId);
     if (
       !scope?.discord ||
@@ -1316,10 +1444,12 @@ export class Coordinator {
       scope.discord.channelId !== route.channelId
     )
       return;
+
     const text =
       state === "requested"
         ? `Approval ${record.id} requested: ${record.summary}. Deadline ${record.expiresAt}. Use /approvals show, /approvals approve, or /approvals deny.`
         : `Approval ${record.id} is ${state}.`;
+
     if (await this.deliverDiscord(scope, text))
       await scope.conversation.append({ type: "notification", text });
   }
@@ -1328,6 +1458,7 @@ export class Coordinator {
     record: ApprovalRecord & { status: TerminalApprovalStatus },
   ): Promise<void> {
     if (record.continuationMessageId) return;
+
     const route = record.origin.route,
       scope = route
         ? this.scopes.get(route.conversationId)
@@ -1335,10 +1466,12 @@ export class Coordinator {
       existing = scope?.queue
         .snapshot()
         .find((item) => item.approvalContinuation?.approvalId === record.id);
+
     if (existing) {
       await this.approvals.setContinuation(record.id, existing.id);
       return;
     }
+
     if (!scope) return;
     const detail = record.execution?.result
         ? JSON.stringify(record.execution.result)
@@ -1362,22 +1495,27 @@ export class Coordinator {
             }
           : undefined,
       );
+
     await this.approvals.setContinuation(record.id, item.id);
   }
+
   private async modelCatalog(generation?: number): Promise<ModelCatalog> {
     const currentGeneration = generation ?? (await this.readGeneration()),
       key = `${this.config.fingerprint}:${currentGeneration}`,
       cached = this.modelCatalogs.get(key);
+
     this.connectionGeneration = currentGeneration;
     if (cached) return cached;
     const existing = this.modelCatalogLoads.get(key);
     if (existing) return existing;
+
     this.logger?.event(
       "info",
       "model_catalog.refresh",
       "refreshing the model catalog",
       { connection_generation: currentGeneration },
     );
+
     const loading = this.dependencies
       .listModelChoices(this.paths, this.config, (stage, message, context) =>
         this.logger?.event("info", "model_catalog.progress", message, {
@@ -1411,9 +1549,11 @@ export class Coordinator {
         throw error;
       })
       .finally(() => this.modelCatalogLoads.delete(key));
+
     this.modelCatalogLoads.set(key, loading);
     return loading;
   }
+
   private async readGeneration(): Promise<number> {
     return Number(
       (
@@ -1421,12 +1561,14 @@ export class Coordinator {
       )?.trim() || "0",
     );
   }
+
   private async route(
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
     try {
       const url = new URL(req.url ?? "/", "http://coordinator");
+
       if (url.pathname === "/integral/health" && req.method === "GET") {
         const [gateway, runner, scheduler] = await Promise.all([
           readComponentState(this.paths, "gateway"),
@@ -1450,6 +1592,7 @@ export class Coordinator {
         });
         return;
       }
+
       if (url.pathname === "/integral/snapshot" && req.method === "GET") {
         const conversationId = url.searchParams.get("conversationId");
         if (conversationId && !this.internal(req, "gateway"))
@@ -1458,36 +1601,46 @@ export class Coordinator {
           ? this.scopes.get(conversationId)
           : this.scopes.get("terminal");
         if (!scope) throw new IntegralError("unknown conversation", 404);
+
         json(res, 200, this.snapshot(scope));
         return;
       }
+
       if (url.pathname === "/integral/events" && req.method === "GET") {
         this.stream(req, res);
         return;
       }
+
       if (url.pathname === "/integral/models" && req.method === "GET") {
         json(res, 200, await this.modelMenu());
         return;
       }
+
       if (url.pathname === "/integral/selection" && req.method === "PUT") {
         const body = await bodyJson(req),
           connection = stringValue(body.connection),
           model = stringValue(body.model);
+
         const selection = await this.selectConversationModel(connection, model);
         json(res, 200, selection);
         return;
       }
+
       if (url.pathname === "/integral/internal/container-packages") {
         if (!this.internal(req, "gateway")) return unauthorized(res);
+
         if (req.method === "GET") {
           json(res, 200, await this.containerPackageInventory());
           return;
         }
+
         if (req.method === "POST") {
           const body = await bodyJson(req),
             operation = stringValue(body.operation);
+
           if (operation !== "install" && operation !== "upgrade")
             throw new IntegralError("invalid package operation", 400);
+
           const approval = await this.requestContainerPackageApproval(
             {
               operation,
@@ -1506,16 +1659,20 @@ export class Coordinator {
           json(res, 200, approval);
           return;
         }
+
         throw new IntegralError("unsupported package operation", 405);
       }
+
       if (url.pathname === "/integral/internal/image-recipe") {
         if (!this.internal(req, "gateway")) return unauthorized(res);
         if (req.method !== "POST")
           throw new IntegralError("unsupported image recipe operation", 405);
+
         const body = await bodyJson(req, 45 * 1024 * 1024),
           operation = stringValue(body.operation);
         if (operation !== "proposal" && operation !== "rebuild")
           throw new IntegralError("invalid image recipe operation", 400);
+
         const encoded = stringValue(body.bundle),
           approval = await this.requestImageRecipeApproval(
             {
@@ -1536,19 +1693,24 @@ export class Coordinator {
             },
             res,
           );
+
         json(res, 200, approval);
         return;
       }
+
       if (url.pathname === "/integral/approvals" && req.method === "GET") {
         json(res, 200, this.approvals.snapshot());
         return;
       }
+
       const approvalDecision = url.pathname.match(
         /^\/integral\/approvals\/([^/]+)\/(approve|deny)$/,
       );
+
       if (approvalDecision && req.method === "POST") {
         const body = await bodyJson(req);
         const localOperator = stringValue(body.actor) === "operator";
+
         json(
           res,
           200,
@@ -1561,12 +1723,14 @@ export class Coordinator {
         );
         return;
       }
+
       if (url.pathname === "/integral/messages" && req.method === "POST") {
         if (!this.modelSelection.get())
           throw new IntegralError(
             "select a model before submitting a message",
             409,
           );
+
         const body = await bodyJson(req),
           text = stringValue(body.text),
           terminalId = stringValue(body.terminalId);
@@ -1574,6 +1738,7 @@ export class Coordinator {
         json(res, 201, item);
         return;
       }
+
       const queueMatch = url.pathname.match(/^\/integral\/queue\/([^/]+)$/);
       if (queueMatch && req.method === "PATCH") {
         const body = await bodyJson(req),
@@ -1582,31 +1747,39 @@ export class Coordinator {
         json(res, 200, item);
         return;
       }
+
       if (queueMatch && req.method === "DELETE") {
         await this.queue.delete(queueMatch[1]!);
         await this.conversation.deleteUser(queueMatch[1]!);
         res.writeHead(204).end();
         return;
       }
+
       const taskIngress = url.pathname.match(
         /^\/integral\/internal\/tasks\/([^/]+)$/,
       );
+
       if (taskIngress && req.method === "PUT") {
         if (!this.internal(req, "scheduler")) return unauthorized(res);
+
         const body = (await bodyJson(req)) as unknown as ScheduledOccurrence;
         if (body.executionId !== taskIngress[1])
           throw new IntegralError("task execution ID does not match path", 400);
+
         const task = await this.tasks.accept(body);
         json(res, 200, task);
         return;
       }
+
       if (
         url.pathname === "/integral/internal/tasks/claim" &&
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
+
         const body = await bodyJson(req),
           modelConnections = modelConnectionFilter(body.modelConnections);
+
         json(res, 200, {
           task: await this.tasks.claim(
             modelConnections
@@ -1616,15 +1789,19 @@ export class Coordinator {
         });
         return;
       }
+
       const taskDeclaration = url.pathname.match(
         /^\/integral\/internal\/tasks\/([^/]+)\/declare$/,
       );
+
       if (taskDeclaration && req.method === "POST") {
         if (!this.internal(req, "gateway")) return unauthorized(res);
+
         const body = await bodyJson(req),
           outcome = stringValue(body.outcome);
         if (outcome !== "complete" && outcome !== "failed")
           throw new IntegralError("invalid task outcome declaration", 400);
+
         json(
           res,
           200,
@@ -1637,11 +1814,14 @@ export class Coordinator {
         );
         return;
       }
+
       const taskOutcome = url.pathname.match(
         /^\/integral\/internal\/tasks\/([^/]+)\/(start|defer|complete|fail|finalize)$/,
       );
+
       if (taskOutcome && req.method === "POST") {
         if (!this.internal(req)) return unauthorized(res);
+
         const body = await bodyJson(req),
           task =
             taskOutcome[2] === "start"
@@ -1674,12 +1854,15 @@ export class Coordinator {
                         stringValue(body.error, "task failed"),
                         optionalNumber(body.exitCode),
                       );
+
         json(res, 200, task);
         return;
       }
+
       const taskCancel = url.pathname.match(
         /^\/integral\/tasks\/([^/]+)\/cancel$/,
       );
+
       if (taskCancel && req.method === "POST") {
         json(
           res,
@@ -1688,10 +1871,12 @@ export class Coordinator {
         );
         return;
       }
+
       if (url.pathname === "/integral/tasks" && req.method === "GET") {
         json(res, 200, this.tasks.snapshot());
         return;
       }
+
       const taskInspection = url.pathname.match(/^\/integral\/tasks\/([^/]+)$/);
       if (taskInspection && req.method === "GET") {
         const executionId = decodeURIComponent(taskInspection[1]!),
@@ -1700,16 +1885,20 @@ export class Coordinator {
             .find((candidate) => candidate.executionId === executionId);
         if (!task)
           throw new IntegralError(`task not found: ${executionId}`, 404);
+
         json(res, 200, task);
         return;
       }
+
       if (
         url.pathname === "/integral/internal/claim" &&
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
+
         const body = await bodyJson(req),
           modelConnections = modelConnectionFilter(body.modelConnections);
+
         const result = await this.exclusiveWork(async () => {
           for (const scope of this.scopes.values()) {
             const selection = scope.modelSelection.get();
@@ -1722,6 +1911,7 @@ export class Coordinator {
           const scope = this.scopes.get("terminal")!;
           return { item: undefined, selection: undefined, scope };
         });
+
         if (result.item)
           this.logger?.event(
             "info",
@@ -1733,6 +1923,7 @@ export class Coordinator {
               attempt: result.item.attempts,
             },
           );
+
         json(res, 200, {
           message: result.item,
           selection: result.selection ?? null,
@@ -1744,13 +1935,16 @@ export class Coordinator {
         });
         return;
       }
+
       if (
         url.pathname === "/integral/internal/channel-notification" &&
         req.method === "POST"
       ) {
         if (!this.internal(req, "gateway")) return unauthorized(res);
+
         const body = await bodyJson(req),
           scope = this.scopes.get(stringValue(body.conversationId));
+
         if (
           !scope?.discord ||
           scope.discord.userId !== stringValue(body.userId) ||
@@ -1760,23 +1954,28 @@ export class Coordinator {
             "unknown conversation notification route",
             404,
           );
+
         const text = stringValue(body.text);
         if (!text)
           throw new IntegralError("notification text is required", 400);
+
         if (!(await this.deliverDiscord(scope, text)))
           throw new IntegralError("Discord notification delivery failed", 503);
         await scope.conversation.append({ type: "notification", text });
         res.writeHead(204).end();
         return;
       }
+
       if (
         url.pathname === "/integral/internal/gateway-health-notification" &&
         req.method === "POST"
       ) {
         if (!this.internal(req, "gateway")) return unauthorized(res);
+
         const body = await bodyJson(req),
           status = stringValue(body.status),
           error = stringValue(body.error);
+
         if (status !== "ready" && status !== "degraded")
           throw new IntegralError("invalid gateway health status", 400);
         if (!(await this.notifyGatewayHealth(status, error || undefined)))
@@ -1784,21 +1983,26 @@ export class Coordinator {
             "Discord gateway health notification delivery failed",
             503,
           );
+
         res.writeHead(204).end();
         return;
       }
+
       if (
         url.pathname === "/integral/internal/session" &&
         req.method === "POST"
       ) {
         if (!this.internal(req)) return unauthorized(res);
+
         const body = await bodyJson(req),
           sessionId = stringValue(body.sessionId),
           state = stringValue(body.state),
           scope = this.scopes.get(stringValue(body.conversationId, "terminal"));
+
         if (!sessionId || !["started", "ended"].includes(state))
           throw new IntegralError("invalid session event", 400);
         if (!scope) throw new IntegralError("unknown conversation", 404);
+
         const event = await scope.conversation.append({
           type: "session",
           sessionId,
@@ -1810,28 +2014,34 @@ export class Coordinator {
             ? { approvalId: stringValue(body.approvalId) }
             : {}),
         });
+
         if (scope.id === "terminal")
           this.broadcast("conversation.session", event);
         res.writeHead(204).end();
         return;
       }
+
       const workMatch = url.pathname.match(
         /^\/integral\/internal\/work\/([^/]+)\/(complete|release)$/,
       );
+
       if (workMatch && req.method === "POST") {
         if (!this.internal(req)) return unauthorized(res);
+
         const [, id, action] = workMatch;
         const body = await bodyJson(req);
         const scope = this.scopes.get(
           stringValue(body.conversationId, "terminal"),
         );
         if (!scope) throw new IntegralError("unknown conversation", 404);
+
         if (action === "complete") {
           const event = await scope.conversation.append({
             type: "assistant",
             messageId: id!,
             text: stringValue(body.text),
           });
+
           await scope.queue.complete(id!);
           const steered = Array.isArray(body.steeredMessageIds)
             ? body.steeredMessageIds.filter(
@@ -1840,6 +2050,7 @@ export class Coordinator {
             : [];
           for (const steeredId of steered)
             await scope.queue.complete(steeredId);
+
           this.logger?.event(
             "info",
             "queue.message_completed",
@@ -1850,6 +2061,7 @@ export class Coordinator {
               steered_message_count: steered.length,
             },
           );
+
           if (scope.id === "terminal")
             this.broadcast("conversation.assistant", event);
           else await this.deliverDiscord(scope, event.text ?? "");
@@ -1858,12 +2070,14 @@ export class Coordinator {
             id!,
             stringValue(body.reason, "interrupted"),
           );
+
           const steered = Array.isArray(body.steeredMessageIds)
             ? body.steeredMessageIds.filter(
                 (value): value is string => typeof value === "string",
               )
             : [];
           for (const steeredId of steered) await scope.queue.release(steeredId);
+
           this.logger?.event(
             "warn",
             "queue.message_released",
@@ -1874,11 +2088,13 @@ export class Coordinator {
               steered_message_count: steered.length,
             },
           );
+
           const event = await scope.conversation.append({
             type: "error",
             messageId: id!,
             text: stringValue(body.reason, "turn interrupted"),
           });
+
           if (scope.id === "terminal")
             this.broadcast("conversation.error", event);
           else
@@ -1887,20 +2103,24 @@ export class Coordinator {
               "I couldn't complete that request. It remains queued when retrying is safe; check /status and try again.",
             );
         }
+
         res.writeHead(204).end();
         return;
       }
+
       if (url.pathname === "/integral/status" && req.method === "GET") {
         const [gateway, runner, scheduler] = await Promise.all([
           readComponentState(this.paths, "gateway"),
           readComponentState(this.paths, "runner"),
           readComponentState(this.paths, "scheduler"),
         ]);
+
         const queue = this.queue.snapshot();
         const sessionEvent = this.conversation
           .snapshot()
           .filter((e) => e.type === "session")
           .at(-1);
+
         json(res, 200, {
           gateway: gateway?.status ?? "unavailable",
           runner: runner?.status ?? "unavailable",
@@ -1922,6 +2142,7 @@ export class Coordinator {
         });
         return;
       }
+
       res.writeHead(404).end("not found\n");
     } catch (error) {
       const status = error instanceof IntegralError ? error.exitCode : 500;
@@ -1930,11 +2151,13 @@ export class Coordinator {
       });
     }
   }
+
   private exclusiveWork<T>(work: () => Promise<T>): Promise<T> {
     const result = this.workChain.then(work, work);
     this.workChain = result.catch(() => undefined);
     return result;
   }
+
   private async submitMessage(text: string, terminalId: string) {
     const item = await this.queue.enqueue(text),
       event = await this.conversation.append({
@@ -1942,25 +2165,32 @@ export class Coordinator {
         messageId: item.id,
         text: item.text,
       });
+
     this.broadcast("conversation.user", { ...event, terminalId });
     return item;
   }
+
   private stream(req: IncomingMessage, res: ServerResponse): void {
     this.eventStream.attach(req, res, () => this.snapshot());
   }
+
   async stop(): Promise<void> {
     if (this.catalogRefresh !== undefined) {
       this.dependencies.cancelDeferred(this.catalogRefresh);
       this.catalogRefresh = undefined;
     }
+
     this.dependencies.intervals.clearInterval(this.refreshTimer);
     this.eventStream.clear();
+
     for (const waiter of this.approvalWaiters.values())
       waiter.reject(
         new IntegralError("coordinator stopped; approval remains pending", 503),
       );
     this.approvalWaiters.clear();
+
     await this.discordScope?.discord?.listener.stop();
+
     const server = this.server;
     this.server = undefined;
     if (server) await this.dependencies.servers.close(server);
@@ -1973,23 +2203,28 @@ async function bodyJson(
 ): Promise<Record<string, unknown>> {
   return await readJsonObject(req, { maxBytes });
 }
+
 function stringValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
+
 function numberValue(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value))
     throw new IntegralError("expected an integer", 400);
   return value;
 }
+
 function optionalNumber(value: unknown): number | undefined {
   return value === undefined ? undefined : numberValue(value);
 }
+
 function conversationOrigin(value: unknown): ConversationOriginRoute {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new IntegralError("invalid conversation origin", 400);
   const origin = value as Record<string, unknown>;
   if (origin.provider !== "discord")
     throw new IntegralError("unsupported conversation origin", 400);
+
   return {
     provider: "discord",
     conversationId: stringValue(origin.conversationId),
@@ -1998,9 +2233,11 @@ function conversationOrigin(value: unknown): ConversationOriginRoute {
     channelId: stringValue(origin.channelId),
   };
 }
+
 function json(res: ServerResponse, status: number, value: unknown): void {
   writeJson(res, status, value);
 }
+
 function unauthorized(res: ServerResponse): void {
   json(res, 401, { error: "unauthorized component request" });
 }

@@ -7,6 +7,7 @@ const weights: Record<LogLevel, number> = {
   debug: 3,
   trace: 4,
 };
+
 const secretKeys =
   /authorization|cookie|credential|secret|token|password|api[_-]?key|oauth.*code/i;
 export const REDACTED = "[REDACTED]";
@@ -28,6 +29,7 @@ export function redact(
       if (secret) result = result.split(secret).join(REDACTED);
     return result.replace(/[\r\n]+/g, "\\n");
   }
+
   if (Array.isArray(value)) return value.map((v) => redact(v, knownSecrets));
   if (value && typeof value === "object")
     return Object.fromEntries(
@@ -45,6 +47,7 @@ export interface LogContext {
   request_id?: string;
   [key: string]: unknown;
 }
+
 export interface LoggerOptions {
   component: string;
   deploymentId: string;
@@ -56,6 +59,7 @@ export interface LoggerOptions {
 
 export class Logger {
   constructor(private readonly options: LoggerOptions) {}
+
   event(
     level: LogLevel,
     event: string,
@@ -63,6 +67,7 @@ export class Logger {
     context: LogContext = {},
   ): void {
     if (weights[level] > weights[this.options.level]) return;
+
     const item = redact(
       {
         timestamp: new Date().toISOString(),
@@ -76,10 +81,12 @@ export class Logger {
       },
       this.options.secrets,
     ) as Record<string, unknown>;
+
     const line =
       this.options.format === "json"
         ? JSON.stringify(item)
         : `${textValue(item.timestamp)} ${level.toUpperCase()} ${textValue(item.component)} ${event} ${textValue(item.message)}${Object.keys(context).length ? ` ${JSON.stringify(redact(context, this.options.secrets))}` : ""}`;
+
     (this.options.sink ?? ((value) => process.stderr.write(value)))(
       `${line}\n`,
     );

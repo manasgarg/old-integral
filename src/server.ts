@@ -61,6 +61,7 @@ function createProductionRuntime(
         : component === "scheduler"
           ? new Scheduler(paths, config, {}, logger)
           : new Runner(paths, config, logger);
+
   return {
     async start() {
       const server = await runtime.start(),
@@ -87,12 +88,14 @@ export async function waitForShutdownSignal(
       signals.off("SIGINT", signal);
       signals.off("SIGTERM", signal);
     };
+
     const signal = () => {
       if (stopping) return;
       stopping = true;
       cleanup();
       void stop().then(resolve, reject);
     };
+
     signals.once("SIGINT", signal);
     signals.once("SIGTERM", signal);
   });
@@ -112,6 +115,7 @@ export async function connectionGeneration(
     (await readText(join(paths.state, "connection-generation")))?.trim() || "0",
   );
 }
+
 function portFor(config: EffectiveConfig, component: Component): number {
   return config.server[`${component}Port`];
 }
@@ -126,12 +130,15 @@ export async function startComponents(
   const components = selected
     ? [selected]
     : (["coordinator", "scheduler", "gateway", "runner"] satisfies Component[]);
+
   const started: Started[] = [],
     secrets = await credentialSecretValues(paths);
+
   if (components.includes("runner")) {
     await dependencies.ensurePiProfileRepository(paths, config);
     await dependencies.validateRunnerHost(paths);
   }
+
   const stopAll = async () => {
     for (const item of started.toReversed()) {
       try {
@@ -147,7 +154,9 @@ export async function startComponents(
           error instanceof Error ? error.message : String(error),
         );
       }
+
       await rm(componentStatePath(paths, item.component), { force: true });
+
       try {
         await item.unlock();
       } catch (error) {
@@ -160,6 +169,7 @@ export async function startComponents(
       }
     }
   };
+
   try {
     for (const component of components) {
       let unlock: () => Promise<void>;
@@ -172,6 +182,7 @@ export async function startComponents(
           );
         throw error;
       }
+
       const logger = new Logger({
         component,
         deploymentId: deploymentId(paths),
@@ -179,16 +190,19 @@ export async function startComponents(
         format: config.logging.format,
         secrets,
       });
+
       logger.event("info", "component.lifecycle", "component starting", {
         old_state: "stopped",
         new_state: "starting",
       });
+
       const runtime = dependencies.createRuntime(
         component,
         paths,
         config,
         logger,
       );
+
       let ready: { endpoint: string } | void;
       try {
         ready = await runtime.start();
@@ -199,6 +213,7 @@ export async function startComponents(
           error instanceof Error ? error.message : String(error),
           { old_state: "starting", new_state: "failed" },
         );
+
         try {
           await runtime.stop();
         } catch (cleanupError) {
@@ -210,11 +225,14 @@ export async function startComponents(
               : String(cleanupError),
           );
         }
+
         await unlock();
         throw error;
       }
+
       const stop = () => runtime.stop();
       started.push({ component, stop, unlock, logger });
+
       const generation = await connectionGeneration(paths);
       await writeComponentState(paths, {
         component,
@@ -227,6 +245,7 @@ export async function startComponents(
         connectionGeneration: generation,
         startedAt: new Date().toISOString(),
       });
+
       logger.event("info", "component.lifecycle", "component ready", {
         old_state: "starting",
         new_state: "ready",
@@ -237,6 +256,7 @@ export async function startComponents(
     await stopAll();
     throw error;
   }
+
   await dependencies.waitForShutdown(stopAll);
 }
 
@@ -253,6 +273,7 @@ export interface DeploymentStatus {
     }
   >;
 }
+
 export async function serverStatus(
   paths: IntegralPaths,
   probe: (
@@ -264,6 +285,7 @@ export async function serverStatus(
   const recorded = await Promise.all(
     COMPONENTS.map((component) => readComponentState(paths, component)),
   );
+
   const entries = await Promise.all(
     recorded.map(async (state, i) => {
       if (!state) return undefined;
@@ -272,6 +294,7 @@ export async function serverStatus(
         : undefined;
     }),
   );
+
   const components = Object.fromEntries(
     COMPONENTS.map((component, i) => [
       component,
@@ -286,9 +309,11 @@ export async function serverStatus(
         : { status: "stopped" },
     ]),
   ) as DeploymentStatus["components"];
+
   const running = entries.filter(Boolean);
   const fingerprints = new Set(running.map((s) => s!.fingerprint)),
     generations = new Set(running.map((s) => s!.connectionGeneration));
+
   const overall =
     running.length === 0
       ? "stopped"
@@ -298,8 +323,10 @@ export async function serverStatus(
           running.every((s) => s!.status === "ready")
         ? "healthy"
         : "degraded";
+
   return { overall, components };
 }
+
 async function probeComponent(
   endpoint: string,
   component: Component,
@@ -310,6 +337,7 @@ async function probeComponent(
       signal: AbortSignal.timeout(500),
     });
     if (!response.ok) return false;
+
     const body = (await response.json()) as {
       component?: string;
       deploymentId?: string;

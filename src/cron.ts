@@ -21,6 +21,7 @@ function field(
   normalize: (value: number) => number = (value) => value,
 ): CronField {
   const values = new Set<number>();
+
   for (const item of source.split(",")) {
     const [rangeSource, stepSource] = item.split("/");
     if (!rangeSource || item.split("/").length > 2)
@@ -28,6 +29,7 @@ function field(
     const step = stepSource === undefined ? 1 : Number(stepSource);
     if (!Number.isInteger(step) || step < 1)
       throw new IntegralError(`invalid cron ${name} step: ${source}`);
+
     let start: number, end: number;
     if (rangeSource === "*") {
       start = minimum;
@@ -41,6 +43,7 @@ function field(
       start = Number(rangeSource);
       end = start;
     }
+
     if (
       !Number.isInteger(start) ||
       !Number.isInteger(end) ||
@@ -51,10 +54,13 @@ function field(
       throw new IntegralError(
         `cron ${name} must be between ${minimum} and ${maximum}`,
       );
+
     for (let value = start; value <= end; value += step)
       values.add(normalize(value));
   }
+
   if (!values.size) throw new IntegralError(`cron ${name} is empty`);
+
   return { wildcard: source === "*", values };
 }
 
@@ -62,6 +68,7 @@ export function parseCron(expression: string): ParsedCron {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5)
     throw new IntegralError("cron expression must contain five fields");
+
   return {
     minute: field(parts[0]!, 0, 59, "minute"),
     hour: field(parts[1]!, 0, 23, "hour"),
@@ -79,6 +86,7 @@ const formatters = new Map<string, Intl.DateTimeFormat>();
 function formatterFor(timezone: string): Intl.DateTimeFormat {
   const cached = formatters.get(timezone);
   if (cached) return cached;
+
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     minute: "numeric",
@@ -89,10 +97,12 @@ function formatterFor(timezone: string): Intl.DateTimeFormat {
     year: "numeric",
     weekday: "short",
   });
+
   if (formatters.size >= FORMATTER_CACHE_LIMIT) {
     const oldest = formatters.keys().next().value;
     if (oldest !== undefined) formatters.delete(oldest);
   }
+
   formatters.set(timezone, formatter);
   return formatter;
 }
@@ -104,14 +114,17 @@ function partsAt(timestamp: number, timezone: string): Record<string, number> {
   } catch {
     throw new IntegralError(`invalid IANA timezone: ${timezone}`);
   }
+
   const result: Record<string, number> = {};
   for (const part of formatted)
     if (part.type !== "literal" && part.type !== "weekday")
       result[part.type] = Number(part.value);
+
   const weekday = formatted.find((part) => part.type === "weekday")?.value;
   result.weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
     weekday ?? "",
   );
+
   return result;
 }
 
@@ -131,6 +144,7 @@ export function cronMatches(
           : parsed.dayOfWeek.wildcard
             ? dayOfMonth
             : dayOfMonth || dayOfWeek;
+
   return (
     parsed.minute.values.has(local.minute!) &&
     parsed.hour.values.has(local.hour!) &&
@@ -148,6 +162,7 @@ export function nextCronInstant(
 ): number {
   const parsed = parseCron(expression);
   partsAt(after, timezone);
+
   let candidate = Math.floor(after / 60_000) * 60_000 + 60_000;
   for (
     let checked = 0;
@@ -155,6 +170,7 @@ export function nextCronInstant(
     checked++, candidate += 60_000
   )
     if (cronMatches(parsed, timezone, candidate)) return candidate;
+
   throw new IntegralError(
     "cron expression has no occurrence in the supported search horizon",
   );

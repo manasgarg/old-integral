@@ -40,6 +40,7 @@ export async function scheduleCommand(
   overrides: Partial<ScheduleDependencies> = {},
 ): Promise<number> {
   const dependencies = { ...productionDependencies, ...overrides };
+
   if (
     !args[0] ||
     args.includes("--help") ||
@@ -49,8 +50,10 @@ export async function scheduleCommand(
     dependencies.writeOutput(HELP);
     return 0;
   }
+
   const paths = dependencies.resolvePaths(),
     scheduler = await dependencies.componentEndpoint(paths, "scheduler");
+
   await dependencies
     .verifiedFetch(paths, "scheduler", "/integral/health")
     .catch(() => {
@@ -58,8 +61,10 @@ export async function scheduleCommand(
         "scheduler is not reachable; start it with integral server start",
       );
     });
+
   const command = args[0],
     jsonOutput = args.includes("--json");
+
   if (command === "ls") {
     const value = await fetchJson(
       new URL("/integral/schedules", scheduler),
@@ -68,10 +73,12 @@ export async function scheduleCommand(
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   if (command === "show" || command === "history") {
     const id = args[1];
     if (!id)
       throw new IntegralError(`usage: integral schedule ${command} <id>`);
+
     const suffix = command === "history" ? "/history" : "",
       value = await fetchJson(
         new URL(
@@ -83,19 +90,24 @@ export async function scheduleCommand(
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   if (command === "runs") {
     const url = new URL("/integral/occurrences", scheduler),
       scheduleId = args[1];
+
     if (scheduleId && !scheduleId.startsWith("--"))
       url.searchParams.set("scheduleId", scheduleId);
+
     const value = await fetchJson(url, dependencies.fetch);
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   if (command === "cancel") {
     const executionId = args[1];
     if (!executionId)
       throw new IntegralError("usage: integral schedule cancel <execution-id>");
+
     const coordinator = await dependencies.componentEndpoint(
         paths,
         "coordinator",
@@ -111,11 +123,14 @@ export async function scheduleCommand(
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   const actor = "operator";
+
   if (command === "create") {
     const prompt = flag(args, "--prompt");
     if (!prompt)
       throw new IntegralError("schedule create requires --prompt <text>");
+
     const coordinator = await dependencies.componentEndpoint(
         paths,
         "coordinator",
@@ -124,8 +139,10 @@ export async function scheduleCommand(
         new URL("/integral/snapshot", coordinator),
         dependencies.fetch,
       )) as { modelSelection?: ModelSelection | null };
+
     if (!snapshot.modelSelection)
       throw new IntegralError("select a model before creating a schedule");
+
     const value = await requestJson(
       new URL("/integral/schedules", scheduler),
       {
@@ -143,18 +160,23 @@ export async function scheduleCommand(
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   if (["update", "enable", "disable", "delete", "restore"].includes(command)) {
     const id = args[1],
       revision = Number(flag(args, "--revision"));
+
     if (!id || !Number.isInteger(revision) || revision < 1)
       throw new IntegralError(
         `integral schedule ${command} requires <id> --revision <n>`,
       );
+
     let path = `/integral/schedules/${encodeURIComponent(id)}`,
       method = "POST";
     const body: Record<string, unknown> = { actor, expectedRevision: revision };
+
     if (command === "update") {
       method = "PATCH";
+
       const prompt = flag(args, "--prompt");
       if (prompt) body.prompt = prompt;
       if (flag(args, "--at") || flag(args, "--cron"))
@@ -171,6 +193,7 @@ export async function scheduleCommand(
         body.commit = commit;
       }
     }
+
     const value = await requestJson(
       new URL(path, scheduler),
       {
@@ -183,6 +206,7 @@ export async function scheduleCommand(
     renderScheduleValue(value, jsonOutput, dependencies.writeOutput);
     return 0;
   }
+
   throw new IntegralError(`unknown schedule command: ${command}`);
 }
 
@@ -195,8 +219,10 @@ function scheduleTriggerFromFlags(args: string[]): Record<string, string> {
   const runAt = flag(args, "--at"),
     cron = flag(args, "--cron"),
     timezone = flag(args, "--timezone");
+
   if (runAt && !cron && !timezone) return { type: "once", runAt };
   if (!runAt && cron && timezone) return { type: "recurring", cron, timezone };
+
   throw new IntegralError(
     "provide either --at <instant> or both --cron <expression> and --timezone <zone>",
   );
@@ -211,12 +237,14 @@ function renderScheduleValue(
     write(`${JSON.stringify(value, null, 2)}\n`);
     return;
   }
+
   const rows = Array.isArray(value) ? value : [value];
   for (const row of rows) {
     if (!row || typeof row !== "object") {
       write(`${String(row)}\n`);
       continue;
     }
+
     const item = row as Record<string, unknown>;
     write(
       [

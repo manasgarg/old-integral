@@ -73,17 +73,20 @@ export async function listModelChoices(
     )
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!connections.length) return { choices: [] };
+
   const dependencies = { ...productionDependencies, ...overrides };
   progress?.("runtime.resolve", "checking and preparing the Pi runtime");
   const runtime = await dependencies.ensureRuntime(paths);
   progress?.("runtime.ready", "Pi runtime is ready", {
     pi_version: runtime.version,
   });
+
   progress?.(
     "image.resolve",
     "resolving the managed Pi image; this may build or pull an image",
     { pi_version: runtime.version },
   );
+
   const packageState = await loadContainerPackageState(paths),
     activeRaw = await readText(paths.activeImage);
   let active: { recipeCommit: string; result: ImageBuildResult } | undefined;
@@ -96,6 +99,7 @@ export async function listModelChoices(
     } catch {
       throw new IntegralError("invalid active managed image state");
     }
+
   const image = await dependencies.ensureImage(
     config,
     active?.result.piVersion ?? runtime.version,
@@ -111,6 +115,7 @@ export async function listModelChoices(
   progress?.("image.ready", "managed Pi image is ready", {
     pi_version: runtime.version,
   });
+
   const piVersion =
       config.runner.image === DEFAULT_PI_IMAGE
         ? (active?.result.piVersion ?? runtime.version)
@@ -118,6 +123,7 @@ export async function listModelChoices(
     providers = [
       ...new Set(connections.map((connection) => connection.provider!)),
     ];
+
   progress?.("models.discover", "discovering models from the Pi image", {
     provider_count: providers.length,
   });
@@ -126,11 +132,13 @@ export async function listModelChoices(
   progress?.("models.ready", "Pi model discovery is complete", {
     model_count: models.length,
   });
+
   for (const { provider, model } of models) {
     const group = byProvider.get(provider) ?? [];
     group.push(model);
     byProvider.set(provider, group);
   }
+
   const choices = connections.flatMap((connection) =>
     [...new Set(byProvider.get(connection.provider!) ?? [])]
       .sort()
@@ -142,6 +150,7 @@ export async function listModelChoices(
         piImage: image,
       })),
   );
+
   return {
     choices,
     piVersion,
@@ -181,6 +190,7 @@ export function matchModelChoices(
     .map((term) => term.trim().toLowerCase())
     .filter(Boolean);
   if (!normalized.length) return [...choices];
+
   return choices.filter((choice) => {
     const fields = [choice.connection, choice.provider, choice.model].map(
       (field) => field.toLowerCase(),

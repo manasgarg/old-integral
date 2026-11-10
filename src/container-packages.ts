@@ -24,6 +24,7 @@ export function validateContainerPackageNames(value: unknown): string[] {
       "packages must contain between 1 and 20 names",
       400,
     );
+
   const packages = value.map((entry) => {
     if (typeof entry !== "string" || !packageNamePattern.test(entry))
       throw new IntegralError(
@@ -32,6 +33,7 @@ export function validateContainerPackageNames(value: unknown): string[] {
       );
     return entry;
   });
+
   return [...new Set(packages)].sort();
 }
 
@@ -41,6 +43,7 @@ export async function loadContainerPackageState(
   const raw = await readText(paths.containerPackages);
   if (!raw)
     return { revision: 0, packages: [...DEFAULT_CONTAINER_PACKAGES].sort() };
+
   try {
     const parsed = JSON.parse(raw) as Partial<ContainerPackageState>;
     if (
@@ -59,6 +62,7 @@ export async function loadContainerPackageState(
         typeof parsed.lastApprovalId !== "string")
     )
       throw new Error("invalid package state");
+
     return {
       revision: Number(parsed.revision),
       packages: [...new Set(parsed.packages)].sort(),
@@ -84,6 +88,7 @@ export function planContainerPackageChange(
       `container package revision conflict: expected ${expectedRevision}, current ${current.revision}`,
       409,
     );
+
   if (operation === "upgrade") {
     const unknown = requested.filter(
       (name) => !current.packages.includes(name),
@@ -95,6 +100,7 @@ export function planContainerPackageChange(
       );
     return { revision: current.revision + 1, packages: [...current.packages] };
   }
+
   const packages = [...new Set([...current.packages, ...requested])].sort();
   if (packages.length > 50)
     throw new IntegralError("managed images support at most 50 packages", 400);

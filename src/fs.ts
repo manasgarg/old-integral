@@ -22,6 +22,7 @@ export async function atomicWrite(
 ): Promise<void> {
   await ensureDir(dirname(path));
   const temp = join(dirname(path), `.${randomUUID()}.tmp`);
+
   try {
     await writeFile(temp, content, { mode, flag: "wx" });
     await chmod(temp, mode);
@@ -48,11 +49,13 @@ export async function acquireLock(path: string): Promise<() => Promise<void>> {
   await ensureDir(dirname(path));
   const claim = join(dirname(path), `.${randomUUID()}.lock-claim`);
   await writeFile(claim, `${process.pid}\n`, { mode: 0o600, flag: "wx" });
+
   try {
     try {
       await link(claim, path);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+
       const pid = Number((await readText(path))?.trim());
       let alive = Number.isInteger(pid) && pid > 0;
       if (alive)
@@ -61,6 +64,7 @@ export async function acquireLock(path: string): Promise<() => Promise<void>> {
         } catch (check) {
           if ((check as NodeJS.ErrnoException).code === "ESRCH") alive = false;
         }
+
       if (alive) throw error;
       await rm(path, { force: true });
       await link(claim, path);
@@ -68,6 +72,7 @@ export async function acquireLock(path: string): Promise<() => Promise<void>> {
   } finally {
     await rm(claim, { force: true });
   }
+
   return async () => {
     await rm(path, { force: true });
   };

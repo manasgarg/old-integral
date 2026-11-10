@@ -6,11 +6,13 @@ export async function fetchJson(
   init?: RequestInit,
 ): Promise<unknown> {
   const response = await fetcher(url, init);
+
   if (!response.ok)
     throw new IntegralError(
       ((await response.json()) as { error?: string }).error ??
         `request failed: ${response.status}`,
     );
+
   return response.json();
 }
 
@@ -20,6 +22,7 @@ export async function requestOk(
   fetcher: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<void> {
   const response = await fetcher(url, init);
+
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
       error?: string;
@@ -35,11 +38,13 @@ export async function requestJson(
 ): Promise<unknown> {
   const response = await fetcher(url, init),
     body = (await response.json().catch(() => ({}))) as unknown;
+
   if (!response.ok)
     throw new IntegralError(
       body && typeof body === "object" && "error" in body
         ? String(body.error)
         : `request failed: ${response.status}`,
     );
+
   return body;
 }

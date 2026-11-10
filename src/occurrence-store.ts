@@ -94,6 +94,7 @@ export class OccurrenceStore {
           (item) => item.executionId === id,
         );
       if (existing) return structuredClone(existing);
+
       const occurrence: ScheduledOccurrence = {
         executionId: id,
         scheduleId: schedule.id,
@@ -109,6 +110,7 @@ export class OccurrenceStore {
           ? { origin: structuredClone(schedule.origin) }
           : {}),
       };
+
       this.data.occurrences.push(occurrence);
       await this.persist();
       return structuredClone(occurrence);
@@ -147,6 +149,7 @@ export class OccurrenceStore {
           );
         return;
       }
+
       item.state = outcome;
       item.completedAt = new Date(this.now()).toISOString();
       if (error) item.lastError = error;
@@ -162,6 +165,7 @@ export class OccurrenceStore {
         (candidate) => candidate.executionId === execution,
       );
       if (!item) throw new Error(`occurrence not found: ${execution}`);
+
       const before = structuredClone(item);
       update(item);
       try {
@@ -170,6 +174,7 @@ export class OccurrenceStore {
         Object.assign(item, before);
         throw error;
       }
+
       return structuredClone(item);
     });
   }
