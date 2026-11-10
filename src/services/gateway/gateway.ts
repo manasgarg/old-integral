@@ -5,49 +5,53 @@ import { readFile } from "node:fs/promises";
 import type { Duplex } from "node:stream";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import type { Connection } from "./stores/connection-store.ts";
+import type { Connection } from "../../stores/connection-store.ts";
 import {
   clearConnectionDegraded,
   connectionBoundaries,
   credentialFor,
   loadConnections,
   markConnectionDegraded,
-} from "./stores/connection-store.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import type { EffectiveConfig } from "./stores/config.ts";
+} from "../../stores/connection-store.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
+import type { EffectiveConfig } from "../../stores/config.ts";
 import {
   decideRequest,
   parseProxyAuthorization,
   type CredentialedConnection,
-} from "./gateway-policy.ts";
-import { certificateFor, ensureCa, type CaFiles } from "./ca.ts";
+} from "./egress-policy.ts";
+import {
+  certificateFor,
+  ensureCa,
+  type CaFiles,
+} from "./certificate-authority.ts";
 import {
   componentIdentity,
   deploymentId,
   readComponentState,
   updateComponentState,
   verifyInternal,
-} from "./platform/component-identity.ts";
-import { IntegralError } from "./platform/errors.ts";
-import type { Logger } from "./platform/logging.ts";
-import { oauthAccess, refreshOAuth } from "./integrations/oauth.ts";
-import { acquireLock, atomicWrite } from "./platform/files.ts";
-import { readText } from "./platform/files.ts";
+} from "../../platform/component-identity.ts";
+import { IntegralError } from "../../platform/errors.ts";
+import type { Logger } from "../../platform/logging.ts";
+import { oauthAccess, refreshOAuth } from "../../integrations/oauth.ts";
+import { acquireLock, atomicWrite } from "../../platform/files.ts";
+import { readText } from "../../platform/files.ts";
 import { join } from "node:path";
 import {
   nodeHttpServerRuntime,
   nodeIntervalRuntime,
   type HttpServerRuntime,
   type IntervalRuntime,
-} from "./platform/timers-and-servers.ts";
-import { executeEmail, parseEmailOperation } from "./integrations/email.ts";
-import { internalFetch } from "./platform/internal-http-client.ts";
-import { callRemoteMcp } from "./integrations/mcp.ts";
+} from "../../platform/timers-and-servers.ts";
+import { executeEmail, parseEmailOperation } from "../../integrations/email.ts";
+import { internalFetch } from "../../platform/internal-http-client.ts";
+import { callRemoteMcp } from "../../integrations/mcp.ts";
 import {
   readJsonObject,
   readRequestBody,
   writeJson,
-} from "./platform/json-http.ts";
+} from "../../platform/json-http.ts";
 import {
   createResource,
   discardRepositoryRecovery,
@@ -63,13 +67,13 @@ import {
   softDeleteResource,
   type ResourceKind,
   type ResourceRecord,
-} from "./stores/resource-store.ts";
+} from "../../stores/resource-store.ts";
 import {
   IMAGE_RECIPE_ID,
   IMAGE_RECIPE_MOUNT,
   IMAGE_RECIPE_NAME,
   ensureImageRecipeRepository,
-} from "./stores/image-recipe-store.ts";
+} from "../../stores/image-recipe-store.ts";
 
 function modelBoundary(connection: Connection): Connection {
   if (connection.kind !== "model") return connection;

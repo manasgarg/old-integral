@@ -19,10 +19,10 @@ import {
   startComponents,
   waitForShutdownSignal,
   type StartComponentsDependencies,
-} from "../src/server.ts";
+} from "../src/services/launcher.ts";
 import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
 import type { Component } from "../src/platform/constants.ts";
-import { requireActiveModelConnection } from "../src/runner.ts";
+import { requireActiveModelConnection } from "../src/services/runner/runner.ts";
 
 /* @covers SERVER-DF5FD52E
 Given a server component is running for a deployment

@@ -10,7 +10,7 @@ import {
   decideRequest,
   parseProxyAuthorization,
   WEB_CONNECTION_NAME,
-} from "../src/gateway-policy.ts";
+} from "../src/services/gateway/egress-policy.ts";
 import {
   OAUTH_SENTINEL,
   SENTINEL,
@@ -42,8 +42,15 @@ import {
   saveConnection,
   validateConnection,
 } from "../src/stores/connection-store.ts";
-import { Gateway, allowsConnect, gatewayHealth } from "../src/gateway.ts";
-import { certificateFor, ensureCa } from "../src/ca.ts";
+import {
+  Gateway,
+  allowsConnect,
+  gatewayHealth,
+} from "../src/services/gateway/gateway.ts";
+import {
+  certificateFor,
+  ensureCa,
+} from "../src/services/gateway/certificate-authority.ts";
 import { Logger } from "../src/platform/logging.ts";
 import {
   deploymentId,

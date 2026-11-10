@@ -16,7 +16,7 @@ import {
   validateConnection,
 } from "../src/stores/connection-store.ts";
 import { Logger } from "../src/platform/logging.ts";
-import { Runner, type RunnerClock } from "../src/runner.ts";
+import { Runner, type RunnerClock } from "../src/services/runner/runner.ts";
 import type { ResourceProjection } from "../src/stores/resource-store.ts";
 import {
   deploymentId,

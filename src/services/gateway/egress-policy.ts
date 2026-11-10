@@ -2,9 +2,9 @@ import type { IncomingHttpHeaders } from "node:http";
 import {
   connectionBoundaries,
   type Connection,
-} from "./stores/connection-store.ts";
-import { IntegralError } from "./platform/errors.ts";
-import { SENTINEL } from "./domain/credential-sentinels.ts";
+} from "../../stores/connection-store.ts";
+import { IntegralError } from "../../platform/errors.ts";
+import { SENTINEL } from "../../domain/credential-sentinels.ts";
 
 export const WEB_CONNECTION_NAME = "integral-web";
 

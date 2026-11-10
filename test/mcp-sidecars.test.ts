@@ -6,7 +6,7 @@ import type { McpSidecarSpec } from "../src/integrations/docker/mcp-sidecar.ts";
 import { validateConnection } from "../src/stores/connection-store.ts";
 import { Logger } from "../src/platform/logging.ts";
 import type { McpRuntime } from "../src/integrations/mcp.ts";
-import { McpSidecarManager } from "../src/runner/mcp-sidecars.ts";
+import { McpSidecarManager } from "../src/services/runner/mcp-sidecars.ts";
 import { fixture } from "./helpers.ts";
 
 test("[MCP-0A804DA4] sidecar supervision isolates startup and invocation failures and releases every runtime", async (t) => {
