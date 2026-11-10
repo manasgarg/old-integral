@@ -25,7 +25,17 @@ specifications for Phase 1.
 - [`failure.md`](failure.md) — cross-cutting failure handling and cleanup
 - [`upgrade.md`](upgrade.md) — deployment format, migrations, releases, and upgrades
 
-Behavior formatting and ID rules are defined in [`AGENTS.md`](../AGENTS.md).
+## Lifecycle specifications
+
+[`lifecycle/`](lifecycle/) holds one state machine per long-lived resource:
+every state, every event, and the outcome of each pair, citing the behaviors
+above.
+
+- [`lifecycle/connection.md`](lifecycle/connection.md) — declaration, credential, and health of a connection
+- [`lifecycle/pi-session.md`](lifecycle/pi-session.md) — the warm interactive Pi RPC session
+- [`lifecycle/pi-container.md`](lifecycle/pi-container.md) — a Pi container and the children it owns
+
+Behavior formatting, ID, and lifecycle rules are defined in [`AGENTS.md`](../AGENTS.md).
 
 ## Retired IDs
 

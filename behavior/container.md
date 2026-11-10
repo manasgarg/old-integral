@@ -98,13 +98,9 @@ Given integral has an active Pi RPC session
 ```text
 Given Pi does not finish a turn within the configured turn timeout
 	When the timeout expires
-		Then integral requests container termination
-			And reports that the turn timed out
+		Then integral reports that the turn timed out
 			And durably returns the in-flight message to the queue
-			And removes temporary session data
-			And revokes temporary session credentials
-			And terminates every MCP sidecar owned by the timed-out session
-			And force-removes the Docker container if it has not exited five seconds after SIGTERM
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 ```
 
 ## BOX-7D3A19E4 — Recycle an idle Pi session without ending the conversation
@@ -113,9 +109,7 @@ Given Pi does not finish a turn within the configured turn timeout
 Given the durable queue is empty
 	And the Pi session has no turn in flight
 	When the Pi idle timeout expires
-		Then integral terminates the Pi container
-			And terminates every MCP sidecar owned by that Pi session
-			And revokes its temporary session token
+		Then integral tears down the Pi container as `BOX-E2A8D2BF` describes
 			And preserves the durable conversation record and queue
 			And keeps attached terminals connected
 			And starts a replacement session when another message is queued
@@ -127,9 +121,21 @@ Given the durable queue is empty
 Given the runner has claimed a queued message
 	When it cannot provision or start the Pi container
 		Then integral durably returns the message to its prior queue position
-			And terminates every partially started MCP sidecar
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 			And records the provisioning failure
 			And reports the failure to every attached terminal
+```
+
+## BOX-E2A8D2BF — Tear down a Pi container
+
+```text
+Given a Pi container for an interactive session or a task attempt is ending
+	When its owner tears it down after an idle timeout, stuck turn, failed turn, unexpected exit, failed provisioning, replacement, or shutdown
+		Then integral requests container termination
+			And force-removes the Docker container if it has not exited five seconds after SIGTERM
+			And terminates every MCP sidecar owned by the session as `MCP-0A804DA4` describes
+			And revokes the session's temporary gateway identity
+			And removes the temporary session home and session material
 ```
 
 ## BOX-40521095 — Govern Pi image package changes

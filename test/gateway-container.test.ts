@@ -1326,8 +1326,7 @@ Given an isolated task container is processing exactly one occurrence
 			And does not treat partial output as a successful task result
 			And does not send a successful acknowledgement to the scheduler
 	When any task attempt finishes
-		Then the runner revokes that attempt's gateway identity
-			And removes its container and temporary home
+		Then the runner tears down its container as `BOX-E2A8D2BF` describes
 			And never retains the container for another task or talk turn
 */
 test("[SCHEDULE-930581F7] task outcome declarations derive execution identity from the authenticated gateway session", async (t) => {
@@ -2672,7 +2671,7 @@ Given the runner has sent a claimed message to Pi
 	When Pi rejects the prompt before beginning a turn
 		Then integral reports the rejection without waiting for the turn timeout
 			And durably returns the interrupted message to the queue
-			And removes the failed Pi container and temporary session material
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 */
 test("[FAILURE-A4C19E72] an immediate Pi prompt rejection becomes a turn error", () => {
   assert.deepEqual(
@@ -2756,13 +2755,9 @@ test("[FAILURE-BE6D295B] Pi automatic retries do not complete the chat turn earl
 /* @covers BOX-BE26C696
 Given Pi does not finish a turn within the configured turn timeout
 	When the timeout expires
-		Then integral requests container termination
-			And reports that the turn timed out
+		Then integral reports that the turn timed out
 			And durably returns the in-flight message to the queue
-			And removes temporary session data
-			And revokes temporary session credentials
-			And terminates every MCP sidecar owned by the timed-out session
-			And force-removes the Docker container if it has not exited five seconds after SIGTERM
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 */
 test("[BOX-BE26C696] runner configuration resolves finite turn and idle deadlines", async (t) => {
   const paths = await fixture(t),

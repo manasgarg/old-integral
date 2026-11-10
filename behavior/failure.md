@@ -16,7 +16,7 @@ Given a chat turn is in progress
 			And reports the interruption to every attached terminal
 			And does not present partial protocol output as a complete answer
 			And durably returns the interrupted message to the queue
-			And removes the container and temporary session material
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 ```
 
 ## FAILURE-3780301D — Report loss of the gateway
@@ -29,7 +29,7 @@ Given the runner has not claimed its next message
 			And does not fall back to direct internet access
 Given a chat turn is already in progress
 	When the prompt fails with a gateway, container, timeout, or exit error
-		Then the runner removes the failed Pi container
+		Then the runner tears down the failed Pi container as `BOX-E2A8D2BF` describes
 			And integral does not place a real credential in any replacement container
 			And the coordinator durably returns the interrupted message to the queue
 			And reports the turn error to attached terminals
@@ -56,7 +56,7 @@ Given the runner has sent a claimed message to Pi
 	When Pi rejects the prompt before beginning a turn
 		Then integral reports the rejection without waiting for the turn timeout
 			And durably returns the interrupted message to the queue
-			And removes the failed Pi container and temporary session material
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 ```
 
 ## FAILURE-BE6D295B — Wait for Pi's automatic retry

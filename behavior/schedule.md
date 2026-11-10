@@ -137,8 +137,7 @@ Given an isolated task container is processing exactly one occurrence
 			And does not treat partial output as a successful task result
 			And does not send a successful acknowledgement to the scheduler
 	When any task attempt finishes
-		Then the runner revokes that attempt's gateway identity
-			And removes its container and temporary home
+		Then the runner tears down its container as `BOX-E2A8D2BF` describes
 			And never retains the container for another task or talk turn
 ```
 
