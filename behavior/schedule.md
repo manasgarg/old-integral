@@ -73,7 +73,7 @@ Given an enabled schedule reaches its next execution instant
 	When the scheduler evaluates due work
 		Then it durably creates an occurrence before dispatching it
 			And derives a stable execution ID from the schedule ID, schedule revision, and scheduled UTC instant
-			And snapshots the task prompt and the schedule's model connection, provider, and model into the occurrence
+			And snapshots the task prompt into the occurrence
 			And never creates a second logical occurrence for the same execution ID after restart or clock rollback
 			And calculates the next recurring instant using the schedule's IANA timezone and defined daylight-saving behavior
 ```
@@ -162,23 +162,26 @@ Given a recurring occurrence has been durably accepted by the coordinator
 			And the earlier failure does not delay or replace it
 ```
 
-## SCHEDULE-E3A1358A — Run scheduled work on the deployment's current Pi runtime
+## SCHEDULE-E3A1358A — Run scheduled work on the conversation's current model and Pi runtime
 
 ```text
-Given a schedule names a model connection, provider, and model
-	When integral creates or updates the schedule
-		Then it records the model connection, provider, and model
-			And does not record a Pi version or Pi image
-	When the runner starts an isolated attempt for one of its occurrences
-		Then it uses the deployment's pinned Pi version and its current Pi image
-			And the attempt's run record names the Pi version and image it used
+Given Pi creates or updates a schedule
+	When integral records the schedule
+		Then it records no model connection, provider, model, Pi version, or Pi image
+Given the runner is about to start an isolated attempt for an occurrence
+	When the deployment's shared model selection names a usable model
+		Then the attempt uses that model selection as it stands at that moment
+			And uses the deployment's pinned Pi version and its current Pi image
+			And the attempt's run record names the model, Pi version, and image it used
+	When the deployment has no usable model selection
+		Then the runner does not start a container
+			And integral treats it as a failure before the isolated Pi container starts
 	When the deployment's Pi runtime or image cannot be prepared
 		Then the runner does not start a container
 			And integral treats it as a failure before the isolated Pi container starts
-Given a schedule or occurrence written by an earlier release records a Pi version or Pi image
+Given a schedule or occurrence written by an earlier release records a model or Pi runtime
 	When `integral migrate` moves the deployment to this release's format
-		Then integral removes the recorded Pi version and image
-			And keeps the schedule's model connection, provider, and model
+		Then integral removes the recorded model connection, provider, model, Pi version, and Pi image
 			And keeps its stable schedule ID, revision history, and occurrences
 ```
 
