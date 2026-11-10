@@ -177,7 +177,7 @@ Given the runner has not claimed its next message
 			And does not fall back to direct internet access
 Given a chat turn is already in progress
 	When the prompt fails with a gateway, container, timeout, or exit error
-		Then the runner removes the failed Pi container
+		Then the runner tears down the failed Pi container as `BOX-E2A8D2BF` describes
 			And integral does not place a real credential in any replacement container
 			And the coordinator durably returns the interrupted message to the queue
 			And reports the turn error to attached terminals
@@ -372,9 +372,7 @@ test("[MCP-5751370A] [MCP-6F5CFA0E] runner detects validated catalog changes bet
 Given the durable queue is empty
 	And the Pi session has no turn in flight
 	When the Pi idle timeout expires
-		Then integral terminates the Pi container
-			And terminates every MCP sidecar owned by that Pi session
-			And revokes its temporary session token
+		Then integral tears down the Pi container as `BOX-E2A8D2BF` describes
 			And preserves the durable conversation record and queue
 			And keeps attached terminals connected
 			And starts a replacement session when another message is queued
@@ -675,7 +673,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
 Given the runner has claimed a queued message
 	When it cannot provision or start the Pi container
 		Then integral durably returns the message to its prior queue position
-			And terminates every partially started MCP sidecar
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 			And records the provisioning failure
 			And reports the failure to every attached terminal
 */
@@ -686,9 +684,18 @@ Given a chat turn is in progress
 			And reports the interruption to every attached terminal
 			And does not present partial protocol output as a complete answer
 			And durably returns the interrupted message to the queue
-			And removes the container and temporary session material
+			And tears down the Pi container as `BOX-E2A8D2BF` describes
 */
-test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILURE-A4C19E72] runner releases claimed work and destroys a failed Pi runtime", async (t) => {
+/* @covers BOX-E2A8D2BF
+Given a Pi container for an interactive session or a task attempt is ending
+	When its owner tears it down after an idle timeout, stuck turn, failed turn, unexpected exit, failed provisioning, replacement, or shutdown
+		Then integral requests container termination
+			And force-removes the Docker container if it has not exited five seconds after SIGTERM
+			And terminates every MCP sidecar owned by the session as `MCP-0A804DA4` describes
+			And revokes the session's temporary gateway identity
+			And removes the temporary session home and session material
+*/
+test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILURE-A4C19E72] [BOX-E2A8D2BF] runner releases claimed work and destroys a failed Pi runtime", async (t) => {
   const paths = await fixture(t),
     base = await loadConfig(paths, {}),
     config = {

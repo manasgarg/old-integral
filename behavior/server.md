@@ -91,8 +91,7 @@ Given all components are running in one foreground process
 		Then it stops owned components in reverse startup order
 			And stops all four component listeners
 			And durably returns any interrupted in-flight message to the queue
-			And terminates any active chat or task container
-			And revokes temporary session identity material
+			And tears down every active chat or task container as `BOX-E2A8D2BF` describes
 			And removes its lock and ready-state files
 			And exits without leaving a integral container running
 ```
@@ -199,7 +198,7 @@ Given coordinator, runner, gateway, and scheduler run in separate processes
 	When the runner stops
 		Then it durably returns any interrupted in-flight message to the coordinator queue
 			And resolves any interrupted task according to its trigger's recovery policy
-			And terminates every Pi container it owns
+			And tears down every Pi container it owns as `BOX-E2A8D2BF` describes
 			And does not stop the coordinator, gateway, or scheduler
 	When the coordinator, gateway, or scheduler stops
 		Then it does not signal the other component processes to exit

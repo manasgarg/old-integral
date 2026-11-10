@@ -158,3 +158,54 @@ Given the server is healthy
 
 Each behavior file may start with a level-one heading and a short scope note,
 but normative outcomes belong in identified Given/When/Then behaviors.
+
+## Lifecycle specifications
+
+A behavior describes one path through the product. A lifecycle specification
+describes every path a long-lived resource can take, so a missing case shows up
+as a gap in a table instead of a bug in production. Write one for any resource
+that exists outside a single function call and has more than one way to end:
+processes, containers, sidecars, session homes, gateway identities, claimed
+work, timers, and connections. Stateless policy stays in ordinary behaviors.
+
+- Keep lifecycle specifications under `behavior/lifecycle/`, one file per
+  resource, named after the resource.
+- Start a change to such a resource with its lifecycle file. A new state adds a
+  row for every event and a new event adds a row for every state; fill them all
+  before writing behaviors or code.
+- Each file has these level-two sections, in order: `Ownership`, `States`,
+  `Events`, `Transitions`, `Invariants`, `Restart reconciliation`, and
+  `Diagram`.
+- `Ownership` names the component that creates the resource, the component that
+  destroys it, what identifies one instance, and the child resources it owns.
+- `States` is a table whose first column is a backticked kebab-case state name.
+  Include transient states such as provisioning and ending, say where each
+  state is recorded, and say what a restarting component finds after a crash.
+- `Events` is a table whose first column is a backticked kebab-case event name.
+  Include commands, timers, completions and failures of the resource's own
+  operations, failures of external systems, shutdown, and crash recovery.
+- `Transitions` is a table with the columns `From`, `Event`, `To`, `Outcome`,
+  and `Contract`. Every state and event pair must appear exactly once. Several
+  states that react the same way may share one row as a comma-separated list.
+- The `Contract` cell is one of:
+  - one or more behavior IDs that specify the outcome in Given/When/Then, with a
+    known target state in `To`;
+  - `impossible`, with `—` in `To` and the reason the event cannot occur in
+    that state in `Outcome`;
+  - `ignored`, with `—` in `To` and the reason nothing needs to happen in
+    `Outcome`;
+  - `open`, with `?` in `To` and the undecided question in `Outcome`.
+- Resolve an `open` row by deciding the outcome, writing or extending the
+  behavior that specifies it, and citing that behavior.
+- `Invariants` lists statements that hold in every state, each followed by the
+  behavior IDs that enforce it or by `open`.
+- `Diagram` holds a Mermaid `stateDiagram-v2` block with one
+  `<from> --> <to> : <event>` line for each specified transition that changes
+  state. Rows that keep the state, and `impossible`, `ignored`, and `open` rows,
+  are not drawn.
+- Do not put behaviors in a lifecycle file. Teardown and other procedures that
+  several transitions share belong in an ordinary behavior, written once and
+  cited from every row that uses it. Other behaviors cite it rather than
+  repeating its steps.
+- `npm run lifecycle:check` validates names, pair coverage, cited IDs, and the
+  diagram, and reports how many pairs are still open.
