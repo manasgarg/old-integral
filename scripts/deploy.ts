@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, relative, sep } from "node:path";
+import { basename, delimiter, dirname, join, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CURRENT_DEPLOYMENT_FORMAT } from "../src/stores/deployment-format.ts";
 import { RELEASE_STAMP_PATH } from "../src/platform/release-identity.ts";
@@ -52,11 +52,28 @@ export interface DeploySettings {
   systemdUnitDirectory: string;
   serviceName: string;
   nodeExecutable: string;
+  /** `PATH` for the service: the Node.js directory first, then deploy's own. */
+  servicePath: string;
   drainTimeoutMs: number;
   healthTimeoutMs: number;
   stepTimeoutMs: number;
   pollIntervalMs: number;
   backupsKept: number;
+}
+
+/**
+ * The server runs `npm`, `git` and `docker`, and systemd starts user services
+ * with a minimal `PATH` that usually holds none of a version manager's tools.
+ */
+export function servicePath(
+  nodeExecutable: string,
+  deployPath: string | undefined,
+): string {
+  const entries = [
+    dirname(nodeExecutable),
+    ...(deployPath ?? "").split(delimiter),
+  ];
+  return [...new Set(entries.filter((entry) => entry !== ""))].join(delimiter);
 }
 
 export function defaultDeploySettings(
@@ -72,6 +89,7 @@ export function defaultDeploySettings(
     systemdUnitDirectory: join(home, ".config", "systemd", "user"),
     serviceName: "integral",
     nodeExecutable: process.execPath,
+    servicePath: servicePath(process.execPath, env.PATH),
     drainTimeoutMs: 10 * 60_000,
     healthTimeoutMs: 2 * 60_000,
     stepTimeoutMs: 30 * 60_000,
@@ -340,6 +358,7 @@ Description=Integral server (${settings.deploymentHome})
 [Service]
 Type=simple
 Environment=INTEGRAL_HOME=${settings.deploymentHome}
+Environment="PATH=${settings.servicePath}"
 ExecStart=${settings.nodeExecutable} ${integralBin(currentLink(settings))} server start
 Restart=on-failure
 RestartSec=5
@@ -681,7 +700,10 @@ export async function deploy(
 
     step = "health";
     if (!(await waitUntilHealthy(settings, host)))
-      throw new DeployError("integral did not report healthy in time", step);
+      throw new DeployError(
+        `integral did not report healthy in time; see \`journalctl --user -u ${settings.serviceName}\``,
+        step,
+      );
 
     step = "doctor";
     const doctor = await runIntegral(
