@@ -42,6 +42,33 @@ test("[SERVER-DF5FD52E] component locks exclude duplicates only within one norma
   await assert.rejects(acquireLock(file), { code: "EEXIST" });
 });
 
+/* @covers SERVER-DF5FD52E
+Given a server component is running for a deployment
+	When another process starts that same component with the same `$INTEGRAL_HOME`
+		Then the second process exits non-zero
+			And reports that the component lock is already held
+			And does not disturb any running component
+*/
+test("[SERVER-DF5FD52E] simultaneous lock attempts never grant the same lock twice", async (t) => {
+  const paths = await fixture(t),
+    file = join(paths.locks, "contended.lock");
+  for (let round = 0; round < 50; round++) {
+    const attempts = await Promise.allSettled(
+        Array.from({ length: 8 }, () => acquireLock(file)),
+      ),
+      granted = attempts.flatMap((attempt) =>
+        attempt.status === "fulfilled" ? [attempt.value] : [],
+      ),
+      refused = attempts.flatMap((attempt) =>
+        attempt.status === "rejected" ? [attempt.reason as unknown] : [],
+      );
+    assert.equal(granted.length, 1, `round ${round} granted the lock twice`);
+    for (const reason of refused)
+      assert.equal((reason as NodeJS.ErrnoException).code, "EEXIST");
+    await granted[0]!();
+  }
+});
+
 /* @covers SERVER-A74F29C1
 Given two integral deployments use different `$INTEGRAL_HOME` roots
 	And all component ports are distinct within and across the two deployments
