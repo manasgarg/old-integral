@@ -938,7 +938,7 @@ Given the integral coordinator is healthy
 		Then it identifies the equivalent spelling for every shared operation on the other surface
 Given an operation is specific to host administration, scripting, or an attached terminal
 	When integral shows top-level CLI help or local talk help
-		Then `server`, `talk`, `schedule`, `image`, `config`, and `version` remain CLI-only
+		Then `server`, `talk`, `schedule`, `image`, `config`, `migrate`, `doctor`, and `version` remain CLI-only
 			And connection setup, credential rotation, and removal remain CLI-only
 			And structured-output flags remain CLI-only
 			And `/exit` remains talk-only
@@ -962,6 +962,8 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
       "/schedule ls",
       "/image edit",
       "/config show",
+      "/migrate",
+      "/doctor",
       "/version",
       "/connection add docs --auth none",
       "/connection rm docs",
@@ -1028,6 +1030,8 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
     "schedule",
     "image",
     "config",
+    "migrate",
+    "doctor",
     "version",
   ]) {
     assert.ok(topLine(command), `top help lists ${command}`);
@@ -1035,7 +1039,7 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
   }
   assert.match(
     help,
-    /Host administration remains in the shell: integral server, talk, schedule, image, config, version, and connection add \(including credential rotation\) or rm\./,
+    /Host administration remains in the shell: integral server, talk, schedule, image, config, migrate, doctor, version, and connection add \(including credential rotation\) or rm\./,
   );
   assert.match(help, /Structured --json output is CLI-only\./);
   assert.match(talkLine("/exit"), /detach this terminal/);

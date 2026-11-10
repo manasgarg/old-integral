@@ -23,6 +23,7 @@ specifications for Phase 1.
 - [`schedule.md`](schedule.md) — schedule management and isolated task execution
 - [`run.md`](run.md) — durable run records and agent-visible execution history
 - [`failure.md`](failure.md) — cross-cutting failure handling and cleanup
+- [`upgrade.md`](upgrade.md) — deployment format, migrations, releases, and upgrades
 
 Behavior formatting and ID rules are defined in [`AGENTS.md`](../AGENTS.md).
 

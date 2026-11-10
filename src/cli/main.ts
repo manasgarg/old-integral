@@ -24,6 +24,16 @@ import {
   type Connection,
 } from "../stores/connection-store.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
+import { releaseIdentity } from "../platform/release-identity.ts";
+import {
+  CURRENT_DEPLOYMENT_FORMAT,
+  requireCurrentDeploymentFormat,
+} from "../stores/deployment-format.ts";
+import { migrateDeployment } from "../services/deployment-migration.ts";
+import {
+  doctorDeployment,
+  renderDoctorReport,
+} from "../services/deployment-doctor.ts";
 import { messageOf, IntegralError } from "../platform/errors.ts";
 import { serverStatus, startComponents } from "../services/launcher.ts";
 import {
@@ -93,6 +103,8 @@ Commands:
   connection   configure connections (in talk: /connection catalog or ls)
   image        edit or rebuild the managed Pi image
   config       inspect and validate configuration
+  migrate      move this deployment's data to this release's format
+  doctor       check that this release can read every store
   version      print implementation versions
 
 Run integral <command> --help for command details.
@@ -161,7 +173,7 @@ const TALK_HELP = `/help                         show this help
 /deny <id>                    deny (integral approval deny <id>)
 /exit                         detach this terminal
 
-Host administration remains in the shell: integral server, talk, schedule, image, config, version, and connection add (including credential rotation) or rm. Structured --json output is CLI-only.
+Host administration remains in the shell: integral server, talk, schedule, image, config, migrate, doctor, version, and connection add (including credential rotation) or rm. Structured --json output is CLI-only.
 `;
 
 const TALK_USER_STYLE = "\u001b[48;5;238m\u001b[97m";
@@ -170,8 +182,53 @@ const TALK_WORK_FRAMES = ["∮   ", "∮·  ", "∮·· ", "∮···"] as const
 
 const VERSION_HELP = `Usage: integral version
 
-Print the integral, Node.js, and supported Pi versions.
+Print the integral version, release, deployment format, and the Node.js and
+supported Pi versions.
 `;
+
+const MIGRATE_HELP = `Usage: integral migrate
+
+Move this deployment's data forward to the format this release reads and
+writes, one migration at a time. Stop integral first; migrate refuses while any
+component is running. A failed migration can be run again and continues where
+it stopped.
+`;
+
+const DOCTOR_HELP = `Usage: integral doctor [--json]
+
+Check that this release can read every durable store in the deployment. Doctor
+never changes the deployment. It exits successfully only when the deployment is
+at this release's format and every store reads cleanly.
+`;
+
+/** Top-level commands that only print help when given no subcommand. */
+const COMMAND_GROUPS = new Set([
+  "server",
+  "config",
+  "connection",
+  "queue",
+  "task",
+  "approval",
+  "schedule",
+  "image",
+]);
+
+const COMMANDS = new Set([
+  ...COMMAND_GROUPS,
+  "status",
+  "model",
+  "talk",
+  "migrate",
+  "doctor",
+]);
+
+function usesDeploymentState(command: string, rest: string[]): boolean {
+  if (!COMMANDS.has(command) || helpRequested(rest)) return false;
+  if (command === "migrate" || command === "doctor") return false;
+  if (COMMAND_GROUPS.has(command) && (!rest[0] || rest[0] === "help"))
+    return false;
+  return !(command === "connection" && rest[0] === "catalog");
+}
 
 function flag(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -319,11 +376,20 @@ export async function main(args: string[]): Promise<number> {
       }
 
       process.stdout.write(
-        `integral ${INTEGRAL_VERSION}\nNode.js ${process.versions.node}\nPi runtime: ${PI_VERSION}\n`,
+        `integral ${INTEGRAL_VERSION}\nRelease: ${releaseIdentity()}\nDeployment format: ${CURRENT_DEPLOYMENT_FORMAT}\nNode.js ${process.versions.node}\nPi runtime: ${PI_VERSION}\n`,
       );
       return 0;
     }
 
+    if (usesDeploymentState(command, rest))
+      await requireCurrentDeploymentFormat(
+        resolvePaths(),
+        releaseIdentity(),
+        command !== "config",
+      );
+
+    if (command === "migrate") return await migrateCommand(rest);
+    if (command === "doctor") return await doctorCommand(rest);
     if (command === "config") return await configCommand(rest);
     if (command === "connection") return await connectionCommand(rest);
     if (command === "image") return await imageCommand(rest);
@@ -340,6 +406,34 @@ export async function main(args: string[]): Promise<number> {
     process.stderr.write(`integral: ${messageOf(error)}\n`);
     return error instanceof IntegralError ? error.exitCode : 1;
   }
+}
+
+async function migrateCommand(args: string[]): Promise<number> {
+  if (helpRequested(args) || args[0] === "help") {
+    process.stdout.write(MIGRATE_HELP);
+    return 0;
+  }
+
+  await migrateDeployment(resolvePaths(), {
+    release: releaseIdentity(),
+    report: (line) => process.stdout.write(line),
+  });
+  return 0;
+}
+
+async function doctorCommand(args: string[]): Promise<number> {
+  if (helpRequested(args) || args[0] === "help") {
+    process.stdout.write(DOCTOR_HELP);
+    return 0;
+  }
+
+  const report = await doctorDeployment(resolvePaths());
+  process.stdout.write(
+    has(args, "--json")
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : renderDoctorReport(report),
+  );
+  return report.healthy ? 0 : 1;
 }
 
 async function configCommand(args: string[]): Promise<number> {

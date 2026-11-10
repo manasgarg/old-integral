@@ -9,7 +9,7 @@ deliberate overlap between shell commands and local commands in `integral talk`.
 Given integral is installed
 	When the user runs `integral`, `integral --help`, `integral -h`, or `integral help`
 		Then the command exits successfully
-			And lists `server`, `talk`, `status`, `model`, `queue`, `task`, `approval`, `schedule`, `connection`, `image`, `config`, and `version`
+			And lists `server`, `talk`, `status`, `model`, `queue`, `task`, `approval`, `schedule`, `connection`, `image`, `config`, `migrate`, `doctor`, and `version`
 			And describes each command in plain English
 	When npm reads the package metadata
 		Then the package is named `@pirogram/integral`
@@ -22,6 +22,8 @@ Given integral is installed
 Given integral is installed
 	When the user runs `integral version`
 		Then the command prints the integral version
+			And prints the release's commit SHA, or `development` when it was not built by deploy
+			And prints the deployment format the release supports
 			And prints the Node.js version
 			And prints the pinned Pi version
 			And exits successfully
@@ -119,7 +121,7 @@ Given the integral coordinator is healthy
 		Then it identifies the equivalent spelling for every shared operation on the other surface
 Given an operation is specific to host administration, scripting, or an attached terminal
 	When integral shows top-level CLI help or local talk help
-		Then `server`, `talk`, `schedule`, `image`, `config`, and `version` remain CLI-only
+		Then `server`, `talk`, `schedule`, `image`, `config`, `migrate`, `doctor`, and `version` remain CLI-only
 			And connection setup, credential rotation, and removal remain CLI-only
 			And structured-output flags remain CLI-only
 			And `/exit` remains talk-only
