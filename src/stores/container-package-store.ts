@@ -1,6 +1,6 @@
-import { atomicWrite, readText } from "./platform/files.ts";
-import { IntegralError } from "./platform/errors.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { atomicWrite, readText } from "../platform/files.ts";
+import { IntegralError } from "../platform/errors.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
 
 export const DEFAULT_CONTAINER_PACKAGES = [
   "ca-certificates",

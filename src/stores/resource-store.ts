@@ -31,15 +31,15 @@ import {
   removeConnection,
   saveConnection,
   type Connection,
-} from "./connections.ts";
-import { IntegralError } from "./platform/errors.ts";
+} from "./connection-store.ts";
+import { IntegralError } from "../platform/errors.ts";
 import {
   acquireLock,
   atomicWrite,
   ensureDir,
   readText,
-} from "./platform/files.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
+} from "../platform/files.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import {
   IMAGE_RECIPE_ID,
   IMAGE_RECIPE_MOUNT,
@@ -47,7 +47,7 @@ import {
   ensureImageRecipeRepository,
   imageRecipeHead,
   materializeImageRecipe,
-} from "./image-recipe.ts";
+} from "./image-recipe-store.ts";
 
 const run = promisify(execFile);
 

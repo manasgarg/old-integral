@@ -300,7 +300,7 @@ Given logging configuration is invalid
 */
 test("[LOG-3E72B5C1] invalid logging options are rejected before logger construction", async (t) => {
   const { fixture } = await import("./helpers.ts");
-  const { loadConfig } = await import("../src/config.ts");
+  const { loadConfig } = await import("../src/stores/config.ts");
   const { mkdir, writeFile } = await import("node:fs/promises");
   const paths = await fixture(t);
   await mkdir(paths.config, { recursive: true });

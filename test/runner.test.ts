@@ -8,16 +8,16 @@ import type {
   PiRuntime,
   TaskRuntime,
 } from "../src/container.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,
   markConnectionDegraded,
   saveConnection,
   validateConnection,
-} from "../src/connections.ts";
+} from "../src/stores/connection-store.ts";
 import { Logger } from "../src/platform/logging.ts";
 import { Runner, type RunnerClock } from "../src/runner.ts";
-import type { ResourceProjection } from "../src/resources.ts";
+import type { ResourceProjection } from "../src/stores/resource-store.ts";
 import {
   deploymentId,
   readComponentState,

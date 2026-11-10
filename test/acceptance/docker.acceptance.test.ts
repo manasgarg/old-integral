@@ -13,15 +13,13 @@ import {
   newSessionIdentity,
   writeWebExtension,
 } from "../../src/container.ts";
-import { loadConfig } from "../../src/config.ts";
-import { validateConnection } from "../../src/connections.ts";
+import { loadConfig } from "../../src/stores/config.ts";
+import { validateConnection } from "../../src/stores/connection-store.ts";
 import { deploymentId } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
 import { ensurePiRuntime } from "../../src/pi-runtime.ts";
-import {
-  buildImageRecipe,
-  ensureImageRecipeRepository,
-} from "../../src/image-recipe.ts";
+import { ensureImageRecipeRepository } from "../../src/stores/image-recipe-store.ts";
+import { buildImageRecipe } from "../../src/image-build.ts";
 
 /* @covers WEB-65AA5DDC
 Given an authenticated Pi session uses `web_search` or `fetch_pages`

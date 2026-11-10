@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { nextCronInstant, parseCron } from "../src/domain/cron.ts";
-import { ScheduleStore } from "../src/schedule-store.ts";
+import { ScheduleStore } from "../src/stores/schedule-store.ts";
 import { Scheduler } from "../src/scheduler.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { scheduleCommand } from "../src/cli.ts";
 import { fixture } from "./helpers.ts";
 import { Logger } from "../src/platform/logging.ts";

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { loadConfig, initConfig, STARTER_CONFIG } from "../src/config.ts";
+import {
+  loadConfig,
+  initConfig,
+  STARTER_CONFIG,
+} from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import { DEFAULT_PI_IMAGE } from "../src/platform/constants.ts";
 

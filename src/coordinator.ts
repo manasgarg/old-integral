@@ -1,11 +1,11 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
+import { DurableQueue } from "./stores/message-queue.ts";
 import {
   ConversationStore,
-  DurableQueue,
   ModelSelectionStore,
-} from "./queue.ts";
+} from "./stores/conversation-store.ts";
 import {
   listModelChoices,
   type ModelCatalog,
@@ -38,8 +38,8 @@ import {
   DurableTaskQueue,
   type ScheduledTask,
   type TaskOutboxEntry,
-} from "./task-queue.ts";
-import type { ScheduledOccurrence } from "./occurrence-store.ts";
+} from "./stores/task-queue.ts";
+import type { ScheduledOccurrence } from "./stores/occurrence-store.ts";
 import type { ConversationOriginRoute } from "./domain/schedules.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "./platform/constants.ts";
 import type { Logger } from "./platform/logging.ts";
@@ -56,7 +56,7 @@ import {
   saveContainerPackageState,
   validateContainerPackageNames,
   type ContainerPackageOperation,
-} from "./container-packages.ts";
+} from "./stores/container-package-store.ts";
 import {
   ApprovalStore,
   isTerminalApproval,
@@ -64,24 +64,24 @@ import {
   type ApprovalRecord,
   type PublicApproval,
   type TerminalApprovalStatus,
-} from "./approval-store.ts";
+} from "./stores/approval-store.ts";
 import {
   activateImageProposal,
-  buildImageRecipe,
   imageRecipeHead,
   imageRecipeTreeDigest,
   stageImageProposal,
   type ImageBuildResult,
   type ImageProposal,
-} from "./image-recipe.ts";
+} from "./stores/image-recipe-store.ts";
+import { buildImageRecipe } from "./image-build.ts";
 import {
   clearConnectionDegraded,
   credentialSecretValues,
   credentialFor,
   loadConnections,
   markConnectionDegraded,
-} from "./connections.ts";
-import { redactText } from "./runs/redaction.ts";
+} from "./stores/connection-store.ts";
+import { redactText } from "./stores/run-history/redaction.ts";
 import {
   DiscordIngressStore,
   DiscordJsListener,
@@ -177,7 +177,7 @@ export interface CoordinatorDependencies {
   imageRecipeHead: typeof imageRecipeHead;
   imageRecipeTreeDigest: typeof imageRecipeTreeDigest;
   createDiscordListener(
-    connection: import("./connections.ts").Connection,
+    connection: import("./stores/connection-store.ts").Connection,
     token: string,
     callbacks: DiscordListenerCallbacks,
   ): DiscordListener;

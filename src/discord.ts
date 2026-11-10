@@ -8,7 +8,7 @@ import {
   type DMChannel,
   type Message,
 } from "discord.js";
-import type { Connection } from "./connections.ts";
+import type { Connection } from "./stores/connection-store.ts";
 import { IntegralError } from "./platform/errors.ts";
 import { atomicWrite, readText } from "./platform/files.ts";
 

@@ -3,8 +3,8 @@ import { clearLine, cursorTo, moveCursor } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { stdin as input, stdout as output } from "node:process";
-import { loadConfig, initConfig } from "./config.ts";
-import type { EffectiveConfig } from "./config.ts";
+import { loadConfig, initConfig } from "./stores/config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import {
   INTEGRAL_VERSION,
   COMPONENTS,
@@ -22,7 +22,7 @@ import {
   validateConnection,
   type AuthMethod,
   type Connection,
-} from "./connections.ts";
+} from "./stores/connection-store.ts";
 import { resolvePaths } from "./platform/deployment-paths.ts";
 import { messageOf, IntegralError } from "./platform/errors.ts";
 import { serverStatus, startComponents } from "./server.ts";
@@ -37,7 +37,10 @@ import {
   discoverRemoteMcp,
   type McpCatalog,
 } from "./mcp.ts";
-import { addHostResource, softDeleteResource } from "./resources.ts";
+import {
+  addHostResource,
+  softDeleteResource,
+} from "./stores/resource-store.ts";
 import {
   matchModelChoices,
   sameModel,

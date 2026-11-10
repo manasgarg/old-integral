@@ -1,5 +1,8 @@
 import type { IncomingHttpHeaders } from "node:http";
-import { connectionBoundaries, type Connection } from "./connections.ts";
+import {
+  connectionBoundaries,
+  type Connection,
+} from "./stores/connection-store.ts";
 import { IntegralError } from "./platform/errors.ts";
 
 export const SENTINEL = "integral-managed-credential";

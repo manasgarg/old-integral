@@ -1,20 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
-import { saveConnection, validateConnection } from "../src/connections.ts";
+import {
+  saveConnection,
+  validateConnection,
+} from "../src/stores/connection-store.ts";
 import { Logger } from "../src/platform/logging.ts";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import { DurableQueue } from "../src/stores/message-queue.ts";
 import {
   ConversationStore,
-  DurableQueue,
   ModelSelectionStore,
-} from "../src/queue.ts";
+} from "../src/stores/conversation-store.ts";
 import { join } from "node:path";
-import { ApprovalStore } from "../src/approval-store.ts";
+import { ApprovalStore } from "../src/stores/approval-store.ts";
 import {
   componentIdentity,
   deploymentId,
