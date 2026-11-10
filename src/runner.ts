@@ -63,7 +63,10 @@ import type {
   ConversationEvent,
   QueuedMessage,
 } from "./queue.ts";
-import { sameSelection, type ModelSelection } from "./model-selection.ts";
+import {
+  sameSelection,
+  type ModelSelection,
+} from "./domain/model-selection.ts";
 import type { ScheduledTask } from "./task-queue.ts";
 import { rm } from "node:fs/promises";
 import {

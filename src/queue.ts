@@ -3,7 +3,7 @@ import { appendFile, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
 import { IntegralError } from "./platform/errors.ts";
-import type { ModelSelection } from "./model-selection.ts";
+import type { ModelSelection } from "./domain/model-selection.ts";
 import { SerialExecutor } from "./platform/serial-executor.ts";
 
 export type QueueStatus = "queued" | "in-flight" | "steering";

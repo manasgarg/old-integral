@@ -1,4 +1,4 @@
-import { IntegralError } from "./platform/errors.ts";
+import { IntegralError } from "../platform/errors.ts";
 
 interface CronField {
   wildcard: boolean;
