@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, chmod, mkdir, readdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type { EffectiveConfig } from "./config.ts";
-import type { PiProtocolEvent } from "./domain/pi-rpc-protocol.ts";
+import type { EffectiveConfig } from "../config.ts";
+import type { PiProtocolEvent } from "../../domain/pi-rpc-protocol.ts";
 import {
   isFailureEvent,
   isToolEvent,
   toolEventType,
   toolIdentity,
-} from "./runs/pi-events.ts";
-import { redact, redactText } from "./runs/redaction.ts";
-import { atomicWrite, ensureDir, readText } from "./platform/files.ts";
-import type { ModelSelection } from "./domain/model-selection.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import { SerialExecutor } from "./platform/serial-executor.ts";
+} from "./pi-events.ts";
+import { redact, redactText } from "./redaction.ts";
+import { atomicWrite, ensureDir, readText } from "../../platform/files.ts";
+import type { ModelSelection } from "../../domain/model-selection.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
+import { SerialExecutor } from "../../platform/serial-executor.ts";
 
 export type RunKind = "interactive" | "scheduled";
 export type RunTermination =

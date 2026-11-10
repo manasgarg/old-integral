@@ -1,16 +1,16 @@
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import {
   discoverPiModels,
   discoverPiVersion,
   ensureContainerImage,
 } from "./container.ts";
 import { DEFAULT_PI_IMAGE } from "./platform/constants.ts";
-import { listConnections } from "./connections.ts";
+import { listConnections } from "./stores/connection-store.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import { ensurePiRuntime, type PiRuntimeResolution } from "./pi-runtime.ts";
-import { loadContainerPackageState } from "./container-packages.ts";
+import { loadContainerPackageState } from "./stores/container-package-store.ts";
 import { readText } from "./platform/files.ts";
-import type { ImageBuildResult } from "./image-recipe.ts";
+import type { ImageBuildResult } from "./stores/image-recipe-store.ts";
 import { IntegralError } from "./platform/errors.ts";
 import type { ModelChoice } from "./domain/model-selection.ts";
 

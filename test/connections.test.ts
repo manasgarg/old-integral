@@ -12,7 +12,7 @@ import {
   removeCredential,
   saveConnection,
   validateConnection,
-} from "../src/connections.ts";
+} from "../src/stores/connection-store.ts";
 import { fixture } from "./helpers.ts";
 
 /* @covers CONFIG-48C2D7A1

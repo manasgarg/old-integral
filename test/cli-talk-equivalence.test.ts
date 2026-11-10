@@ -4,29 +4,29 @@ import { readFile, realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { main, modelCommand, talkCommand } from "../src/cli.ts";
 import type { TalkTerminal } from "../src/cli.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,
   saveConnection,
   validateConnection,
-} from "../src/connections.ts";
+} from "../src/stores/connection-store.ts";
 import { Coordinator, type ClientEvent } from "../src/coordinator.ts";
-import { ApprovalStore } from "../src/approval-store.ts";
+import { ApprovalStore } from "../src/stores/approval-store.ts";
 import {
   pathsFor,
   type IntegralPaths,
 } from "../src/platform/deployment-paths.ts";
+import { DurableQueue } from "../src/stores/message-queue.ts";
 import {
   ConversationStore,
-  DurableQueue,
   ModelSelectionStore,
-} from "../src/queue.ts";
+} from "../src/stores/conversation-store.ts";
 import { nodeHttpServerRuntime } from "../src/platform/timers-and-servers.ts";
 import {
   deploymentId,
   writeComponentState,
 } from "../src/platform/component-identity.ts";
-import { DurableTaskQueue } from "../src/task-queue.ts";
+import { DurableTaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 // These tests drive both command surfaces against one real in-process

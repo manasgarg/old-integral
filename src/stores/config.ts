@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { parse } from "smol-toml";
-import { atomicWrite, readText } from "./platform/files.ts";
+import { atomicWrite, readText } from "../platform/files.ts";
 import {
   DEFAULT_PI_IMAGE,
   DEFAULT_PORTS,
   type Component,
-} from "./platform/constants.ts";
-import { IntegralError } from "./platform/errors.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import type { LogFormat, LogLevel } from "./platform/logging.ts";
+} from "../platform/constants.ts";
+import { IntegralError } from "../platform/errors.ts";
+import type { IntegralPaths } from "../platform/deployment-paths.ts";
+import type { LogFormat, LogLevel } from "../platform/logging.ts";
 
 export type PullPolicy = "always" | "if-not-present" | "never";
 export type ValueSource = "built-in" | "file" | "environment";

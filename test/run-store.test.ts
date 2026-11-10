@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.ts";
-import { RunStore, type RunEvent } from "../src/run-store.ts";
+import { loadConfig } from "../src/stores/config.ts";
+import {
+  RunStore,
+  type RunEvent,
+} from "../src/stores/run-history/run-store.ts";
 import { fixture } from "./helpers.ts";
 
 const selection = {

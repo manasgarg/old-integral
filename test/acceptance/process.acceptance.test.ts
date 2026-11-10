@@ -5,13 +5,16 @@ import { get, type ClientRequest, type IncomingMessage } from "node:http";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import test from "node:test";
-import { saveConnection, validateConnection } from "../../src/connections.ts";
+import {
+  saveConnection,
+  validateConnection,
+} from "../../src/stores/connection-store.ts";
 import {
   componentStatePath,
   readComponentState,
 } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
-import { DurableQueue } from "../../src/queue.ts";
+import { DurableQueue } from "../../src/stores/message-queue.ts";
 
 async function freePort(): Promise<number> {
   const server = createServer();

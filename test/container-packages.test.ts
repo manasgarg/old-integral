@@ -6,7 +6,7 @@ import {
   planContainerPackageChange,
   saveContainerPackageState,
   validateContainerPackageNames,
-} from "../src/container-packages.ts";
+} from "../src/stores/container-package-store.ts";
 import { fixture } from "./helpers.ts";
 
 /* @covers BOX-40521095

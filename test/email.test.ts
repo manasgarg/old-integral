@@ -3,7 +3,10 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { writeEmailExtension } from "../src/container.ts";
-import { validateConnection, type Connection } from "../src/connections.ts";
+import {
+  validateConnection,
+  type Connection,
+} from "../src/stores/connection-store.ts";
 import { executeEmail, type EmailFetch } from "../src/email.ts";
 import { fixture } from "./helpers.ts";
 

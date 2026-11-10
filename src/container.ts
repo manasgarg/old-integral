@@ -9,14 +9,14 @@ import {
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { EffectiveConfig } from "./config.ts";
-import type { Connection } from "./connections.ts";
-import type { ResourceProjection } from "./resources.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
+import type { Connection } from "./stores/connection-store.ts";
+import type { ResourceProjection } from "./stores/resource-store.ts";
 import { IntegralError } from "./platform/errors.ts";
 import { atomicWrite, ensureDir } from "./platform/files.ts";
 import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./platform/constants.ts";
 import { OAUTH_SENTINEL, SENTINEL } from "./gateway-policy.ts";
-import { DEFAULT_CONTAINER_PACKAGES } from "./container-packages.ts";
+import { DEFAULT_CONTAINER_PACKAGES } from "./stores/container-package-store.ts";
 import {
   MCP_PROTOCOL_VERSION,
   MCP_SESSION_PROTOCOL_VERSION,

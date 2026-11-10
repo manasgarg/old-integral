@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
-import type { Connection } from "./connections.ts";
+import type { Connection } from "./stores/connection-store.ts";
 import { IntegralError } from "./platform/errors.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {

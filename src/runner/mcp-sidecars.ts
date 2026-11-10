@@ -1,4 +1,4 @@
-import type { EffectiveConfig } from "../config.ts";
+import type { EffectiveConfig } from "../stores/config.ts";
 import type { ContainerBackend, McpSidecarSpec } from "../container.ts";
 import type { Logger } from "../platform/logging.ts";
 import type { McpCatalog, McpRuntime } from "../mcp.ts";

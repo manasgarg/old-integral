@@ -5,7 +5,7 @@ import {
 } from "../platform/internal-http-client.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
-import type { ScheduledTask } from "../task-queue.ts";
+import type { ScheduledTask } from "../stores/task-queue.ts";
 import { fetchJson, requestJson } from "./http.ts";
 
 const HELP = `Usage: integral task <command>

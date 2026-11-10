@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { saveConnection, validateConnection } from "../src/connections.ts";
+import {
+  saveConnection,
+  validateConnection,
+} from "../src/stores/connection-store.ts";
 import { listModelChoices } from "../src/model-catalog.ts";
 import {
   matchModelChoices,
   type ModelChoice,
 } from "../src/domain/model-selection.ts";
-import { ModelSelectionStore } from "../src/queue.ts";
-import { loadConfig } from "../src/config.ts";
+import { ModelSelectionStore } from "../src/stores/conversation-store.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
-import { saveContainerPackageState } from "../src/container-packages.ts";
+import { saveContainerPackageState } from "../src/stores/container-package-store.ts";
 import { atomicWrite } from "../src/platform/files.ts";
 
 const choices: ModelChoice[] = [

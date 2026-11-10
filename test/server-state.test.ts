@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import type http from "node:http";
 import { join } from "node:path";
 import { acquireLock } from "../src/platform/files.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import {
   componentIdentity,

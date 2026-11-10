@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { join } from "node:path";
-import { validateConnection, connectionToml } from "../src/connections.ts";
+import {
+  validateConnection,
+  connectionToml,
+} from "../src/stores/connection-store.ts";
 import {
   DiscordIngressStore,
   discordChunks,
   verifyDiscordBot,
 } from "../src/discord.ts";
-import { DurableQueue } from "../src/queue.ts";
-import { DurableTaskQueue } from "../src/task-queue.ts";
+import { DurableQueue } from "../src/stores/message-queue.ts";
+import { DurableTaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 test("Discord connection binds immutable application, bot, user, and DM IDs", () => {

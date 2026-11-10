@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateConnection } from "../src/connections.ts";
+import { validateConnection } from "../src/stores/connection-store.ts";
 import {
   discoverMcpAuthorization,
   discoverRemoteMcp,

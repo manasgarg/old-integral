@@ -6,7 +6,7 @@ import {
   runGenericOAuth,
   runModelOAuth,
 } from "../src/oauth.ts";
-import { validateConnection } from "../src/connections.ts";
+import { validateConnection } from "../src/stores/connection-store.ts";
 import { fixture } from "./helpers.ts";
 
 test("[BOX-E1F472A1] model OAuth loads Pi from the pinned deployment runtime", async (t) => {

@@ -1,12 +1,12 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { nextCronInstant } from "./domain/cron.ts";
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import { IntegralError } from "./platform/errors.ts";
 import { internalFetch } from "./platform/internal-http-client.ts";
 import {
   OccurrenceStore,
   type ScheduledOccurrence,
-} from "./occurrence-store.ts";
+} from "./stores/occurrence-store.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   nodeHttpServerRuntime,
@@ -14,7 +14,7 @@ import {
   type HttpServerRuntime,
   type IntervalRuntime,
 } from "./platform/timers-and-servers.ts";
-import { ScheduleStore } from "./schedule-store.ts";
+import { ScheduleStore } from "./stores/schedule-store.ts";
 import type {
   CreateSchedule,
   ScheduleDefinition,

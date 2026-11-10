@@ -5,16 +5,16 @@ import { readFile } from "node:fs/promises";
 import type { Duplex } from "node:stream";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import type { Connection } from "./connections.ts";
+import type { Connection } from "./stores/connection-store.ts";
 import {
   clearConnectionDegraded,
   connectionBoundaries,
   credentialFor,
   loadConnections,
   markConnectionDegraded,
-} from "./connections.ts";
+} from "./stores/connection-store.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import type { EffectiveConfig } from "./config.ts";
+import type { EffectiveConfig } from "./stores/config.ts";
 import {
   decideRequest,
   parseProxyAuthorization,
@@ -63,13 +63,13 @@ import {
   softDeleteResource,
   type ResourceKind,
   type ResourceRecord,
-} from "./resources.ts";
+} from "./stores/resource-store.ts";
 import {
   IMAGE_RECIPE_ID,
   IMAGE_RECIPE_MOUNT,
   IMAGE_RECIPE_NAME,
   ensureImageRecipeRepository,
-} from "./image-recipe.ts";
+} from "./stores/image-recipe-store.ts";
 
 function modelBoundary(connection: Connection): Connection {
   if (connection.kind !== "model") return connection;

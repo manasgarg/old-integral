@@ -14,8 +14,8 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { promisify } from "node:util";
 import test from "node:test";
-import { loadConfig } from "../src/config.ts";
-import { validateConnection } from "../src/connections.ts";
+import { loadConfig } from "../src/stores/config.ts";
+import { validateConnection } from "../src/stores/connection-store.ts";
 import { readText } from "../src/platform/files.ts";
 import { Gateway } from "../src/gateway.ts";
 import { Logger } from "../src/platform/logging.ts";
@@ -39,7 +39,7 @@ import {
   PI_PROFILE_MOUNT,
   PI_PROFILE_NAME,
   validateMountPath,
-} from "../src/resources.ts";
+} from "../src/stores/resource-store.ts";
 import { deploymentId } from "../src/platform/component-identity.ts";
 import { fixture } from "./helpers.ts";
 
