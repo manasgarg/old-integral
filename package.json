@@ -34,20 +34,20 @@
     "test:coverage": "npm run build && node --experimental-test-coverage --test --test-concurrency=1 --test-coverage-include=dist/src/**/*.js --test-coverage-lines=50 --test-coverage-branches=75 --test-coverage-functions=60 dist/test/*.test.js"
   },
   "dependencies": {
-    "defuddle": "0.19.1",
-    "discord.js": "14.22.1",
-    "linkedom": "0.18.12",
-    "smol-toml": "1.4.2"
+    "defuddle": "0.19.6",
+    "discord.js": "14.28.1",
+    "linkedom": "0.18.15",
+    "smol-toml": "1.9.1"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@types/node": "24.10.1",
-    "esbuild": "0.25.9",
-    "eslint": "10.8.0",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
-    "prettier": "3.9.6",
-    "publint": "0.3.22",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.65.0"
+    "prettier": "3.9.10",
+    "publint": "0.3.25",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2"
   }
 }
