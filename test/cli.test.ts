@@ -83,6 +83,12 @@ test("[CLI-04301CCA] version reports integral, Node, and Pi versions", async () 
   const result = await capture(["version"]);
   assert.equal(result.code, 0);
   assert.match(result.stdout, /^integral 0\.1\.0/m);
-  assert.match(result.stdout, /Node\.js 24\./);
+  assert.match(
+    result.stdout,
+    new RegExp(
+      `^Node\\.js ${process.versions.node.replaceAll(".", "\\.")}$`,
+      "m",
+    ),
+  );
   assert.match(result.stdout, /Pi runtime: latest \(resolved when needed\)/);
 });

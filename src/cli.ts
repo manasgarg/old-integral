@@ -1146,7 +1146,7 @@ export function createTalkTerminal(overrides?: {
       moveCursor: (stream: TalkOutput, horizontal: number, vertical = 0) =>
         moveCursor(stream as NodeJS.WriteStream, horizontal, vertical),
     },
-    clock = overrides?.clock ?? {
+    clock: TalkTerminalClock = overrides?.clock ?? {
       setInterval: globalThis.setInterval,
       clearInterval: globalThis.clearInterval,
     };
