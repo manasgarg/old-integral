@@ -46,7 +46,22 @@ Speak in plain English.
   difference.
 - Name a test file after the module it covers.
 
-## Behavior change workflow
+## Deployment data and upgrades
+
+`docs/upgrades.md` describes how changes reach the production deployment.
+
+- When a change alters what any store writes to disk, raise
+  `CURRENT_DEPLOYMENT_FORMAT` in `src/stores/deployment-format.ts` by one in
+  the same pull request, add the migration from the previous format to
+  `src/stores/deployment-migrations.ts`, and add a sample deployment for the
+  new format under `test/fixtures/deployments/format-<N>/`.
+- Write each migration so it finishes correctly when run again after a crash
+  stopped it partway. Migrations only move forward.
+- Generate sample deployments with the store code itself, never by copying a
+  real deployment, and keep credentials and personal data out of them. Never
+  edit an existing sample deployment; it records what older releases wrote.
+- Work against `$HOME/.integral-dev` (set by `mise.toml`), never the
+  production deployment. Production changes only through `npm run deploy`.
 
 Keep the behavior specification, implementation, and tests synchronized as one
 increment.

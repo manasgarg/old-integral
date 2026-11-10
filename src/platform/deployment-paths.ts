@@ -12,6 +12,9 @@ export interface IntegralPaths {
   credentials: string;
   componentState: string;
   locks: string;
+  deploymentFormat: string;
+  migrationAudit: string;
+  migrationLock: string;
   conversation: string;
   modelSelection: string;
   piRuntime: string;
@@ -96,6 +99,9 @@ export function pathsFor(root: string): IntegralPaths {
     credentials: join(data, "credentials"),
     componentState: join(state, "components"),
     locks: join(state, "locks"),
+    deploymentFormat: join(data, "deployment-format.json"),
+    migrationAudit: join(data, "migration-audit.jsonl"),
+    migrationLock: join(state, "locks", "migration.lock"),
     conversation: join(data, "conversation.jsonl"),
     modelSelection: join(data, "conversation-model.json"),
     piRuntime: join(data, "pi-runtime"),

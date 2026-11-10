@@ -194,7 +194,8 @@ Given deploy has installed a release
 ```text
 Given the new release is installed
 	When deploy rehearses the upgrade
-		Then it copies the production deployment's `config/` and `data/` into a temporary deployment home
+		Then it copies the production deployment's `config/` and `data/` into a temporary deployment home under `<release-root>/rehearsals/`
+			And leaves out `data/pi-runtime/`, which integral reinstalls when it is missing
 			And runs the new release's `integral migrate` against the copy
 			And then runs the new release's `integral doctor` against the copy
 			And does this while the running release keeps serving
@@ -217,12 +218,16 @@ Given the new release is installed
 
 ```text
 Given the rehearsal succeeded
+	When integral is running for the deployment but not as the systemd service
+		Then deploy stops before changing anything
+			And asks the developer to stop that integral server first
 	When deploy stops the running release
 		Then it first waits for the message queue and task queue to have no in-flight work, up to a bounded drain timeout
 			And then stops the service
 			And relies on clean shutdown to return any interrupted in-flight message to the queue
 	When the service has stopped
-		Then deploy copies the deployment's `config/` and `data/` in full into `<release-root>/backups/<time>-<previous-sha>/`
+		Then deploy copies the deployment's `config/` and `data/` into `<release-root>/backups/<time>-<previous-sha>/`
+			And leaves out `data/pi-runtime/`, which integral reinstalls when it is missing
 			And records the previous release and deployment format with the backup
 			And keeps the three most recent backups
 			And does not migrate until the backup is complete
@@ -249,6 +254,7 @@ Given deploy has stopped the previous release
 	When the migration, the service start, the health wait, or the doctor check fails
 		Then deploy stops the service
 			And replaces the deployment's `config/` and `data/` with the backup
+			And keeps the deployment's `data/pi-runtime/`
 			And points `<release-root>/current` back at the previous release
 			And starts the service
 			And records the failure and the rollback in `<release-root>/deploy-log.jsonl`

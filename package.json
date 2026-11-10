@@ -18,6 +18,7 @@
   },
   "scripts": {
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test:coverage && npm run behavior:coverage && npm run package:check",
+    "deploy": "npm run build && node dist/scripts/deploy-command.js",
     "build": "tsc && esbuild src/pi-extensions/web-tools.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/src/integral-web.mjs",
     "prepare": "npm run build",
     "behavior:coverage": "node scripts/check-behavior-coverage.ts",

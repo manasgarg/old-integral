@@ -1,2 +1,6 @@
 [tools]
 node = "26.13.0"
+
+[env]
+# Development never touches the production deployment in ~/.integral.
+INTEGRAL_HOME = "{{env.HOME}}/.integral-dev"

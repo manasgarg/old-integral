@@ -73,15 +73,19 @@ check ──▶ build ──▶ rehearse ──▶ drain + stop ──▶ back u
    that commit. The Docker acceptance tests pass.
 2. **Build.** Build from a clean export of the commit, `npm pack`, and install
    into `releases/<sha>/`. A release directory is never changed afterwards.
-3. **Rehearse.** Copy production `config/` and `data/` to a temporary home,
+3. **Rehearse.** Copy production `config/` and `data/` (without
+   `data/pi-runtime/`) to a temporary home under `rehearsals/`,
    then run the new release's `integral migrate` and `integral doctor` on the
    copy. The rehearsal succeeds only if the copy and both commands succeed
    within their time limits. Production keeps running throughout.
-4. **Drain and stop.** Wait, up to a time limit, for no message or task to be
+4. **Drain and stop.** Refuse if integral is running for the deployment
+   outside the service, for example started by hand. Otherwise wait, up to a time limit, for no message or task to be
    in progress, then stop the service. A clean stop returns any interrupted
    message to the queue.
-5. **Back up.** Copy `config/` and `data/` in full into
-   `backups/<time>-<previous-sha>/`. Keep the three most recent backups.
+5. **Back up.** Copy `config/` and `data/` into
+   `backups/<time>-<previous-sha>/`, leaving out `data/pi-runtime/` (Pi
+   installs that integral downloads again when they are missing; they are
+   most of a deployment's size). Keep the three most recent backups.
 6. **Migrate.** Run the new release's `integral migrate` on production.
 7. **Switch.** Point `current` at the new release.
 8. **Start and verify.** Start the service, wait for every component to report
@@ -90,6 +94,29 @@ check ──▶ build ──▶ rehearse ──▶ drain + stop ──▶ back u
 
 Steps 1 to 3 never touch production, so a failure there just stops the
 deploy. A failure in steps 6 to 8 triggers an automatic rollback.
+
+## Running it
+
+```sh
+npm run deploy                 # deploy the current main
+npm run deploy -- --rollback   # undo the most recent deploy
+```
+
+`INTEGRAL_DEPLOY_HOME` overrides the production deployment home (default
+`~/.integral`) and `INTEGRAL_RELEASE_ROOT` overrides the release root (default
+`~/.local/share/integral`). Deploy never uses `INTEGRAL_HOME`, which `mise.toml`
+points at the development home.
+
+The service starts when you log in. To keep it running while you are logged
+out, enable lingering once: `loginctl enable-linger $USER`. Its logs are in
+`journalctl --user -u integral`.
+
+To use the production deployment from a shell, run the active release against
+it:
+
+```sh
+INTEGRAL_HOME=~/.integral ~/.local/share/integral/current/bin/integral.js talk
+```
 
 ## Rolling back
 
