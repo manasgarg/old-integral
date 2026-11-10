@@ -8,28 +8,34 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 import {
   decideRequest,
-  OAUTH_SENTINEL,
   parseProxyAuthorization,
-  SENTINEL,
   WEB_CONNECTION_NAME,
 } from "../src/gateway-policy.ts";
 import {
+  OAUTH_SENTINEL,
+  SENTINEL,
+} from "../src/domain/credential-sentinels.ts";
+import {
   buildContainerSpec,
-  dockerMcpSidecarArgs,
   dockerRunArgs,
   freshSessionHome,
   isManagedContainerVariable,
   interpretPiProtocol,
-  managedPiImage,
   newSessionIdentity,
-  parsePiModelList,
+  writePiCredential,
+} from "../src/integrations/docker/pi-container.ts";
+import { dockerMcpSidecarArgs } from "../src/integrations/docker/mcp-sidecar.ts";
+import {
   writeDiscordExtension,
   writeMcpExtension,
-  writePiCredential,
   writeResourceExtension,
   writeTaskExtension,
   writeWebExtension,
-} from "../src/container.ts";
+} from "../src/integrations/pi/session-extensions.ts";
+import {
+  managedPiImage,
+  parsePiModelList,
+} from "../src/integrations/docker/managed-image.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,

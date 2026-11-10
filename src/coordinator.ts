@@ -10,7 +10,7 @@ import {
   listModelChoices,
   type ModelCatalog,
   type ModelCatalogProgress,
-} from "./model-catalog.ts";
+} from "./integrations/pi/model-catalog.ts";
 import {
   matchModelChoices,
   sameSelection,
@@ -43,7 +43,7 @@ import type { ScheduledOccurrence } from "./stores/occurrence-store.ts";
 import type { ConversationOriginRoute } from "./domain/schedules.ts";
 import { DEFAULT_PI_IMAGE, type Component } from "./platform/constants.ts";
 import type { Logger } from "./platform/logging.ts";
-import { ensureContainerImage } from "./container.ts";
+import { ensureContainerImage } from "./integrations/docker/managed-image.ts";
 import { readJsonObject, writeJson } from "./platform/json-http.ts";
 import {
   ClientEventStream,
@@ -73,7 +73,7 @@ import {
   type ImageBuildResult,
   type ImageProposal,
 } from "./stores/image-recipe-store.ts";
-import { buildImageRecipe } from "./image-build.ts";
+import { buildImageRecipe } from "./integrations/docker/image-build.ts";
 import {
   clearConnectionDegraded,
   credentialSecretValues,
@@ -88,7 +88,7 @@ import {
   type DiscordListener,
   type DiscordListenerCallbacks,
   type DiscordMessage,
-} from "./discord.ts";
+} from "./integrations/discord.ts";
 
 interface ConversationScope {
   id: string;

@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
-import { writeEmailExtension } from "../src/container.ts";
+import { writeEmailExtension } from "../src/integrations/pi/session-extensions.ts";
 import {
   validateConnection,
   type Connection,
 } from "../src/stores/connection-store.ts";
-import { executeEmail, type EmailFetch } from "../src/email.ts";
+import { executeEmail, type EmailFetch } from "../src/integrations/email.ts";
 import { fixture } from "./helpers.ts";
 
 function gmail(capabilities: string[]): Connection {

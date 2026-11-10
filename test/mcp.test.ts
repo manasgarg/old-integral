@@ -10,7 +10,7 @@ import {
   McpCatalogRegistry,
   RemoteMcpClient,
   toolsFromListResult,
-} from "../src/mcp.ts";
+} from "../src/integrations/mcp.ts";
 
 function connection() {
   return validateConnection({

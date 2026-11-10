@@ -5,7 +5,7 @@ import {
   oauthAccess,
   runGenericOAuth,
   runModelOAuth,
-} from "../src/oauth.ts";
+} from "../src/integrations/oauth.ts";
 import { validateConnection } from "../src/stores/connection-store.ts";
 import { fixture } from "./helpers.ts";
 

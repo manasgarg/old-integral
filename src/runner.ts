@@ -16,18 +16,20 @@ import {
   dockerContainerBackend,
   freshSessionHome,
   newSessionIdentity,
+  writePiCredential,
+  type ContainerBackend,
+  type PiRuntime,
+  type TaskRuntime,
+} from "./integrations/docker/pi-container.ts";
+import { type McpSidecarSpec } from "./integrations/docker/mcp-sidecar.ts";
+import {
   writeMcpExtension,
   writeDiscordExtension,
   writeEmailExtension,
   writeTaskExtension,
   writeResourceExtension,
   writeWebExtension,
-  writePiCredential,
-  type ContainerBackend,
-  type McpSidecarSpec,
-  type PiRuntime,
-  type TaskRuntime,
-} from "./container.ts";
+} from "./integrations/pi/session-extensions.ts";
 import {
   cleanupResourceProjection,
   ensurePiProfileRepository,
@@ -52,12 +54,12 @@ import { updateComponentState } from "./platform/component-identity.ts";
 import { ensureDir, readText } from "./platform/files.ts";
 import { join } from "node:path";
 import { IntegralError } from "./platform/errors.ts";
-import { oauthAccess } from "./oauth.ts";
+import { oauthAccess } from "./integrations/oauth.ts";
 import {
   discoverRemoteMcp,
   McpCatalogRegistry,
   type McpCatalog,
-} from "./mcp.ts";
+} from "./integrations/mcp.ts";
 import type {
   ApprovalContinuation,
   QueuedMessage,

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { EffectiveConfig } from "./stores/config.ts";
+import type { EffectiveConfig } from "../../stores/config.ts";
 import {
   appendImageAudit,
   ensureImageRecipeRepository,
@@ -10,11 +10,14 @@ import {
   validateImageRecipeCommit,
   type ImageBuildAuditContext,
   type ImageBuildResult,
-} from "./stores/image-recipe-store.ts";
-import { DEFAULT_PI_IMAGE, INTEGRAL_VERSION } from "./platform/constants.ts";
-import type { IntegralPaths } from "./platform/deployment-paths.ts";
-import { IntegralError } from "./platform/errors.ts";
-import { packageFile } from "./platform/package-files.ts";
+} from "../../stores/image-recipe-store.ts";
+import {
+  DEFAULT_PI_IMAGE,
+  INTEGRAL_VERSION,
+} from "../../platform/constants.ts";
+import type { IntegralPaths } from "../../platform/deployment-paths.ts";
+import { IntegralError } from "../../platform/errors.ts";
+import { packageFile } from "../../platform/package-files.ts";
 
 function modelBridge(): string {
   return packageFile("bin/integral-pi-models.mjs");

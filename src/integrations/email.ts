@@ -1,5 +1,5 @@
-import type { Connection } from "./stores/connection-store.ts";
-import { IntegralError } from "./platform/errors.ts";
+import type { Connection } from "../stores/connection-store.ts";
+import { IntegralError } from "../platform/errors.ts";
 
 const MAX_RESULTS = 20;
 const MAX_RECIPIENTS = 50;

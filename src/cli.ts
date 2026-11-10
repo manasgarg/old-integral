@@ -30,13 +30,17 @@ import {
   componentEndpoint,
   verifiedFetch,
 } from "./platform/internal-http-client.ts";
-import { oauthAccess, runGenericOAuth, runModelOAuth } from "./oauth.ts";
+import {
+  oauthAccess,
+  runGenericOAuth,
+  runModelOAuth,
+} from "./integrations/oauth.ts";
 import type { IntegralPaths } from "./platform/deployment-paths.ts";
 import {
   discoverMcpAuthorization,
   discoverRemoteMcp,
   type McpCatalog,
-} from "./mcp.ts";
+} from "./integrations/mcp.ts";
 import {
   addHostResource,
   softDeleteResource,
@@ -57,7 +61,7 @@ export { scheduleCommand, type ScheduleDependencies } from "./cli/schedule.ts";
 import { runTaskCommand, taskCommand } from "./cli/task.ts";
 export { taskCommand, type TaskDependencies } from "./cli/task.ts";
 import { fetchJson, requestOk } from "./cli/http.ts";
-import { verifyDiscordBot } from "./discord.ts";
+import { verifyDiscordBot } from "./integrations/discord.ts";
 import {
   approvalCommand,
   healthyCoordinator,
