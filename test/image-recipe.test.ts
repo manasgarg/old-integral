@@ -101,6 +101,22 @@ test("[CLI-5D8A1C72] direct Dockerfile commits retain the foundational boundary"
   assert.equal(await imageRecipeHead(paths), committed.landed);
 });
 
+test("[CLI-5D8A1C72] a Dockerfile saved by an editor with a final newline is accepted", async (t) => {
+  const paths = await fixture(t),
+    source = await imageRecipeDockerfile(paths);
+  assert.match(source, /^WORKDIR \/home\/pi$(?![\s\S])/m);
+  const edited = `${source.replace("ARG PI_VERSION=latest", "ARG PI_VERSION=0.85.0")}\n`;
+  await validateImageDockerfile(edited);
+  const committed = await commitImageDockerfile(paths, edited, "operator");
+  assert.notEqual(committed.prior, committed.landed);
+  await assert.rejects(
+    validateImageDockerfile(
+      edited.replace("WORKDIR /home/pi", "WORKDIR /home/pi/other"),
+    ),
+    /WORKDIR \/home\/pi/,
+  );
+});
+
 test("[BOX-6A91C3E7] image recipe validation rejects unsafe build boundaries before approval", async (t) => {
   const paths = await fixture(t),
     source = await imageRecipeDockerfile(paths);

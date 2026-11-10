@@ -218,8 +218,8 @@ export async function validateImageDockerfile(source: string): Promise<void> {
     throw new IntegralError(
       `image Dockerfile must retain the foundational boundary: ${requiredFrom}`,
     );
-  const users = source.match(/^USER\s+\S+\s*$/gm) ?? [],
-    workdirs = source.match(/^WORKDIR\s+\S+\s*$/gm) ?? [];
+  const users = source.match(/^USER\s+\S+[ \t]*$/gm) ?? [],
+    workdirs = source.match(/^WORKDIR\s+\S+[ \t]*$/gm) ?? [];
   if (users.at(-1) !== "USER 1000:1000")
     throw new IntegralError(
       "image Dockerfile must retain USER 1000:1000 as its effective runtime user",
