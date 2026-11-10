@@ -952,7 +952,7 @@ Given Pi has an authenticated Integral session
 			And the same operation is available in an interactive conversation and a scheduled-task attempt
 			And a scheduled-task attempt may change the definition that created it without changing the immutable current occurrence
 */
-test("[SCHEDULE-55BD779F] gateway attributes Pi schedule mutations and injects the selected execution profile", async (t) => {
+test("[SCHEDULE-55BD779F] [SCHEDULE-E3A1358A] gateway attributes Pi schedule mutations and forwards no model or Pi runtime", async (t) => {
   const paths = await fixture(t),
     base = await loadConfig(paths, {}),
     config = { ...base, server: { ...base.server, gatewayPort: 0 } },
@@ -970,16 +970,7 @@ test("[SCHEDULE-55BD779F] gateway attributes Pi schedule mutations and injects t
       {
         ensureCa: async () => ({ key: "key", cert: "cert", bundle: "bundle" }),
         async internalFetch(_paths, _caller, target, path, init) {
-          if (target === "coordinator")
-            return Response.json({
-              modelSelection: {
-                connection: "model",
-                provider: "anthropic",
-                model: "claude-sonnet-4-6",
-                piVersion: "1.2.3",
-                piImage: "sha256:test",
-              },
-            });
+          assert.equal(target, "scheduler");
           forwarded.push({
             path,
             ...(typeof init?.body === "string" ? { body: init.body } : {}),
@@ -1011,10 +1002,7 @@ test("[SCHEDULE-55BD779F] gateway attributes Pi schedule mutations and injects t
     unknown
   >;
   assert.equal(forwardedBody.actor, "pi:session-1");
-  assert.equal(
-    (forwardedBody.profile as Record<string, unknown>).provider,
-    "anthropic",
-  );
+  assert.equal(forwardedBody.profile, undefined);
 });
 
 test("[SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] scheduled attempts inspect and mutate current scheduling state", async (t) => {
@@ -1025,13 +1013,6 @@ test("[SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] scheduled attempts inspect and mut
       path: string;
       body?: Record<string, unknown>;
     }> = [],
-    profile = {
-      connection: "task-model",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-      piVersion: "1.2.3",
-      piImage: "sha256:task",
-    },
     origin = {
       provider: "discord",
       conversationId: "discord:channel-1",
@@ -1064,7 +1045,6 @@ test("[SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] scheduled attempts inspect and mut
           )
             return Response.json({
               executionId: "execution-1",
-              profile,
               origin,
               state: "running",
               attempts: [],
@@ -1116,7 +1096,7 @@ test("[SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] scheduled attempts inspect and mut
   );
   assert.equal(creation?.target, "scheduler");
   assert.equal(creation?.body?.actor, "pi:task-session");
-  assert.deepEqual(creation?.body?.profile, profile);
+  assert.equal(creation?.body?.profile, undefined);
   assert.deepEqual(creation?.body?.origin, origin);
 });
 

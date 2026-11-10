@@ -123,6 +123,7 @@ Given integral opens the model chooser for `integral model`, `integral talk`, or
 	When the coordinator has already discovered models for the current connection generation and configuration
 		Then it serves the cached catalog without repeating Pi version, image, or model discovery
 			And invalidates that catalog after the connection generation changes
+			And invalidates that catalog when a model connection becomes active or degraded
 	When it displays the available choices
 		And at least one active model connection exists
 		Then it groups models under each active model connection

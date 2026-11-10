@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { nextCronInstant, parseCron } from "../src/domain/cron.ts";
 import { ScheduleStore } from "../src/stores/schedule-store.ts";
 import { Scheduler } from "../src/services/scheduler/scheduler.ts";
@@ -8,20 +12,14 @@ import { scheduleCommand } from "../src/cli/main.ts";
 import { fixture } from "./helpers.ts";
 import { Logger } from "../src/platform/logging.ts";
 
-const profile = {
-  connection: "model",
-  provider: "anthropic",
-  model: "claude-sonnet-4-6",
-  piVersion: "1.2.3",
-  piImage: "sha256:test",
-};
+const execFileAsync = promisify(execFile);
 
 /* @covers SCHEDULE-A1F47A7A
 Given an enabled schedule reaches its next execution instant
 	When the scheduler evaluates due work
 		Then it durably creates an occurrence before dispatching it
 			And derives a stable execution ID from the schedule ID, schedule revision, and scheduled UTC instant
-			And snapshots the task prompt and immutable Pi execution profile into the occurrence
+			And snapshots the task prompt into the occurrence
 			And never creates a second logical occurrence for the same execution ID after restart or clock rollback
 			And calculates the next recurring instant using the schedule's IANA timezone and defined daylight-saving behavior
 */
@@ -106,7 +104,6 @@ test("[SCHEDULE-7A46ABEF] [LOG-1177728F] scheduler caches future cron instants a
     {
       trigger: { type: "recurring", cron: "11 4 * * 1", timezone: "UTC" },
       prompt: "private scheduled task prompt",
-      profile,
     },
     "operator",
   );
@@ -173,7 +170,6 @@ test("[SCHEDULE-55BD779F] [SCHEDULE-22FF69D9] schedule mutations are revision-ch
         timezone: "Europe/Berlin",
       },
       prompt: "prepare the daily report",
-      profile,
     },
     "pi:session-1",
   );
@@ -306,6 +302,74 @@ test("[SCHEDULE-E141FFD9] schedule CLI exposes definition history, run history, 
   assert.match(output.join(""), /execution-1/);
 });
 
+/* @covers SCHEDULE-E3A1358A
+Given Pi creates or updates a schedule
+	When integral records the schedule
+		Then it records no model connection, provider, model, Pi version, or Pi image
+*/
+test("[SCHEDULE-E3A1358A] schedules record no model or Pi runtime, even when restored from a pinned revision", async (t) => {
+  const paths = await fixture(t),
+    now = Date.parse("2026-08-02T12:00:00Z"),
+    store = new ScheduleStore(
+      paths,
+      undefined,
+      () => now,
+      () => "schedule-1",
+    );
+  await store.load();
+  const created = await store.create(
+      {
+        trigger: { type: "recurring", cron: "0 9 * * *", timezone: "UTC" },
+        prompt: "prepare the daily report",
+      },
+      "pi:session-1",
+    ),
+    updated = await store.update(
+      created.id,
+      { expectedRevision: 1, prompt: "prepare the weekly report" },
+      "pi:session-1",
+    ),
+    file = join(paths.schedules, "schedule-1.json");
+  assert.equal("profile" in updated, false);
+  assert.equal("profile" in JSON.parse(await readFile(file, "utf8")), false);
+
+  // A revision committed by a release that still pinned the model and runtime.
+  await writeFile(
+    file,
+    `${JSON.stringify({ ...updated, revision: 3, profile: { connection: "model", provider: "anthropic", model: "claude", piVersion: "0.84.1", piImage: "sha256:gone" } }, null, 2)}\n`,
+  );
+  await execFileAsync("git", ["add", "schedule-1.json"], {
+    cwd: paths.schedules,
+  });
+  await execFileAsync(
+    "git",
+    [
+      "commit",
+      "--quiet",
+      "--no-gpg-sign",
+      "-m",
+      JSON.stringify({
+        scheduleId: "schedule-1",
+        revision: 3,
+        operation: "update",
+        actor: "operator",
+        timestamp: new Date(now).toISOString(),
+      }),
+    ],
+    { cwd: paths.schedules },
+  );
+  const pinned = (
+    await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: paths.schedules })
+  ).stdout.trim();
+
+  const reloaded = new ScheduleStore(paths, undefined, () => now);
+  await reloaded.load();
+  assert.equal("profile" in reloaded.get("schedule-1"), false);
+  const restored = await reloaded.restore("schedule-1", pinned, 3, "operator");
+  assert.equal("profile" in restored, false);
+  assert.equal("profile" in JSON.parse(await readFile(file, "utf8")), false);
+});
+
 test("[SCHEDULE-55BD779F] invalid or stale schedule mutations do not enter definition history", async (t) => {
   const paths = await fixture(t),
     now = Date.parse("2026-08-02T12:00:00Z"),
@@ -321,7 +385,6 @@ test("[SCHEDULE-55BD779F] invalid or stale schedule mutations do not enter defin
       {
         trigger: { type: "once", runAt: "2026-08-01T12:00:00Z" },
         prompt: "too late",
-        profile,
       },
       "operator",
     ),
@@ -376,7 +439,6 @@ test("[SCHEDULE-A1F47A7A] [SCHEDULE-52697825] [SCHEDULE-8912B5E6] scheduler coal
     {
       trigger: { type: "recurring", cron: "* * * * *", timezone: "UTC" },
       prompt: "tick",
-      profile,
     },
     "operator",
   );
@@ -386,6 +448,10 @@ test("[SCHEDULE-A1F47A7A] [SCHEDULE-52697825] [SCHEDULE-8912B5E6] scheduler coal
   await scheduler.tick();
 
   const occurrences = scheduler.occurrences.snapshot();
+  for (const item of occurrences) {
+    assert.equal(item.prompt, "tick");
+    assert.equal("profile" in item, false);
+  }
   assert.deepEqual(
     occurrences.map((item) => [item.scheduledFor, item.state]),
     [

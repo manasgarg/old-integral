@@ -7,6 +7,8 @@ import {
 import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import {
+  clearConnectionDegraded,
+  markConnectionDegraded,
   saveConnection,
   validateConnection,
 } from "../src/stores/connection-store.ts";
@@ -282,13 +284,6 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T09:00:00.000Z",
-    profile: {
-      connection: "shared",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
   });
   const tasks = String(
     await (coordinator as any).discordCommand(scope, "tasks", "ls", {}),
@@ -324,13 +319,6 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T10:00:00.000Z",
-    profile: {
-      connection: "shared",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     origin,
   });
   const successfulClaim = await coordinator.tasks.claim(),
@@ -360,13 +348,6 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T10:00:00.000Z",
-    profile: {
-      connection: "shared",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     origin,
   });
   await coordinator.tasks.cancel("execution-cancelled");
@@ -384,13 +365,6 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T10:00:00.000Z",
-    profile: {
-      connection: "shared",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     origin,
   });
   const claim = await coordinator.tasks.claim(),
@@ -444,13 +418,6 @@ test("[SCHEDULE-42E63F16] [DISCORD-6640EECF] Discord host commands use shared mo
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T11:00:00.000Z",
-    profile: {
-      connection: "shared",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     origin,
   });
   const untitledClaim = await coordinator.tasks.claim(),
@@ -536,13 +503,6 @@ test("[SCHEDULE-F13C33A0] coordinator exposes complete durable task inspection",
     triggerType: "once",
     scheduledFor: "2026-08-23T10:00:00.000Z",
     prompt: "prepare report",
-    profile: {
-      connection: "work",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     state: "accepted",
     dispatchAttempts: 1,
     createdAt: "2026-08-23T09:00:00.000Z",
@@ -748,6 +708,47 @@ test("[CHAT-6E91B4C7] [CHAT-C53A90D2] model choices are validated, persisted, br
   });
   await restored.modelSelection.load();
   assert.deepEqual(restored.modelSelection.get(), selected);
+});
+
+/* @covers CHAT-C53A90D2
+Given integral opens the model chooser for `integral model`, `integral talk`, or `/model`
+	When the coordinator has already discovered models for the current connection generation and configuration
+		Then it serves the cached catalog without repeating Pi version, image, or model discovery
+			And invalidates that catalog when a model connection becomes active or degraded
+*/
+test("[CHAT-C53A90D2] the model catalog is rediscovered when a model connection degrades or recovers", async (t) => {
+  const paths = await fixture(t),
+    config = await loadConfig(paths, {});
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "work",
+      kind: "model",
+      provider: "openai-codex",
+      auth: "key",
+    }),
+    "secret",
+  );
+  let discoveries = 0;
+  const coordinator = new Coordinator(paths, config, {
+    async listModelChoices() {
+      discoveries++;
+      return { choices: [], piVersion: "1.2.3" };
+    },
+  });
+
+  await coordinator.modelMenu();
+  await coordinator.modelMenu();
+  assert.equal(discoveries, 1);
+
+  await markConnectionDegraded(paths, "work", "authorization");
+  await coordinator.modelMenu();
+  await coordinator.modelMenu();
+  assert.equal(discoveries, 2);
+
+  await clearConnectionDegraded(paths, "work");
+  await coordinator.modelMenu();
+  assert.equal(discoveries, 3);
 });
 
 test("[BOX-40521095] package changes rebuild the selected exact Pi image and persist its identity", async (t) => {
@@ -986,26 +987,34 @@ test("[FAILURE-F93D8325] coordinator claims only work whose selected model conne
     [[blockedMessage.id, "queued", 0]],
   );
 
-  const occurrence = (executionId: string, connection: string) => ({
+  // Scheduled work runs on the shared selection, which names "broken".
+  const occurrence = (executionId: string) => ({
     executionId,
     scheduleId: `schedule-${executionId}`,
     scheduleRevision: 1,
     triggerType: "once" as const,
     scheduledFor: "2026-09-01T10:00:00.000Z",
     prompt: `run ${executionId}`,
-    profile: {
-      connection,
-      provider: connection === "healthy" ? "openai-codex" : "anthropic",
-      model: connection === "healthy" ? "gpt" : "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     state: "pending" as const,
     dispatchAttempts: 1,
     createdAt: "2026-09-01T09:00:00.000Z",
   });
-  await coordinator.tasks.accept(occurrence("blocked-task", "broken"));
-  await coordinator.tasks.accept(occurrence("active-task", "healthy"));
+  await coordinator.tasks.accept(occurrence("waiting-task"));
+  const blockedTask = await coordinatorPost(
+    coordinator,
+    "/integral/internal/tasks/claim",
+    { modelConnections: ["healthy"] },
+    headers,
+  );
+  assert.equal((blockedTask.body as { task?: unknown }).task, undefined);
+  assert.deepEqual(
+    coordinator.tasks
+      .snapshot()
+      .map((task) => [task.executionId, task.state, task.attempts.length]),
+    [["waiting-task", "queued", 0]],
+  );
+
+  await coordinator.modelSelection.set(activeSelection.get()!);
   const claimedTask = await coordinatorPost(
     coordinator,
     "/integral/internal/tasks/claim",
@@ -1014,16 +1023,12 @@ test("[FAILURE-F93D8325] coordinator claims only work whose selected model conne
   );
   assert.equal(
     (claimedTask.body as { task?: { executionId: string } }).task?.executionId,
-    "active-task",
+    "waiting-task",
   );
-  assert.deepEqual(
-    coordinator.tasks
-      .snapshot()
-      .map((task) => [task.executionId, task.state, task.attempts.length]),
-    [
-      ["blocked-task", "queued", 0],
-      ["active-task", "claimed", 0],
-    ],
+  assert.equal(
+    (claimedTask.body as { selection?: { connection: string } }).selection
+      ?.connection,
+    "healthy",
   );
 });
 

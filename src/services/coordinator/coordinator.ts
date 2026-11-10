@@ -72,6 +72,7 @@ import {
 } from "../../stores/image-recipe-store.ts";
 import { buildImageRecipe } from "../../integrations/docker/image-build.ts";
 import {
+  activeModelConnectionNames,
   clearConnectionDegraded,
   credentialSecretValues,
   credentialFor,
@@ -229,6 +230,7 @@ export class Coordinator {
   private workChain: Promise<unknown> = Promise.resolve();
   private connectionGeneration: number | undefined;
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
+  private activeModelConnections: string | undefined;
   private readonly modelCatalogLoads = new Map<string, Promise<ModelCatalog>>();
   private readonly dependencies: CoordinatorDependencies;
   private readonly scopes = new Map<string, ConversationScope>();
@@ -1499,6 +1501,16 @@ export class Coordinator {
   }
 
   private async modelCatalog(generation?: number): Promise<ModelCatalog> {
+    // A connection that recovers or degrades changes the choices without
+    // changing the connection generation, so it discards every cached catalog.
+    const active = (await activeModelConnectionNames(this.paths))
+      .sort()
+      .join(",");
+    if (active !== this.activeModelConnections) {
+      this.modelCatalogs.clear();
+      this.activeModelConnections = active;
+    }
+
     const currentGeneration = generation ?? (await this.readGeneration()),
       key = `${this.config.fingerprint}:${currentGeneration}`,
       cached = this.modelCatalogs.get(key);
@@ -1777,14 +1789,24 @@ export class Coordinator {
         if (!this.internal(req)) return unauthorized(res);
 
         const body = await bodyJson(req),
-          modelConnections = modelConnectionFilter(body.modelConnections);
+          modelConnections = modelConnectionFilter(body.modelConnections),
+          selection = this.modelSelection.get();
+
+        // Scheduled work runs on the shared model selection as it stands now.
+        // A degraded selected connection leaves tasks queued without an
+        // attempt; no selection at all fails each task before its container
+        // starts, so the reason is recorded and retried with backoff.
+        if (
+          selection &&
+          modelConnections?.has(selection.connection) === false
+        ) {
+          json(res, 200, { selection });
+          return;
+        }
 
         json(res, 200, {
-          task: await this.tasks.claim(
-            modelConnections
-              ? (task) => modelConnections.has(task.profile.connection)
-              : undefined,
-          ),
+          task: await this.tasks.claim(),
+          selection: selection ?? null,
         });
         return;
       }

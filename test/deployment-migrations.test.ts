@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
+import type { ScheduleDefinition } from "../src/domain/schedules.ts";
+import type { IntegralPaths } from "../src/platform/deployment-paths.ts";
+import { MIGRATION_ACTOR } from "../src/stores/deployment-migrations.ts";
+import { ScheduleStore } from "../src/stores/schedule-store.ts";
 import { CURRENT_DEPLOYMENT_FORMAT } from "../src/stores/deployment-format.ts";
 import { migrateDeployment } from "../src/services/deployment-migration.ts";
 import { doctorDeployment } from "../src/services/deployment-doctor.ts";
@@ -13,6 +27,7 @@ import {
 } from "./helpers.ts";
 
 const RELEASE = "0123456789abcdef0123456789abcdef01234567";
+const execFileAsync = promisify(execFile);
 
 /** The sample deployment directories missing for formats 0 to `current`. */
 async function missingSampleDeployments(
@@ -93,6 +108,7 @@ test("[UPGRADE-7FE91DD6] every sample deployment migrates to the current format 
     migrateDeployment(failing, {
       release: RELEASE,
       report: () => undefined,
+      currentFormat: 1,
       migrations: [
         {
           from: 0,
@@ -112,4 +128,150 @@ test("[UPGRADE-7FE91DD6] every sample deployment migrates to the current format 
   assert.deepEqual(await missingSampleDeployments(partial, 1), [
     join(partial, "format-1"),
   ]);
+});
+
+const LEGACY_PIN = {
+  connection: "openai-codex",
+  provider: "openai-codex",
+  model: "gpt-sample",
+  piVersion: "0.84.1",
+  piImage: `sha256:${"9".repeat(64)}`,
+};
+
+/** Commits `definition` with the pin a format-1 release wrote. */
+async function commitPinnedSchedule(
+  paths: IntegralPaths,
+  definition: ScheduleDefinition,
+): Promise<void> {
+  await writeFile(
+    join(paths.schedules, `${definition.id}.json`),
+    `${JSON.stringify({ ...definition, profile: LEGACY_PIN }, null, 2)}\n`,
+  );
+  const git = (...args: string[]) =>
+    execFileAsync("git", args, { cwd: paths.schedules });
+  await git("add", `${definition.id}.json`);
+  await git(
+    "commit",
+    "--quiet",
+    "--no-gpg-sign",
+    "-m",
+    JSON.stringify({
+      scheduleId: definition.id,
+      revision: definition.revision,
+      operation: "create",
+      actor: "pi:session-1",
+      timestamp: definition.updatedAt,
+    }),
+  );
+}
+
+/* @covers SCHEDULE-E3A1358A
+Given a schedule or occurrence written by an earlier release records a model or Pi runtime
+	When `integral migrate` moves the deployment to this release's format
+		Then integral removes the recorded model connection, provider, model, Pi version, and Pi image
+			And keeps its stable schedule ID, revision history, and occurrences
+*/
+test("[SCHEDULE-E3A1358A] migrating to format 2 removes the pinned model and Pi runtime from scheduled work", async (t) => {
+  const paths = await sampleDeployment(t, 1),
+    store = new ScheduleStore(paths);
+  await store.load();
+  const schedule = await store.create(
+    {
+      trigger: { type: "recurring", cron: "0 */6 * * *", timezone: "UTC" },
+      prompt: "Sample radar pass",
+    },
+    "pi:session-1",
+  );
+  await commitPinnedSchedule(paths, schedule);
+
+  const unpinnedOccurrence = {
+      executionId: "EXECUTION-1",
+      scheduleId: schedule.id,
+      scheduleRevision: schedule.revision,
+      triggerType: "recurring",
+      scheduledFor: "2026-11-01T18:00:00.000Z",
+      prompt: "Sample radar pass",
+      state: "accepted",
+      dispatchAttempts: 1,
+      createdAt: "2026-11-01T18:00:00.000Z",
+    },
+    occurrence = { ...unpinnedOccurrence, profile: LEGACY_PIN };
+  await writeFile(
+    paths.occurrences,
+    `${JSON.stringify({ occurrences: [occurrence] })}\n`,
+  );
+  await writeFile(
+    paths.taskQueue,
+    `${JSON.stringify({
+      tasks: [
+        {
+          id: "EXECUTION-1",
+          executionId: "EXECUTION-1",
+          scheduleId: schedule.id,
+          scheduleRevision: schedule.revision,
+          triggerType: "recurring",
+          scheduledFor: "2026-11-01T18:00:00.000Z",
+          prompt: "Sample radar pass",
+          createdAt: "2026-11-01T18:00:00.000Z",
+          profile: LEGACY_PIN,
+          state: "queued",
+          attempts: [],
+        },
+      ],
+      outbox: [],
+    })}\n`,
+  );
+
+  // A crash after a previous run rewrote the definition but before it
+  // committed leaves an uncommitted change behind.
+  await writeFile(
+    join(paths.schedules, `${schedule.id}.json`),
+    `${JSON.stringify(schedule, null, 2)}\n`,
+  );
+
+  await migrateDeployment(paths, { release: RELEASE, report: () => undefined });
+
+  const definition = JSON.parse(
+    await readFile(join(paths.schedules, `${schedule.id}.json`), "utf8"),
+  ) as Record<string, unknown>;
+  assert.equal("profile" in definition, false);
+  assert.equal(definition.id, schedule.id);
+  assert.equal(definition.revision, schedule.revision);
+  assert.equal(definition.prompt, "Sample radar pass");
+
+  const migratedStore = new ScheduleStore(paths);
+  await migratedStore.load();
+  const history = await migratedStore.history(schedule.id);
+  assert.deepEqual(
+    history.map((entry) => [entry.operation, entry.actor]),
+    [
+      ["create", "pi:session-1"],
+      ["create", "pi:session-1"],
+      ["migrate", MIGRATION_ACTOR],
+    ],
+  );
+  assert.equal(
+    (
+      await execFileAsync("git", ["status", "--porcelain"], {
+        cwd: paths.schedules,
+      })
+    ).stdout,
+    "",
+  );
+
+  const occurrences = JSON.parse(await readFile(paths.occurrences, "utf8")) as {
+      occurrences: Array<Record<string, unknown>>;
+    },
+    tasks = JSON.parse(await readFile(paths.taskQueue, "utf8")) as {
+      tasks: Array<Record<string, unknown>>;
+    };
+  assert.deepEqual(occurrences.occurrences, [unpinnedOccurrence]);
+  assert.equal(tasks.tasks.length, 1);
+  assert.equal("profile" in tasks.tasks[0]!, false);
+  assert.equal(tasks.tasks[0]!.prompt, "Sample radar pass");
+
+  const migrated = await directorySnapshot(paths.root);
+  await migrateDeployment(paths, { release: RELEASE, report: () => undefined });
+  assert.deepEqual(await directorySnapshot(paths.root), migrated);
+  assert.deepEqual((await doctorDeployment(paths)).findings, []);
 });

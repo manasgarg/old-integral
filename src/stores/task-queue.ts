@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { atomicWrite, readText } from "../platform/files.ts";
-import type { ModelSelection } from "../domain/model-selection.ts";
 import type { ScheduledOccurrence } from "./occurrence-store.ts";
 import type { ConversationOriginRoute } from "../domain/schedules.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
@@ -41,7 +40,6 @@ export interface ScheduledTask {
   triggerType: "recurring" | "once";
   scheduledFor: string;
   prompt: string;
-  profile: ModelSelection;
   state: TaskState;
   attempts: TaskAttempt[];
   claimId?: string;
@@ -50,6 +48,8 @@ export interface ScheduledTask {
   completedAt?: string;
   result?: string;
   lastError?: string;
+  /** Consecutive failures before an isolated Pi container started. */
+  preStartFailures?: number;
   origin?: ConversationOriginRoute;
 }
 
@@ -78,7 +78,6 @@ function immutableTask(task: ScheduledTask): unknown {
     triggerType: task.triggerType,
     scheduledFor: task.scheduledFor,
     prompt: task.prompt,
-    profile: task.profile,
     origin: task.origin,
   };
 }
@@ -157,7 +156,6 @@ export class TaskQueue {
         triggerType: occurrence.triggerType,
         scheduledFor: occurrence.scheduledFor,
         prompt: occurrence.prompt,
-        profile: structuredClone(occurrence.profile),
         state: "queued",
         attempts: [],
         createdAt: new Date(this.now()).toISOString(),
@@ -221,6 +219,7 @@ export class TaskQueue {
 
       task.state = "running";
       delete task.claimId;
+      delete task.preStartFailures;
       task.attempts.push({
         attemptId: this.newAttemptId(),
         number: task.attempts.length + 1,
@@ -242,9 +241,14 @@ export class TaskQueue {
       if (task.state !== "claimed" || task.claimId !== claimId)
         return structuredClone(task);
 
-      task.state = "queued";
+      const failures = (task.preStartFailures ?? 0) + 1;
+      task.state = "retry-wait";
       delete task.claimId;
       task.lastError = error;
+      task.preStartFailures = failures;
+      task.nextAttemptAt = new Date(
+        this.now() + retryDelay(failures),
+      ).toISOString();
       await this.persist();
       return structuredClone(task);
     });

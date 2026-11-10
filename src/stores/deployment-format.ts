@@ -8,7 +8,7 @@ import type { IntegralPaths } from "../platform/deployment-paths.ts";
  * migration, and add a sample deployment whenever a change alters what any
  * store writes to disk.
  */
-export const CURRENT_DEPLOYMENT_FORMAT = 1;
+export const CURRENT_DEPLOYMENT_FORMAT = 2;
 
 export type DeploymentFormat =
   /** `data/` does not exist yet. */

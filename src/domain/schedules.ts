@@ -1,5 +1,3 @@
-import type { ModelSelection } from "./model-selection.ts";
-
 export interface ConversationOriginRoute {
   conversationId: string;
   provider: "discord";
@@ -17,7 +15,6 @@ export interface ScheduleDefinition {
   revision: number;
   trigger: ScheduleTrigger;
   prompt: string;
-  profile: ModelSelection;
   enabled: boolean;
   deleted: boolean;
   createdAt: string;
@@ -26,7 +23,7 @@ export interface ScheduleDefinition {
 }
 
 export type ScheduleOperation =
-  "create" | "update" | "enable" | "disable" | "delete" | "restore";
+  "create" | "update" | "enable" | "disable" | "delete" | "restore" | "migrate";
 
 export interface ScheduleHistoryEntry {
   commit: string;
@@ -41,7 +38,6 @@ export interface ScheduleHistoryEntry {
 export interface CreateSchedule {
   trigger: ScheduleTrigger;
   prompt: string;
-  profile: ModelSelection;
   origin?: ConversationOriginRoute;
 }
 
@@ -49,5 +45,4 @@ export interface UpdateSchedule {
   expectedRevision: number;
   trigger?: ScheduleTrigger;
   prompt?: string;
-  profile?: ModelSelection;
 }

@@ -1375,40 +1375,14 @@ export class Gateway {
           `/integral/tasks/${encodeURIComponent(taskSession.executionId)}`,
         );
         if (!response.ok)
-          throw new IntegralError("task execution profile is unavailable", 409);
+          throw new IntegralError("task execution is unavailable", 409);
 
-        const task = (await response.json()) as {
-          profile?: unknown;
-          origin?: unknown;
-        };
-        if (!task.profile)
-          throw new IntegralError("task execution profile is unavailable", 409);
-
-        body.profile = task.profile;
+        const task = (await response.json()) as { origin?: unknown };
         if (task.origin && typeof task.origin === "object") {
           body.origin = task.origin;
           origin = task.origin as Record<string, string>;
         }
-      } else {
-        const snapshot = await this.dependencies.internalFetch(
-          this.paths,
-          "gateway",
-          "coordinator",
-          `/integral/snapshot${origin ? `?conversationId=${encodeURIComponent(origin.conversationId!)}` : ""}`,
-        );
-        if (!snapshot.ok)
-          throw new IntegralError("conversation model is unavailable", 409);
-
-        const data = (await snapshot.json()) as { modelSelection?: unknown };
-        if (!data.modelSelection)
-          throw new IntegralError(
-            "select a model before creating a schedule",
-            409,
-          );
-
-        body.profile = data.modelSelection;
-        if (origin) body.origin = origin;
-      }
+      } else if (origin) body.origin = origin;
     }
 
     const target = schedulingPath.startsWith("/integral/tasks")

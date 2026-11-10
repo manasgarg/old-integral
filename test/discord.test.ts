@@ -177,13 +177,6 @@ test("Discord task origin survives acceptance and completion outbox persistence"
     triggerType: "once",
     scheduledFor: new Date().toISOString(),
     prompt: "prepare report",
-    profile: {
-      connection: "model",
-      provider: "anthropic",
-      model: "claude",
-      piVersion: "1",
-      piImage: "image",
-    },
     state: "pending",
     dispatchAttempts: 0,
     createdAt: new Date().toISOString(),

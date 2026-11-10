@@ -1250,7 +1250,14 @@ Given Pi is running an isolated task attempt
 			And Pi can use the execution ID as an idempotency key for external operations
 			And integral does not claim that coordinator idempotency prevents repeated external effects after an ambiguous failure
 */
-test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0] [RUN-88706C0D] task execution uses a fresh recorded one-shot runtime and completes only after exit zero", async (t) => {
+/* @covers SCHEDULE-E3A1358A
+Given the runner is about to start an isolated attempt for an occurrence
+	When the deployment's shared model selection names a usable model
+		Then the attempt uses that model selection as it stands at that moment
+			And uses the deployment's current managed Pi image and that image's Pi version
+			And the attempt's run record names the model, Pi version, and image it used
+*/
+test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [SCHEDULE-E3A1358A] [RUN-B1D837E0] [RUN-88706C0D] task execution uses a fresh recorded one-shot runtime and completes only after exit zero", async (t) => {
   const paths = await fixture(t),
     base = await loadConfig(paths, {}),
     config = {
@@ -1331,13 +1338,6 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       triggerType: "once" as const,
       scheduledFor: "2026-08-02T12:00:00.000Z",
       prompt: "perform scheduled work",
-      profile: {
-        connection: "model",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        piVersion: "1.2.3",
-        piImage: "sha256:test-pi",
-      },
       state: "claimed" as const,
       claimId: "claim-1",
       attempts: [],
@@ -1354,6 +1354,10 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
       sink: () => undefined,
     }),
     {
+      currentPiRuntime: async () => ({
+        piVersion: "1.2.3",
+        piImage: "sha256:test-pi",
+      }),
       containers: {
         ensureImage: () => "sha256:test-pi",
         async ensureNetwork() {},
@@ -1391,7 +1395,16 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
         )
           taskRegistration = JSON.parse(init.body) as Record<string, unknown>;
         if (path === "/integral/internal/tasks/claim")
-          return Response.json({ task });
+          return Response.json({
+            task,
+            selection: {
+              connection: "model",
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              piVersion: "0.1.0",
+              piImage: "sha256:conversation-pi",
+            },
+          });
         if (path.endsWith("/start"))
           return Response.json({
             ...task,
@@ -1510,4 +1523,145 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [RUN-B1D837E0]
   );
   assert.match(activity, /perform scheduled work/);
   assert.match(activity, /task result/);
+  assert.deepEqual(
+    (
+      JSON.parse(await readFile(join(runDirectory, "run.json"), "utf8")) as {
+        model: unknown;
+      }
+    ).model,
+    {
+      connection: "model",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      piVersion: "1.2.3",
+      piImage: "sha256:test-pi",
+    },
+  );
+});
+
+/* @covers SCHEDULE-E3A1358A
+Given the runner is about to start an isolated attempt for an occurrence
+	When the deployment has no usable model selection
+		Then the runner does not start a container
+			And integral treats it as a failure before the isolated Pi container starts
+	When the deployment's Pi runtime or image cannot be prepared
+		Then the runner does not start a container
+			And integral treats it as a failure before the isolated Pi container starts
+*/
+test("[SCHEDULE-E3A1358A] a task without a model selection or a usable Pi runtime is deferred before any container starts", async (t) => {
+  const paths = await fixture(t),
+    base = await loadConfig(paths, {}),
+    config = {
+      ...base,
+      logging: { ...base.logging, level: "error" as const },
+    },
+    deployment = deploymentId(paths),
+    selection = {
+      connection: "model",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      piVersion: "1.2.3",
+      piImage: "sha256:conversation-pi",
+    };
+  await saveConnection(
+    paths,
+    validateConnection({
+      name: "model",
+      kind: "model",
+      provider: "anthropic",
+      auth: "key",
+    }),
+    "secret",
+  );
+  for (const component of ["coordinator", "gateway"] as const)
+    await writeComponentRecord(paths, {
+      component,
+      deploymentId: deployment,
+      endpoint: "http://127.0.0.1:1",
+      pid: process.pid,
+      status: "ready",
+      fingerprint: config.fingerprint,
+      connectionGeneration: 1,
+      startedAt: "now",
+    });
+
+  let claimSelection: typeof selection | null = null;
+  const failures: { runtime?: Error } = {};
+  const deferred: Array<Record<string, unknown>> = [],
+    started: string[] = [],
+    task = {
+      id: "execution-1",
+      executionId: "execution-1",
+      scheduleId: "schedule-1",
+      scheduleRevision: 1,
+      triggerType: "recurring" as const,
+      scheduledFor: "2026-08-02T12:00:00.000Z",
+      prompt: "perform scheduled work",
+      state: "claimed" as const,
+      claimId: "claim-1",
+      attempts: [],
+      createdAt: "now",
+    },
+    runner = new Runner(
+      paths,
+      config,
+      new Logger({
+        component: "runner",
+        deploymentId: deployment,
+        level: "error",
+        format: "json",
+        sink: () => undefined,
+      }),
+      {
+        async currentPiRuntime() {
+          if (failures.runtime) throw failures.runtime;
+          return { piVersion: "1.2.3", piImage: "sha256:test-pi" };
+        },
+        containers: {
+          ensureImage: () => "sha256:test-pi",
+          async ensureNetwork() {},
+          networkGateway: () => "127.0.0.1",
+          createPi() {
+            started.push("talk");
+            throw new Error("unexpected talk container");
+          },
+          createTaskPi() {
+            started.push("task");
+            throw new Error("unexpected task container");
+          },
+        },
+        clock: new ManualClock(),
+        fetch: async () => new Response("ok"),
+        async internalFetch(_paths, _caller, _target, path, init) {
+          if (path === "/integral/internal/tasks/claim")
+            return Response.json({ task, selection: claimSelection });
+          if (path.endsWith("/defer") && typeof init?.body === "string")
+            deferred.push(JSON.parse(init.body) as Record<string, unknown>);
+          return new Response(null, { status: 204 });
+        },
+        ensureCa: async () => ({ key: "key", cert: "cert", bundle: "bundle" }),
+        listen: async () => undefined,
+        close: async () => undefined,
+      },
+    );
+  (runner as any).dockerGateway = "127.0.0.1";
+
+  await runner.runTaskOnce();
+  claimSelection = selection;
+  failures.runtime = new Error(
+    "active managed image sha256:gone is unavailable",
+  );
+  await runner.runTaskOnce();
+
+  assert.deepEqual(started, []);
+  assert.deepEqual(
+    deferred.map((body) => [body.claimId, String(body.error)]),
+    [
+      [
+        "claim-1",
+        "no model is selected for the conversation; select one with integral model or /model",
+      ],
+      ["claim-1", "active managed image sha256:gone is unavailable"],
+    ],
+  );
 });
