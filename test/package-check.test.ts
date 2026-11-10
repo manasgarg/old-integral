@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -25,5 +25,12 @@ test("[DEV-8A71E49C] package validation owns its npm cache", async (t) => {
     env: { ...process.env, HOME: unusableCache },
   });
 
-  assert.equal(result.stderr, "");
+  // npm reports pack progress as `npm notice` lines on stderr, so success is
+  // judged by the absence of warnings and errors rather than an empty stream.
+  assert.doesNotMatch(result.stderr, /^npm (?:warn|error|ERR!)/im);
+  assert.match(
+    result.stderr,
+    /^npm notice filename: pirogram-integral-.*\.tgz$/m,
+  );
+  assert.equal(await readFile(unusableCache, "utf8"), "not a directory");
 });
