@@ -5,7 +5,7 @@ import {
 } from "../platform/internal-http-client.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
-import { fetchJson, requestOk } from "./http.ts";
+import { fetchJson, requestOk } from "./coordinator-client.ts";
 
 const HELP = `Usage: integral queue <command>
 

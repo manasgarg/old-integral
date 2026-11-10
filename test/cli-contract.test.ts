@@ -17,7 +17,7 @@ import {
   statusCommand,
   taskCommand,
   talkCommand,
-} from "../src/cli.ts";
+} from "../src/cli/main.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
 import {
