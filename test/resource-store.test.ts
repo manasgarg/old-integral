@@ -343,7 +343,8 @@ Given a host-repository or host-store connection records a canonical path and ba
 	When a different backing identity appears at the recorded path
 		Then integral leaves the resource unavailable
 			And never silently adopts the replacement
-			And requires the operator to soft-delete the unavailable resource and add the replacement as a new governed resource
+			And requires the operator to adopt the replacement explicitly with `integral connection adopt <name>`
+			Or to soft-delete the unavailable resource and add the replacement as a new governed resource
 	When the operator tries to add a replacement path still referenced by an existing session
 		Then integral rejects the addition until every session using the prior backing identity ends naturally
 */

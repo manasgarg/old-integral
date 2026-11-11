@@ -488,9 +488,36 @@ Given a host-repository or host-store connection records a canonical path and ba
 	When a different backing identity appears at the recorded path
 		Then integral leaves the resource unavailable
 			And never silently adopts the replacement
-			And requires the operator to soft-delete the unavailable resource and add the replacement as a new governed resource
+			And requires the operator to adopt the replacement explicitly with `integral connection adopt <name>`
+			Or to soft-delete the unavailable resource and add the replacement as a new governed resource
 	When the operator tries to add a replacement path still referenced by an existing session
 		Then integral rejects the addition until every session using the prior backing identity ends naturally
+```
+
+## CONNECTION-7F9EFE1D — Adopt a replaced host-resource backing directory on request
+
+```text
+Given a host-repository or host-store connection is unavailable with `identity_changed`
+	When the operator runs `integral connection adopt <name>`
+		Then integral shows the recorded path and the recorded and current filesystem identities
+			And warns that adoption trusts the directory now at that path
+			And asks for confirmation before changing anything
+	When the operator declines
+		Then integral leaves the resource unchanged
+	When the operator confirms
+		And the directory now at the recorded path passes every other availability check
+		And no running session still uses the resource
+		Then integral records the current filesystem identity for the resource
+			And returns it to active for sessions started afterward
+			And advances its lifecycle revision and the connection generation
+	When the directory now at the recorded path fails another availability check
+		Then integral reports that reason without changing the resource
+	When a running session still uses the resource
+		Then integral rejects the adoption until that session ends
+	When the resource changes while confirmation is pending
+		Then integral rejects the stale confirmation without changing the resource
+	When the named connection is not a host resource that is unavailable with `identity_changed`
+		Then integral rejects the adoption without changing anything
 ```
 
 ## CONNECTION-06B6AE14 — List and remove host-resource connections safely
