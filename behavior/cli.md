@@ -25,7 +25,7 @@ Given integral is installed
 			And prints the release's commit SHA, or `development` when it was not built by deploy
 			And prints the deployment format the release supports
 			And prints the Node.js version
-			And prints the pinned Pi version
+			And prints the base image digest and the Pi version it contains
 			And exits successfully
 	When the user runs `integral --version` or `integral -V`
 		Then the command prints the same implementation versions
@@ -156,7 +156,7 @@ Given the durable task queue contains zero or more scheduled task executions
 Given a user has local authority to operate an Integral deployment
 	When the user runs `integral image edit`
 		Then Integral opens a temporary working copy of the active Dockerfile in the configured editor
-			And validates the resulting recipe and foundational-image boundary before changing canonical state
+			And validates the resulting recipe and its `FROM` line before changing canonical state
 			And durably commits a changed valid Dockerfile to the host-managed image-recipe repository with the local operator as actor
 			And leaves the active recipe unchanged when the editor exits unsuccessfully, the file is unchanged, or validation fails
 			And does not create an approval request

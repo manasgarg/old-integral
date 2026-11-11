@@ -1,17 +1,26 @@
 # Upgrade behaviors
 
-These behaviors cover how a deployment's durable data is versioned and
-migrated, how migrations are proven before they run, and how a new release of
-Integral replaces the running one. [`docs/upgrades.md`](../docs/upgrades.md)
-describes the whole workflow.
+These behaviors cover how Integral is published, installed, and updated, how a
+deployment's durable data is versioned and migrated, how migrations are proven
+before they run, and how a new release of Integral replaces the running one.
+People install a published release and update it with `integral self-update`.
+Developers deploy a commit of their own checkout with `npm run deploy`. Both
+use the same rehearsal, backup, activation, and rollback steps.
+[`docs/upgrades.md`](../docs/upgrades.md) describes the whole workflow.
 
 Terms used below:
 
 - **Deployment home**: the directory `INTEGRAL_HOME` names. Its `config/` and
   `data/` hold everything a deployment keeps. The production deployment home
   is `$HOME/.integral`.
-- **Release**: one installed build of Integral, identified by the Git commit
-  it was built from.
+- **Release**: one installed build of Integral, identified by its version and
+  the Git commit it was built from.
+- **Published release**: a release that the Integral project builds, signs,
+  and distributes, together with its base image.
+- **Base image**: the Pi container image a release names by digest. It holds
+  the operating system, Node.js, the release's Pi version, Git, the runtime
+  user, and Integral's in-box helpers. A deployment builds its own image on
+  top of it as described by `BOX-36221C31`.
 - **Deployment format**: a whole number recorded in the deployment's data. It
   says which layout the files under `data/` and `config/` follow. A release
   that changes that layout raises the number.
@@ -20,10 +29,11 @@ Terms used below:
 - **Migration**: code in a release that rewrites a deployment's files from one
   format to the next. Migrations only move forward. Going back to an older
   release means restoring the backup taken before the upgrade.
-- **Release root**: `<release-root>`, where deploy keeps installed releases,
-  the `current` symlink to the active release, backups, and the deploy log. It
-  defaults to `$HOME/.local/share/integral` and sits outside the deployment
-  home, so restoring a backup never overwrites the backups or the log.
+- **Release root**: `<release-root>`, where deploy and self-update keep
+  installed releases, the `current` symlink to the active release, backups,
+  and the deploy log. It defaults to `$HOME/.local/share/integral` and sits
+  outside the deployment home, so restoring a backup never overwrites the
+  backups or the log.
 
 ## UPGRADE-13E4E25F — Record the deployment format
 
@@ -277,4 +287,68 @@ Given a deploy succeeded and its backup is retained
 			And starts the service and waits for it to report healthy
 			And warns that changes made since that deploy are not in the restored deployment
 			And records the rollback in `<release-root>/deploy-log.jsonl`
+```
+
+## UPGRADE-79DEFC3A — Publish each release with its base image
+
+```text
+Given the Integral project publishes a release
+	When it builds the release
+		Then it builds one base image from the release's bundled base Dockerfile
+			And the base image contains the operating system, Node.js, exactly one pinned Pi version, Git, CA certificates, the non-root runtime user, and Integral's in-box helpers
+			And the base image contains no bundled extension package, credential, configuration, or deployment content
+			And builds it for amd64 and arm64
+			And publishes it to the project's container registry under the release version
+			And signs it
+			And records the base image digest, its Pi version, and the oldest base image the release supports in the release package
+			And publishes the release package only after the base image is published
+	When the base image cannot be built, published, or signed
+		Then the release is not published
+```
+
+## UPGRADE-325F940B — Install a published release
+
+```text
+Given a user installs a published release on a machine with Docker
+	When the user runs the release's install command
+		Then it installs the release into `<release-root>/releases/<version>/` and points `<release-root>/current` at it
+			And pulls the base image by the digest recorded in the release
+			And verifies the base image's signature before using it
+			And creates the deployment home with the current format when it does not exist
+			And installs and starts the systemd user service as described by `UPGRADE-1F1E078F`
+	When the user runs `integral server start` or `integral chat` before any model connection is active
+		Then integral explains that a model connection is required
+			And names the `integral connection add` command that adds one
+			And does not start Pi
+	When a model connection is active and the user selects a model
+		Then the deployment needs no further setup to converse
+	When the base image cannot be pulled or its signature does not verify
+		Then installation exits non-zero
+			And names the image and the failed step
+	When the machine cannot reach the registry
+		Then the user can build the base image locally from the release's bundled base Dockerfile
+			And integral records the image as locally built instead of claiming the published digest
+```
+
+## UPGRADE-77685B63 — Update a deployment with integral self-update
+
+```text
+Given a deployment runs a published release
+	When the user runs `integral self-update`
+		Then it finds the newest published release
+			And reports the current and new versions and deployment formats
+			And does nothing more when the running release is already the newest
+	When a newer release exists
+		Then self-update downloads it and verifies its signature
+			And installs it as an immutable release under `<release-root>/releases/<version>/`
+			And pulls and verifies its base image
+			And rehearses the upgrade as described by `UPGRADE-E93D63FA`
+			And stops and backs up the deployment as described by `UPGRADE-6C26AF47`
+			And activates the new release as described by `UPGRADE-03673EA9`
+			And rolls back automatically as described by `UPGRADE-7F1EFAD0` when activation fails
+	When the new release is active
+		Then integral rebuilds the deployment image on the new base image as described by `BOX-62AC107F`
+			And reports whether the conversation moved to the new image
+	When the user runs `integral self-update --rollback`
+		Then integral rolls back to the previous release as described by `UPGRADE-25417B4B`
 ```

@@ -122,7 +122,7 @@ Given `[server]` may define `gateway_port`, `coordinator_port`, `runner_port`, a
 Given `[runner]` may define `image` and `pull_policy`
 	When integral resolves those options
 		Then `image` must be a valid OCI image reference
-			And its default is integral's automatically refreshed Pi image
+			And its default is the deployment image built on the release's base image as described by `BOX-36221C31`
 			And `pull_policy` accepts only `always`, `if-not-present`, or `never`
 			And its default is `if-not-present`
 	When a custom image uses `pull_policy` `never`
