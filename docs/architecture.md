@@ -16,7 +16,7 @@ above it. `npm run lint` enforces this with `no-restricted-imports` rules in
 | Entry points | `src/cli/`          | The `integral` command and its subcommands                                            |
 | Services     | `src/services/`     | The four long-running components and the launcher that starts and stops them          |
 | Integrations | `src/integrations/` | Adapters to outside systems: Docker, Pi, MCP servers, OAuth providers, Discord, email |
-| Stores       | `src/stores/`       | Durable state on disk: queues, conversations, runs, schedules, connections |
+| Stores       | `src/stores/`       | Durable state on disk: queues, conversations, runs, schedules, connections            |
 | Domain       | `src/domain/`       | Types and pure policy with no I/O                                                     |
 | Platform     | `src/platform/`     | Files, paths, logging, errors, timers and servers, internal HTTP, component identity  |
 
