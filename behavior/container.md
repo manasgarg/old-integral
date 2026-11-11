@@ -21,13 +21,14 @@ Given the coordinator, runner, and gateway are healthy
 	When the runner claims the next queued message from the coordinator
 		Then integral creates a fresh temporary session home
 			And starts one non-root Docker container for Pi on the locked network
-			And runs the immutable Pi image recorded with the conversation selection in RPC mode with session persistence and approval prompts disabled
+			And runs the immutable Pi image recorded with the conversation selection in RPC mode with approval prompts disabled
+			And has Pi persist its session inside the temporary session home as described in CHAT-ADC7198B
 			And runs Pi offline so Pi does not perform its own startup network operations
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
 			And supplies only a sentinel credential in the authentication shape required by the selected provider
 			And omits API-key environment variables when the selected model connection uses OAuth
-			And restores conversational context from the durable conversation record
+			And restores conversational context as described in CHAT-B46C81F5
 			And sends the claimed message as a Pi `prompt` command
 ```
 

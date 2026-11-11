@@ -235,9 +235,98 @@ Given every terminal has detached
 Given the logical conversation has persisted completed turns
 	And no Pi container is active
 	When the runner starts a replacement Pi session for a queued message
-		Then integral supplies the persisted conversation context to Pi
+		Then integral resumes the conversation's model transcript as described in CHAT-79B32789
+			And supplies rendered conversation context only in the fallback described in CHAT-2FC607EA
 			And the replacement session can continue the same conversation
 			And temporary files from the previous container remain unavailable
+```
+
+## CHAT-ADC7198B — Keep a model transcript for each conversation
+
+```text
+Given a conversation delivers messages to an interactive Pi session
+	And the conversation's model transcript is `model-transcript.jsonl` beside its `conversation.jsonl`
+	When integral starts the Pi session
+		Then it runs Pi with session persistence enabled
+			And points Pi's session directory at a folder inside the temporary session home
+			And gives Pi the Pi session ID recorded with the model transcript
+			And assigns and records a new Pi session ID when the conversation has no usable model transcript
+	When a turn completes
+		And its message will not be delivered again
+		Then integral asks Pi over RPC for the session entries added after the last entry the transcript holds
+			And appends those entries to the model transcript in the order Pi returned them
+			And replaces the session's temporary credentials in those entries with a redaction marker
+			And records the Pi runtime version that produced them
+			And makes the appended entries durable before it reports the turn complete
+	When Pi appends entries between turns
+		And integral then ends the Pi session for idleness, a model change, or shutdown
+		Then integral appends those entries to the model transcript before stopping Pi
+	When a turn times out
+		Or Pi exits during a turn
+		Or the turn's message otherwise returns to the queue
+		Then integral appends none of that turn's entries
+			And the model transcript still ends at the last completed turn
+	When integral cannot obtain or store the entries of a completed turn
+		Then it marks the model transcript stale
+			And does not fail the turn or deliver its message again
+	When anything inside the container changes Pi's session file
+		Then integral never copies that file into the model transcript
+			And takes entries only from Pi's RPC answers
+```
+
+## CHAT-79B32789 — Resume the model transcript in a replacement Pi session
+
+```text
+Given the conversation has a model transcript that is readable and not stale
+	And no Pi container is active
+	When the runner starts a Pi session for a queued message
+		Then integral writes the transcript into the new session home as the Pi session file for the transcript's Pi session ID
+			And starts Pi on that session
+			And does not also supply rendered conversation context
+			And asks Pi for its latest session entry before sending the message
+			And sends the message only when Pi's latest entry matches the transcript's latest entry
+			And Pi builds model context from the transcript's messages, tool calls, tool results, and compaction summaries
+	When the selected model or Pi runtime changed since the transcript was last appended
+		Then integral still resumes the transcript
+			And the transcript records the model change through Pi's own entries
+	When an approval-resolution continuation starts a Pi session
+		Then it resumes the same model transcript as an ordinary queued message would
+```
+
+## CHAT-2FC607EA — Fall back to rendered context when the transcript cannot be resumed
+
+```text
+Given the runner is starting a Pi session for a conversation
+	When the conversation has no model transcript
+		Or the model transcript cannot be read
+		Or the model transcript is marked stale
+		Or Pi cannot start on the resumed session
+		Or Pi's latest session entry does not match the transcript's latest entry
+		Then integral starts Pi on a new Pi session ID
+			And supplies rendered conversation context as described in CONFIG-F2C84D16
+			And keeps an unusable transcript under a set-aside name instead of deleting it
+			And starts a new model transcript from the new Pi session
+			And records the fallback and a bounded reason without message content in the run record
+			And delivers the queued message exactly once
+	When Pi cannot start in the fallback either
+		Then integral handles it as a provisioning failure as described in BOX-C28F4A61
+```
+
+## CHAT-F5F13AE4 — Keep the conversation record separate from the model transcript
+
+```text
+Given a conversation has a conversation record and a model transcript
+	When a user edits or deletes a queued message
+		Then integral changes only the conversation record
+			And leaves the model transcript unchanged because Pi has not received the message
+	When integral records a notification, error, session marker, or message origin
+		Then it records it only in the conversation record
+	When a terminal attaches or reattaches to the conversation
+		Then integral renders the conversation from the conversation record
+			And does not read the model transcript
+	When integral logs an event about the model transcript
+		Then the event carries entry counts, identifiers, and reasons
+			And carries no message or tool content
 ```
 
 ## CHAT-4F29A6D8 — Recover the conversation after a server restart
