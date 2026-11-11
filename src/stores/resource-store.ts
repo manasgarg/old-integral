@@ -763,6 +763,97 @@ export async function refreshResource(
   return record;
 }
 
+/** What adopting a replaced backing directory would change. */
+export interface AdoptionPreview {
+  record: ResourceRecord;
+  current: BackingIdentity;
+}
+
+/**
+ * Describe an adoption without changing anything. Only a resource that is
+ * unavailable because a different directory appeared at its path can be
+ * adopted.
+ */
+export async function previewAdoption(
+  paths: IntegralPaths,
+  name: string,
+): Promise<AdoptionPreview> {
+  const record = await readResource(paths, name);
+  if (!record) throw new IntegralError(`resource not found: ${name}`, 404);
+  if (
+    record.state !== "unavailable" ||
+    record.availabilityReason !== "identity_changed"
+  )
+    throw new IntegralError(
+      `${name} is not waiting for adoption: only an unavailable resource whose directory was replaced (identity_changed) can be adopted`,
+      409,
+    );
+
+  const current = await backingIdentity(record.path).catch(() => {
+    throw new IntegralError(`${name}'s backing directory is missing`, 409);
+  });
+  return { record, current };
+}
+
+/**
+ * Adopt the directory now at an `identity_changed` resource's recorded path:
+ * record its identity and return the resource to active. The operator decides
+ * the replacement is trustworthy; integral still requires every other
+ * availability check to pass and no running session to use the resource.
+ * Session leases are left for abandoned-session recovery, which may still need
+ * them to recover unlanded repository work.
+ */
+export async function adoptResourceIdentity(
+  paths: IntegralPaths,
+  name: string,
+  expected: { revision: number; identity: BackingIdentity },
+  sessionRunning: (sessionId: string) => Promise<boolean>,
+): Promise<ResourceRecord> {
+  const resource = await readResource(paths, name);
+  if (!resource) throw new IntegralError(`resource not found: ${name}`, 404);
+
+  return await withResourceLock(paths, resource.id, async () => {
+    const { record, current } = await previewAdoption(paths, name);
+    if (
+      record.revision !== expected.revision ||
+      !sameIdentity(current, expected.identity)
+    )
+      throw new IntegralError(
+        `${name} changed while adoption was pending; run adopt again`,
+        409,
+      );
+
+    const adopted: ResourceRecord = {
+      ...record,
+      identity: current,
+      state: "active",
+      revision: record.revision + 1,
+    };
+    delete adopted.availabilityReason;
+
+    const reason = await availability(adopted);
+    if (reason)
+      throw new IntegralError(
+        `cannot adopt ${name}: its directory is ${reason.replaceAll("_", " ")}`,
+        409,
+      );
+
+    const directory = join(paths.resourceSessions, record.id);
+    for (const file of await readdir(directory).catch(() => [] as string[])) {
+      const sessionId = basename(file, ".json");
+      if (file.endsWith(".json") && (await sessionRunning(sessionId)))
+        throw new IntegralError(
+          `cannot adopt ${name} while session ${sessionId} is still running; adopt it after that session ends`,
+          409,
+        );
+    }
+
+    await writeResource(paths, adopted);
+    await bumpResourceGeneration(paths);
+    return adopted;
+  });
+}
+
 async function bumpResourceGeneration(
   paths: IntegralPaths,
   replaceSessions = false,
