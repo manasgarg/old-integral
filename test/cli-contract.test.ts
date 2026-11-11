@@ -3,12 +3,10 @@ import test from "node:test";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  approvalCommand,
   completeEmailOptions,
   createTalkTerminal,
   explicitConnection,
   guidedConnection,
-  imageCommand,
   main,
   modelCommand,
   queueCommand,
@@ -103,8 +101,6 @@ test("[CLI-A7D3E91B] -h prints applicable help at every command depth without pe
     ["queue", "ls", "-h"],
     ["task", "-h"],
     ["task", "ls", "-h"],
-    ["approval", "-h"],
-    ["approval", "ls", "-h"],
     ["talk", "-h"],
   ]) {
     const result = await capture(args, {
@@ -168,23 +164,11 @@ test("standalone conversation commands share state without attaching talk", asyn
               connection: "work",
               provider: "openai-codex",
               model: "gpt-5.5",
-              piVersion: "1.2.3",
-              piImage: "sha256:model",
             },
           ],
         });
       if (url.pathname === "/integral/selection")
         return Response.json({ status: "selected" });
-      if (url.pathname === "/integral/approvals" && !init?.method)
-        return Response.json([
-          { id: "approval-1", status: "pending", summary: "install jq" },
-        ]);
-      if (url.pathname.startsWith("/integral/approvals/"))
-        return Response.json({
-          id: url.pathname.split("/")[3],
-          status: url.pathname.endsWith("/approve") ? "succeeded" : "denied",
-          summary: "install jq",
-        });
       throw new Error(`unexpected request: ${url.pathname}`);
     },
   };
@@ -209,23 +193,6 @@ test("standalone conversation commands share state without attaching talk", asyn
   );
   assert.match(stdout, /Selected work \(openai-codex\) \/ gpt-5\.5/);
   assert.equal(terminalClosed, true);
-  stdout = "";
-  assert.equal(await approvalCommand(["ls"], dependencies), 0);
-  assert.match(stdout, /approval approval-1 \[pending\]/);
-  stdout = "";
-  assert.equal(
-    await approvalCommand(["approve", "approval-1"], dependencies),
-    0,
-  );
-  assert.match(stdout, /approval approval-1 \[succeeded\]/);
-  assert.equal(await approvalCommand(["deny", "approval-2"], dependencies), 0);
-  assert.ok(
-    requests
-      .filter((request) => request.path.includes("/approvals/"))
-      .every(
-        (request) => request.body === JSON.stringify({ actor: "operator" }),
-      ),
-  );
   assert.equal(
     requests.some((request) => request.path === "/integral/events"),
     false,
@@ -233,7 +200,7 @@ test("standalone conversation commands share state without attaching talk", asyn
 
   const topHelp = await capture(["--help"]),
     talkHelp = await capture(["talk", "--help"]);
-  for (const command of ["status", "model", "queue", "approval", "connection"])
+  for (const command of ["status", "model", "queue", "connection"])
     assert.match(topHelp.stdout, new RegExp(command));
   for (const command of [
     "integral status",
@@ -241,7 +208,6 @@ test("standalone conversation commands share state without attaching talk", asyn
     "integral connection catalog",
     "integral connection ls",
     "integral queue ls",
-    "integral approval ls",
     "CLI-only",
   ])
     assert.match(talkHelp.stdout, new RegExp(command));
@@ -416,13 +382,13 @@ test("[CONNECTION-12C87631] explicit GitHub setup stores one automatically bound
 });
 
 /* @covers CONNECTION-0EF2CF89
-Given the user has an MCP server executable available in the configured runner image
+Given the user has an MCP server executable available in the release's Pi image
 	When the user runs `integral connection add mcp --transport stdio --name <name> --command <executable>`
 		And supplies zero or more `--arg <argument>` values
 		Then integral records the executable and each argument without shell parsing or expansion
 			And treats the argument following `--command` as the exact executable name or absolute image path
 			And uses the arguments in their supplied order
-			And runs setup verification in a short-lived isolated sidecar using the configured runner image
+			And runs setup verification in a short-lived isolated sidecar using the release's Pi image
 			And negotiates a supported MCP protocol over standard input and standard output
 			And discovers every available tool before committing the connection
 			And stores the connection only after discovery succeeds
@@ -1277,7 +1243,7 @@ test("[TASK-FC4DA418] top-level task commands inspect and cancel durable tasks",
 /* @covers CHAT-84D839CE
 Given the user is in `integral talk`
 	When the user enters `/help`
-		Then the terminal describes `/help`, `/status`, `/model [<pattern>...]`, `/connection catalog`, `/connection ls`, `/queue ls`, `/queue edit`, `/queue delete`, `/tasks`, `/tasks show`, `/tasks cancel`, `/approvals`, `/approve`, `/deny`, and `/exit`
+		Then the terminal describes `/help`, `/status`, `/model [<pattern>...]`, `/connection catalog`, `/connection ls`, `/queue ls`, `/queue edit`, `/queue delete`, `/tasks`, `/tasks show`, `/tasks cancel`, and `/exit`
 			And handles the command on the host
 			And does not send the command to Pi
 */
@@ -1295,9 +1261,6 @@ test("[CHAT-84D839CE] talk help documents every local command and never contacts
     "/tasks",
     "/tasks show",
     "/tasks cancel",
-    "/approvals",
-    "/approve",
-    "/deny",
     "/exit",
   ])
     assert.match(result.stdout, new RegExp(command.replace("/", "\\/")));
@@ -1456,33 +1419,6 @@ test("[CHAT-888AFAE0] asynchronous events redraw the active prompt and preserve 
   assert.equal(actions.at(-1), "write:∮ later\n");
 });
 
-/* @covers BOX-E1F472A1
-Given integral pins one exact Pi version
-	And integral begins Pi-specific OAuth or opens the model chooser
-	When no valid runtime for the pinned version is installed
-		Then integral installs exactly the pinned version under deployment runtime state
-			And uses the pinned version when the model chooser builds the default Pi image
-			And the chooser discovers providers and models from that image
-			And records the version and immutable image identity when the user selects a model
-	When a valid runtime for the pinned version is already installed
-		Then integral reuses the installed host runtime without querying the npm registry
-			And the model chooser reuses the matching image when it is available
-			And distinguishes managed images built from different Integral image recipes
-			And does not reinstall Pi
-	When installing the pinned version fails
-		Then the Pi-dependent operation exits non-zero
-			And explains that the pinned Pi version could not be installed
-			And does not fall back to another installed Pi version
-Given integral provides its default Pi image recipe
-	When the recipe or a default image build selects a Pi version
-		Then it selects the pinned Pi version
-			And never installs a floating `latest` Pi version
-Given a conversation selection records a Pi version and immutable image identity
-	When the runner provisions or reuses a Pi container
-		Then it uses that immutable image identity
-			And treats a runtime identity change as a model-selection change
-			And never substitutes another locally tagged Pi image
-*/
 /* @covers CHAT-6E91B4C7
 Given the terminal is interactive
 	And the integral coordinator is healthy
@@ -1497,7 +1433,6 @@ Given the terminal is interactive
 		And the conversation has a previously selected model connection and model
 		And both selections remain available
 		Then integral reuses the previous selections without opening the model chooser
-			And refreshes the selected Pi runtime identity when the available runtime changed
 			And attaches the terminal to the same conversation
 	When the user runs `integral talk <pattern>...`
 		And at least one active model connection exists
@@ -1531,7 +1466,7 @@ Given the user is in `integral talk`
 			And identifies the in-flight message when one exists
 			And does not print secrets
 */
-test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5C14] scripted terminal silently reuses the current model on a refreshed runtime before handling local commands", async (t) => {
+test("[CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5C14] scripted terminal silently reuses the current model before handling local commands", async (t) => {
   const paths = await fixture(t),
     userLabel = "\u001b[48;5;238m\u001b[97m ☺ ",
     lines = [
@@ -1549,9 +1484,6 @@ test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5
       "/tasks",
       "/tasks show execution-1",
       "/tasks cancel execution-1",
-      "/approvals",
-      "/approve approval-1",
-      "/deny approval-2",
       "/server status",
       "/unknown",
       "  hello Pi  ",
@@ -1632,16 +1564,12 @@ test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5
               connection: "work",
               provider: "openai-codex",
               model: "gpt-5.5",
-              piVersion: "1.2.3",
-              piImage: "sha256:current",
             },
           ],
           current: {
             connection: "work",
             provider: "openai-codex",
             model: "gpt-5.5",
-            piVersion: "1.2.2",
-            piImage: "sha256:old",
           },
         });
       if (url.pathname === "/integral/status")
@@ -1691,20 +1619,6 @@ test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5
           prompt: "prepare report",
           attempts: [],
         });
-      if (url.pathname === "/integral/approvals")
-        return Response.json([
-          {
-            id: "approval-1",
-            status: "pending",
-            summary: "install Debian packages: jq",
-          },
-        ]);
-      if (url.pathname.startsWith("/integral/approvals/"))
-        return Response.json({
-          id: url.pathname.split("/")[3],
-          status: url.pathname.endsWith("/approve") ? "succeeded" : "denied",
-          summary: "install Debian packages: jq",
-        });
       return new Response(null, { status: 204 });
     },
   });
@@ -1730,9 +1644,6 @@ test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5
   );
   assert.match(stdout, /executionId: execution-1/);
   assert.match(stdout, /state: cancelled/);
-  assert.match(stdout, /approval approval-1 \[pending\]/);
-  assert.match(stdout, /approval approval-1 \[succeeded\]/);
-  assert.match(stdout, /approval approval-2 \[denied\]/);
   assert.equal(stderr.match(/Unknown local command/g)?.length, 2);
   assert.match(stderr, /structured output flags are available only in the CLI/);
   assert.deepEqual(
@@ -1741,27 +1652,12 @@ test("[BOX-E1F472A1] [CHAT-6E91B4C7] [CHAT-888AFAE0] [CHAT-84D839CE] [CHAT-989F5
       .map((request) => [request.method, request.path, request.body]),
     [
       [
-        "PUT",
-        "/integral/selection",
-        JSON.stringify({ connection: "work", model: "gpt-5.5" }),
-      ],
-      [
         "PATCH",
         "/integral/queue/message-1",
         JSON.stringify({ text: "revised text" }),
       ],
       ["DELETE", "/integral/queue/message-1", undefined],
       ["POST", "/integral/tasks/execution-1/cancel", "{}"],
-      [
-        "POST",
-        "/integral/approvals/approval-1/approve",
-        JSON.stringify({ attachmentId: "attachment-test" }),
-      ],
-      [
-        "POST",
-        "/integral/approvals/approval-2/deny",
-        JSON.stringify({ attachmentId: "attachment-test" }),
-      ],
       [
         "POST",
         "/integral/messages",
@@ -1842,16 +1738,12 @@ test("[CHAT-4F29A6D8] an attached talk terminal reconnects after coordinator res
               connection: "work",
               provider: "openai-codex",
               model: "gpt-5.5",
-              piVersion: "1.2.3",
-              piImage: "sha256:current",
             },
           ],
           current: {
             connection: "work",
             provider: "openai-codex",
             model: "gpt-5.5",
-            piVersion: "1.2.3",
-            piImage: "sha256:current",
           },
         });
       if (url.pathname === "/integral/events") {
@@ -1952,22 +1844,16 @@ test("[CHAT-6E91B4C7] [CHAT-C53A90D2] integral talk patterns and /model use one 
         connection: "personal",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
       {
         connection: "work",
         provider: "openai-codex",
         model: "gpt-5.4-mini",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
       {
         connection: "work",
         provider: "openai-codex",
         model: "gpt-5.5",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
     ];
   let current: (typeof choices)[number] | null = null,
@@ -2042,30 +1928,22 @@ test("[CHAT-6E91B4C7] [CHAT-C53A90D2] chooser handles stale defaults, ambiguity,
         connection: "personal",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
       {
         connection: "work",
         provider: "openai-codex",
         model: "gpt-5.4-mini",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
       {
         connection: "work",
         provider: "openai-codex",
         model: "gpt-5.5",
-        piVersion: "1.2.3",
-        piImage: "sha256:catalog",
       },
     ];
   let current = {
       connection: "removed",
       provider: "anthropic",
       model: "removed-model",
-      piVersion: "1.2.2",
-      piImage: "sha256:removed",
     },
     stdout = "";
   const lines = ["2", "/model missing", "1", "/exit"],
@@ -2166,57 +2044,4 @@ test("[CHAT-6E91B4C7] integral talk refuses attachment when no active provider a
     }),
     /no provider and model choices.*integral connection add/,
   );
-});
-
-/* @covers CLI-5D8A1C72
-Given a user has local authority to operate an Integral deployment
-	When the user runs `integral image edit`
-		Then Integral opens a temporary working copy of the active Dockerfile in the configured editor
-			And validates the resulting recipe and foundational-image boundary before changing canonical state
-			And durably commits a changed valid Dockerfile to the host-managed image-recipe repository with the local operator as actor
-			And leaves the active recipe unchanged when the editor exits unsuccessfully, the file is unchanged, or validation fails
-			And does not create an approval request
-	When the user runs `integral image rebuild`
-		Then Integral directly starts a fresh build of the active recipe with pull and layer-cache reuse disabled
-			And applies the same build isolation, validation, floating dependency resolution, inventory capture, and immutable image selection as an approved rebuild
-			And records the local operator, recipe commit, prior image digest, build result, installed package inventory, and resulting image digest in the audit history
-			And does not create an approval request
-	When the user requests help for `integral image`, `integral image edit`, or `integral image rebuild`
-		Then Integral explains that these are privileged local operator actions
-			And distinguishes them from Pi and remote automation requests that require approval
-			And performs no edit or build
-*/
-test("[CLI-5D8A1C72] local image edit and rebuild commands execute directly without creating approvals", async (t) => {
-  const paths = await fixture(t),
-    calls: string[] = [],
-    output: string[] = [],
-    dependencies = {
-      resolvePaths: () => paths,
-      loadConfig: () => loadConfig(paths, {}),
-      actor: () => "local-human",
-      writeOutput: (text: string) => output.push(text),
-      async edit(_paths: typeof paths, actor: string) {
-        calls.push(`edit:${actor}`);
-        return { prior: "old", landed: "new" };
-      },
-      async rebuild(_paths: typeof paths, _config: unknown, actor: string) {
-        calls.push(`rebuild:${actor}`);
-        return {
-          recipeCommit: "new",
-          piVersion: "0.85.0",
-          image: "sha256:new-image",
-        };
-      },
-    };
-  assert.equal(await imageCommand(["edit"], dependencies), 0);
-  assert.equal(await imageCommand(["rebuild"], dependencies), 0);
-  assert.deepEqual(calls, ["edit:local-human", "rebuild:local-human"]);
-  assert.match(output.join(""), /Updated image Dockerfile to new/);
-  assert.match(output.join(""), /Built Pi 0\.85\.0/);
-  assert.doesNotMatch(output.join(""), /approval/i);
-
-  output.length = 0;
-  assert.equal(await imageCommand(["--help"], dependencies), 0);
-  assert.match(output.join(""), /privileged local operator actions/);
-  assert.match(output.join(""), /do not create approval requests/);
 });

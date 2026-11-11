@@ -63,7 +63,6 @@ function profileProjection(sessionId: string): ResourceProjection {
           identity: { device: "1", inode: "2" },
           state: "active",
           revision: 1,
-          writePolicy: "direct",
         },
         checkout: "/test/session/.pi",
         initialHead: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -379,7 +378,18 @@ Given the durable queue is empty
 			And keeps attached terminals connected
 			And starts a replacement session when another message is queued
 */
-test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D] runner reuses one recorded Pi runtime and destroys it after the configured idle deadline", async (t) => {
+/* @covers BOX-E1F472A1
+Given the conversation has a model selection
+	When the runner provisions a Pi container for a conversation turn
+		Then it uses the release's Pi image and pinned Pi version
+			And the run record names the Pi version and image it used
+			And never substitutes a Pi image recorded by an earlier release
+Given integral runs Pi in a container
+	When integral gives Pi its tools and instructions
+		Then no tool lets Pi change, rebuild, or replace its image or the image's packages
+			And integral tells Pi that the release fixes the image
+*/
+test("[BOX-E1F472A1] [BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D] runner reuses one recorded Pi runtime and destroys it after the configured idle deadline", async (t) => {
   const paths = await fixture(t),
     base = await loadConfig(paths, {}),
     config = {
@@ -467,10 +477,6 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       },
     },
     containers: ContainerBackend = {
-      ensureImage() {
-        calls.push("image");
-        return "sha256:test-pi";
-      },
       async ensureNetwork() {
         calls.push("network");
       },
@@ -500,6 +506,10 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
     }),
     {
       containers,
+      async currentPiRuntime() {
+        calls.push("image");
+        return { piVersion: "1.2.3", piImage: "sha256:test-pi" };
+      },
       clock,
       fetch: async () => new Response("ok"),
       async internalFetch(_paths, _caller, _target, path, init) {
@@ -522,8 +532,9 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
               connection: "model",
               provider: "anthropic",
               model: "claude-sonnet-4-6",
-              piVersion: "1.2.3",
-              piImage: "sha256:test-pi",
+              // An earlier release recorded its own Pi runtime here.
+              piVersion: "0.85.1",
+              piImage: "sha256:older-release",
             },
             context: [],
           });
@@ -592,6 +603,8 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
     );
   const systemPrompts = spec?.args.join("\n") ?? "";
   assert.match(systemPrompts, /ephemeral Integral-managed container/);
+  assert.match(systemPrompts, /image is fixed by the Integral release/);
+  assert.doesNotMatch(systemPrompts, /container_image|container_package/);
   assert.match(systemPrompts, /undo those commits and their file changes/);
   assert.match(
     systemPrompts,
@@ -618,7 +631,7 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
   assert.equal(currentMount?.source, join(paths.runs, indexedRun.runId));
   const currentMetadata = JSON.parse(
       await readFile(join(currentMount.source, "run.json"), "utf8"),
-    ) as { status: string },
+    ) as { status: string; model: Record<string, string> },
     currentActivity = await readFile(
       join(currentMount.source, "activity.jsonl"),
       "utf8",
@@ -627,6 +640,8 @@ test("[BOX-B45DEA9B] [BOX-7D3A19E4] [RUN-B1D837E0] [RUN-01CA16F2] [RUN-88706C0D]
       await readFile(join(currentMount.source, "signals.json"), "utf8"),
     ) as { usage: { inputTokens: number; cacheReadTokens: number } };
   assert.equal(currentMetadata.status, "running");
+  assert.equal(currentMetadata.model.piVersion, "1.2.3");
+  assert.equal(currentMetadata.model.piImage, "sha256:test-pi");
   assert.match(currentActivity, /hello/);
   assert.match(currentActivity, /answer/);
   assert.match(
@@ -750,9 +765,6 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
     }),
     {
       containers: {
-        ensureImage() {
-          return "sha256:test-pi";
-        },
         async ensureNetwork() {},
         networkGateway: () => "127.0.0.1",
         createPi: () => pi,
@@ -760,6 +772,10 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
           throw new Error("unexpected task runtime");
         },
       },
+      currentPiRuntime: async () => ({
+        piVersion: "1.2.3",
+        piImage: "sha256:test-pi",
+      }),
       clock: new ManualClock(),
       fetch: async () => new Response("ok"),
       async internalFetch(_paths, _caller, _target, path) {
@@ -778,8 +794,6 @@ test("[BOX-BE26C696] [BOX-C28F4A61] [FAILURE-071CB99A] [FAILURE-3780301D] [FAILU
               connection: "model",
               provider: "anthropic",
               model: "claude-sonnet-4-6",
-              piVersion: "1.2.3",
-              piImage: "sha256:test-pi",
             },
             context: [],
           });
@@ -869,8 +883,6 @@ test("[CHAT-C53A90D2] runner recycles an idle Pi container after the conversatio
               connection: "work",
               provider: "openai-codex",
               model: "gpt-5.5",
-              piVersion: "1.2.4",
-              piImage: "sha256:new-pi",
             },
             context: [],
           });
@@ -883,8 +895,6 @@ test("[CHAT-C53A90D2] runner recycles an idle Pi container after the conversatio
     connection: "personal",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    piVersion: "1.2.3",
-    piImage: "sha256:old-pi",
   };
 
   await runner.runOnce();
@@ -892,186 +902,6 @@ test("[CHAT-C53A90D2] runner recycles an idle Pi container after the conversatio
   assert.ok(calls.includes("pi:stop"));
   assert.ok(calls.includes("DELETE:/integral/internal/session"));
   assert.equal((runner as any).pi, undefined);
-});
-
-test("an approval continuation starts a replacement Pi session with parent lineage", async (t) => {
-  const paths = await fixture(t),
-    base = await loadConfig(paths, {}),
-    config = {
-      ...base,
-      logging: { ...base.logging, level: "error" as const },
-    },
-    deployment = deploymentId(paths),
-    calls: string[] = [];
-  await saveConnection(
-    paths,
-    validateConnection({
-      name: "model",
-      kind: "model",
-      provider: "anthropic",
-      auth: "key",
-    }),
-    "secret",
-  );
-  for (const component of ["coordinator", "gateway", "runner"] as const)
-    await writeComponentRecord(paths, {
-      component,
-      deploymentId: deployment,
-      endpoint: "http://127.0.0.1:1",
-      pid: process.pid,
-      status: "ready",
-      fingerprint: config.fingerprint,
-      connectionGeneration: 1,
-      startedAt: "now",
-    });
-  const old: PiSession = {
-      spec: {
-        image: "sha256:test-pi",
-        args: [],
-        environment: {},
-        mounts: [],
-        sessionId: "session-ended",
-        sessionToken: "old-token",
-        home: "/test/old",
-        gatewayAddress: "127.0.0.1",
-      },
-      async start() {},
-      async prompt() {
-        return "unused";
-      },
-      async stop() {
-        calls.push("old:stop");
-      },
-    },
-    selection = {
-      connection: "model",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-      piVersion: "1.2.3",
-      piImage: "sha256:test-pi",
-    },
-    runner = new Runner(
-      paths,
-      config,
-      new Logger({
-        component: "runner",
-        deploymentId: deployment,
-        level: "error",
-        format: "json",
-        sink: () => undefined,
-      }),
-      {
-        containers: {
-          ensureImage: () => "sha256:test-pi",
-          async ensureNetwork() {},
-          networkGateway: () => "127.0.0.1",
-          createPi(spec) {
-            return {
-              spec,
-              async start() {
-                calls.push("replacement:start");
-              },
-              async prompt(text) {
-                calls.push(`replacement:prompt:${text}`);
-                return "approval acknowledged";
-              },
-              async stop() {},
-            };
-          },
-          createTaskPi() {
-            throw new Error("unexpected task runtime");
-          },
-        },
-        clock: new ManualClock(),
-        fetch: async () => new Response("ok"),
-        async internalFetch(_paths, _caller, target, path, init) {
-          if (path === "/integral/internal/claim")
-            return Response.json({
-              message: {
-                id: "approval-message",
-                text: "Approval approval-1 resolved as succeeded.",
-                order: 1,
-                status: "in-flight",
-                attempts: 1,
-                createdAt: "now",
-                approvalContinuation: {
-                  approvalId: "approval-1",
-                  originSessionId: "session-ended",
-                  originRunId: "run-ended",
-                  outcome: "succeeded",
-                  summary: "install Debian packages: jq",
-                },
-              },
-              selection,
-              context: [],
-            });
-          if (
-            target === "coordinator" &&
-            path === "/integral/internal/session" &&
-            init?.method === "POST" &&
-            typeof init.body === "string"
-          )
-            calls.push(`session:${init.body}`);
-          return new Response(null, { status: 204 });
-        },
-        ensureCa: async () => ({ key: "key", cert: "cert", bundle: "bundle" }),
-        freshSessionHome: async () => "/test/replacement",
-        newSessionIdentity: () => ({
-          sessionId: "session-replacement",
-          sessionToken: "replacement-token",
-        }),
-        writeMcpExtension: async () => undefined,
-        writeResourceExtension: async () => undefined,
-        writeWebExtension: async () => undefined,
-        writeEmailExtension: async () => undefined,
-        writePiCredential: async () => undefined,
-        prepareResourceProjection: async () => ({
-          sessionId: "session-replacement",
-          repositories: [],
-          stores: [],
-          mounts: [],
-          unavailable: [],
-        }),
-        cleanupResourceProjection: async () => undefined,
-        listen: async () => undefined,
-        close: async () => undefined,
-      },
-    );
-  (runner as any).pi = old;
-  (runner as any).piSelection = selection;
-  (runner as any).piSessionGeneration = 1;
-
-  await runner.runOnce();
-
-  assert.ok(calls.includes("old:stop"), JSON.stringify(calls));
-  assert.ok(calls.includes("replacement:start"));
-  assert.ok(
-    calls.includes(
-      "replacement:prompt:Approval approval-1 resolved as succeeded.",
-    ),
-  );
-  const metadataFiles = (await readdir(paths.runs, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name),
-    metadata = JSON.parse(
-      await readFile(join(paths.runs, metadataFiles[0]!, "run.json"), "utf8"),
-    ) as {
-      parentRunId?: string;
-      parentSessionId?: string;
-      approvalId?: string;
-    };
-  assert.equal(metadata.parentRunId, "run-ended");
-  assert.equal(metadata.parentSessionId, "session-ended");
-  assert.equal(metadata.approvalId, "approval-1");
-  assert.ok(
-    calls.some(
-      (call) =>
-        call.startsWith("session:") &&
-        call.includes('"parentSessionId":"session-ended"') &&
-        call.includes('"approvalId":"approval-1"'),
-    ),
-  );
-  await runner.stop();
 });
 
 test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connected", async (t) => {
@@ -1146,7 +976,6 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
       }),
       {
         containers: {
-          ensureImage: () => "sha256:test-pi",
           async ensureNetwork() {},
           networkGateway: () => "127.0.0.1",
           createPi(spec) {
@@ -1170,6 +999,10 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
             throw new Error("unexpected task runtime");
           },
         },
+        currentPiRuntime: async () => ({
+          piVersion: "1.2.3",
+          piImage: "sha256:test-pi",
+        }),
         clock: new ManualClock(),
         fetch: async () => new Response("ok"),
         async internalFetch(_paths, _caller, _target, path) {
@@ -1187,8 +1020,6 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
                 connection: "model",
                 provider: "anthropic",
                 model: "claude-sonnet-4-6",
-                piVersion: "1.2.3",
-                piImage: "sha256:test-pi",
               },
               context: [],
             });
@@ -1216,8 +1047,6 @@ test("[CONNECTION-12C87631] runner recycles a Pi session after GitHub is connect
     connection: "model",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    piVersion: "1.2.3",
-    piImage: "sha256:test-pi",
   };
   (runner as any).piSessionGeneration = 1;
 
@@ -1254,7 +1083,7 @@ Given Pi is running an isolated task attempt
 Given the runner is about to start an isolated attempt for an occurrence
 	When the deployment's shared model selection names a usable model
 		Then the attempt uses that model selection as it stands at that moment
-			And uses the deployment's current managed Pi image and that image's Pi version
+			And uses the release's Pi image and pinned Pi version
 			And the attempt's run record names the model, Pi version, and image it used
 */
 test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [SCHEDULE-E3A1358A] [RUN-B1D837E0] [RUN-88706C0D] task execution uses a fresh recorded one-shot runtime and completes only after exit zero", async (t) => {
@@ -1359,7 +1188,6 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [SCHEDULE-E3A1
         piImage: "sha256:test-pi",
       }),
       containers: {
-        ensureImage: () => "sha256:test-pi",
         async ensureNetwork() {},
         networkGateway: () => "127.0.0.1",
         createPi() {
@@ -1401,8 +1229,6 @@ test("[SCHEDULE-033C050E] [SCHEDULE-930581F7] [SCHEDULE-81B854FB] [SCHEDULE-E3A1
               connection: "model",
               provider: "anthropic",
               model: "claude-sonnet-4-6",
-              piVersion: "0.1.0",
-              piImage: "sha256:conversation-pi",
             },
           });
         if (path.endsWith("/start"))
@@ -1560,8 +1386,6 @@ test("[SCHEDULE-E3A1358A] a task without a model selection or a usable Pi runtim
       connection: "model",
       provider: "anthropic",
       model: "claude-sonnet-4-6",
-      piVersion: "1.2.3",
-      piImage: "sha256:conversation-pi",
     };
   await saveConnection(
     paths,
@@ -1618,7 +1442,6 @@ test("[SCHEDULE-E3A1358A] a task without a model selection or a usable Pi runtim
           return { piVersion: "1.2.3", piImage: "sha256:test-pi" };
         },
         containers: {
-          ensureImage: () => "sha256:test-pi",
           async ensureNetwork() {},
           networkGateway: () => "127.0.0.1",
           createPi() {

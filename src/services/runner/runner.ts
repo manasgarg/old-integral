@@ -64,14 +64,12 @@ import {
   McpCatalogRegistry,
   type McpCatalog,
 } from "../../integrations/mcp.ts";
-import type {
-  ApprovalContinuation,
-  QueuedMessage,
-} from "../../stores/message-queue.ts";
+import type { QueuedMessage } from "../../stores/message-queue.ts";
 import type { ConversationEvent } from "../../stores/conversation-store.ts";
 import {
   sameSelection,
   type ModelSelection,
+  type PiRunProfile,
 } from "../../domain/model-selection.ts";
 import type { ScheduledTask } from "../../stores/task-queue.ts";
 import { rm } from "node:fs/promises";
@@ -112,11 +110,8 @@ export interface RunnerDependencies {
   cleanupResourceProjection: typeof cleanupResourceProjection;
   recoverAbandonedResourceProjections: typeof recoverAbandonedResourceProjections;
   writePiCredential: typeof writePiCredential;
-  /** The Pi version and image scheduled attempts run on. */
-  currentPiRuntime(
-    paths: IntegralPaths,
-    config: EffectiveConfig,
-  ): Promise<ManagedPiRuntime>;
+  /** The release's Pi version and image, which every Pi session runs on. */
+  currentPiRuntime(paths: IntegralPaths): Promise<ManagedPiRuntime>;
   now(): number;
   listen(server: http.Server, port: number, address: string): Promise<void>;
   close(server: http.Server): Promise<void>;
@@ -150,7 +145,7 @@ const productionDependencies: RunnerDependencies = {
   cleanupResourceProjection,
   recoverAbandonedResourceProjections,
   writePiCredential,
-  currentPiRuntime: (paths, config) => resolveManagedPiRuntime(paths, config),
+  currentPiRuntime: (paths) => resolveManagedPiRuntime(paths),
   now: Date.now,
   async listen(server, port, address) {
     await new Promise<void>((resolve, reject) => {
@@ -746,11 +741,8 @@ export class Runner {
     task: ScheduledTask,
     selection: ModelSelection,
   ): Promise<TaskPiSession> {
-    const piRuntime = await this.dependencies.currentPiRuntime(
-        this.paths,
-        this.config,
-      ),
-      profile: ModelSelection = {
+    const piRuntime = await this.dependencies.currentPiRuntime(this.paths),
+      profile: PiRunProfile = {
         connection: selection.connection,
         provider: selection.provider,
         model: selection.model,
@@ -967,19 +959,11 @@ export class Runner {
         );
 
       this.dependencies.clock.clearTimeout(this.idle);
-      const continuation = item.approvalContinuation;
-      if (continuation && this.pi) await this.destroyPi("selection-changed");
       if (this.pi && (await this.mcpCatalogChanged()))
         await this.destroyPi("selection-changed");
 
       await this.observeStage("ensure-pi-session", () =>
-        this.ensurePi(
-          body.context,
-          selection,
-          sessionGeneration,
-          continuation,
-          item!.origin,
-        ),
+        this.ensurePi(body.context, selection, sessionGeneration, item!.origin),
       );
 
       this.piConversationId = conversationId;
@@ -988,11 +972,9 @@ export class Runner {
         item.text,
         item.attempts > 1
           ? "retry-instruction"
-          : continuation
-            ? "approval-resolution"
-            : this.piTurnCount === 0
-              ? "original-request"
-              : "follow-up",
+          : this.piTurnCount === 0
+            ? "original-request"
+            : "follow-up",
         {
           messageId: item.id,
           ...(activeRun ? { runId: activeRun.runId } : {}),
@@ -1135,7 +1117,6 @@ export class Runner {
     context: ConversationEvent[],
     selection: ModelSelection,
     sessionGeneration: number,
-    continuation?: ApprovalContinuation,
     origin?: QueuedMessage["origin"],
   ): Promise<void> {
     if (this.pi) return;
@@ -1147,48 +1128,34 @@ export class Runner {
       this.workLogContext(),
     );
 
-    const resolvedImage = await this.observeStage("resolve-image", () =>
-      this.dependencies.containers.ensureImage(
-        this.config,
-        selection.piVersion,
-        { expectedImage: selection.piImage },
+    const piRuntime = await this.observeStage("resolve-image", () =>
+        this.dependencies.currentPiRuntime(this.paths),
       ),
-    );
-    if (resolvedImage !== selection.piImage)
-      throw new IntegralError(
-        `selected Pi image ${selection.piImage} is unavailable; run /model to refresh the runtime selection`,
-      );
+      profile: PiRunProfile = {
+        connection: selection.connection,
+        provider: selection.provider,
+        model: selection.model,
+        ...piRuntime,
+      };
 
     const { spec, identity, resources, catalogs, sidecars } =
       await this.observeStage("prepare-environment", () =>
-        this.preparePiEnvironment(selection, selection.piImage),
+        this.preparePiEnvironment(profile, profile.piImage),
       );
 
     if (context.length)
       spec.args.push("--append-system-prompt", renderContext(context));
 
-    const parent = continuation?.originRunId
-        ? undefined
-        : await this.runs.latestFinalized("interactive"),
+    const parent = await this.runs.latestFinalized("interactive"),
       recorder = await this.observeStage(
         "record-run",
         () =>
           this.runs.begin({
             kind: "interactive",
             sessionId: identity.sessionId,
-            model: selection,
+            model: profile,
             config: this.config,
-            ...(continuation?.originRunId
-              ? { parentRunId: continuation.originRunId }
-              : parent
-                ? { parentRunId: parent.runId }
-                : {}),
-            ...(continuation
-              ? {
-                  parentSessionId: continuation.originSessionId,
-                  approvalId: continuation.approvalId,
-                }
-              : {}),
+            ...(parent ? { parentRunId: parent.runId } : {}),
             sensitiveValues: [identity.sessionToken],
           }),
         { session_id: identity.sessionId },
@@ -1320,12 +1287,6 @@ export class Runner {
                 sessionId: identity.sessionId,
                 state: "started",
                 conversationId: this.currentConversationId ?? "terminal",
-                ...(continuation
-                  ? {
-                      parentSessionId: continuation.originSessionId,
-                      approvalId: continuation.approvalId,
-                    }
-                  : {}),
               }),
             },
           ),
@@ -1360,7 +1321,7 @@ export class Runner {
     }
   }
 
-  private async preparePiEnvironment(selection: ModelSelection, image: string) {
+  private async preparePiEnvironment(selection: PiRunProfile, image: string) {
     const all = await listConnections(this.paths),
       active = all.filter((connection) => connection.state === "active"),
       model = selectModel(all, selection),
@@ -1521,7 +1482,7 @@ export class Runner {
 
     spec.args.push(
       "--append-system-prompt",
-      "You run in an ephemeral Integral-managed container. A commit in a governed repository exists only in this run until repo_push succeeds. Before reporting repository work complete, either call repo_push and report its landed canonical commit, or, if you decide the commits should not land, undo those commits and their file changes so the checkout matches the canonical branch. Do not deliberately leave rejected work for recovery. The active image Dockerfile is in /home/pi/image; repo_push for image-recipe requires human approval and affects a replacement container, not this running filesystem. Use container_image_rebuild to request an approval-gated fresh rebuild of the unchanged recipe.",
+      "You run in an ephemeral Integral-managed container. A commit in a governed repository exists only in this run until repo_push succeeds. Before reporting repository work complete, either call repo_push and report its landed canonical commit, or, if you decide the commits should not land, undo those commits and their file changes so the checkout matches the canonical branch. Do not deliberately leave rejected work for recovery. The container image is fixed by the Integral release and cannot be changed from a session.",
     );
 
     const recoveries = (

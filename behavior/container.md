@@ -9,8 +9,6 @@ Pi RPC container.
 <!-- Automation note (BOX-BE26C696): Timeout, release, and cleanup paths are automated at the protocol boundary; real container termination is not exercised without a Docker daemon. -->
 <!-- Automation note (BOX-7D3A19E4): Idle timer and session cleanup paths are automated without waiting five real minutes or launching Docker. -->
 <!-- Automation note (BOX-C28F4A61): Provisioning-failure release behavior is automated without deliberately failing a live Docker daemon. -->
-<!-- Automation note (BOX-40521095): Package policy, authenticated control routing, immutable image replacement, and recipe identity are automated; the Docker acceptance profile verifies packages in a live image. -->
-<!-- Automation note (BOX-6A91C3E7): Host-managed image-recipe projection, Git proposal approval, constrained build context, fresh floating resolution, and exact-tree activation are automated, with live builds covered by the Docker acceptance profile. -->
 
 ## BOX-AB639757 — Start Pi for the first message
 
@@ -21,7 +19,7 @@ Given the coordinator, runner, and gateway are healthy
 	When the runner claims the next queued message from the coordinator
 		Then integral creates a fresh temporary session home
 			And starts one non-root Docker container for Pi on the locked network
-			And runs the immutable Pi image recorded with the conversation selection in RPC mode with session persistence and approval prompts disabled
+			And runs the release's Pi image in RPC mode with session persistence and approval prompts disabled
 			And runs Pi offline so Pi does not perform its own startup network operations
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
@@ -31,34 +29,55 @@ Given the coordinator, runner, and gateway are healthy
 			And sends the claimed message as a Pi `prompt` command
 ```
 
-## BOX-E1F472A1 — Use one pinned Pi runtime
+## BOX-E1F472A1 — Use the Pi runtime and image pinned by the release
 
 ```text
-Given integral pins one exact Pi version
+Given the integral release pins one exact Pi version
 	And integral begins Pi-specific OAuth or opens the model chooser
 	When no valid runtime for the pinned version is installed
 		Then integral installs exactly the pinned version under deployment runtime state
-			And uses the pinned version when the model chooser builds the default Pi image
-			And the chooser discovers providers and models from that image
-			And records the version and immutable image identity when the user selects a model
 	When a valid runtime for the pinned version is already installed
 		Then integral reuses the installed host runtime without querying the npm registry
-			And the model chooser reuses the matching image when it is available
-			And distinguishes managed images built from different Integral image recipes
 			And does not reinstall Pi
 	When installing the pinned version fails
 		Then the Pi-dependent operation exits non-zero
 			And explains that the pinned Pi version could not be installed
 			And does not fall back to another installed Pi version
-Given integral provides its default Pi image recipe
-	When the recipe or a default image build selects a Pi version
-		Then it selects the pinned Pi version
+Given the integral release ships the Dockerfile for its Pi image
+	When integral reads that Dockerfile
+		Then it names its base image by an immutable digest
+			And installs the pinned Pi version
 			And never installs a floating `latest` Pi version
-Given a conversation selection records a Pi version and immutable image identity
-	When the runner provisions or reuses a Pi container
-		Then it uses that immutable image identity
-			And treats a runtime identity change as a model-selection change
-			And never substitutes another locally tagged Pi image
+	When integral needs the Pi image
+		Then it uses the image built from the release's Dockerfile
+			And builds that image only when it is not present locally
+			And tags the image with the integral version, a digest of the release's image inputs, and the pinned Pi version
+			And gives releases with different image inputs different tags
+	When the model chooser lists models
+		Then it discovers providers and models from the release's Pi image
+Given the conversation has a model selection
+	When integral records the model selection
+		Then it records only the model connection, provider, and model
+			And ignores a Pi version or image that an earlier release recorded with the selection
+	When the runner provisions a Pi container for a conversation turn
+		Then it uses the release's Pi image and pinned Pi version
+			And the run record names the Pi version and image it used
+			And never substitutes a Pi image recorded by an earlier release
+Given integral runs Pi in a container
+	When integral gives Pi its tools and instructions
+		Then no tool lets Pi change, rebuild, or replace its image or the image's packages
+			And integral tells Pi that the release fixes the image
+	When the main configuration sets `image` or `pull_policy` in `[runner]`
+		Then configuration validation rejects the option as unknown
+Given a deployment written by an earlier release let Pi or the operator edit the Pi image
+	When `integral migrate` moves the deployment to this release's format
+		Then integral removes the image recipe repository, image audit history, package state, and active image record
+			And removes every approval request, approval audit record, and queued approval continuation
+			And removes the Pi version and image from every model selection
+			And removes the write policy from every governed resource record
+			And removes `image` and `pull_policy` from the `[runner]` table of the main configuration
+			And leaves every other configuration line unchanged
+			And keeps the model connection, provider, and model of every selection
 ```
 
 ## BOX-601613D4 — Apply container restrictions
@@ -130,112 +149,4 @@ Given the runner has claimed a queued message
 			And terminates every partially started MCP sidecar
 			And records the provisioning failure
 			And reports the failure to every attached terminal
-```
-
-## BOX-40521095 — Govern Pi image package changes
-
-```text
-Given Pi runs in an immutable managed image without host Docker access
-	When Pi lists the image's Debian packages through Integral's authenticated control pathway
-		Then Integral returns the durable desired package set and its revision
-			And includes the base packages required by the managed image
-	When Pi requests installation of valid Debian package names at the current revision
-		Then Integral builds a replacement image from the selected exact Pi version
-			And obtains packages only through the base image's configured APT repositories
-			And records the new desired package set and immutable image identity
-			And replaces the current container after the active turn completes
-	When Pi requests an upgrade of desired packages at the current revision
-		Then Integral rebuilds the replacement image without cached package layers
-			And records a new revision and immutable image identity
-	When Pi submits command syntax, an unknown package for upgrade, or a stale revision
-		Then Integral rejects the request without changing package state or the selected image
-	When the active Dockerfile declares Pi with a floating version such as `latest`
-		And a human approves a fresh rebuild of that recipe
-		Then Integral resolves Pi again during the build instead of overriding the Dockerfile with the prior selected version
-			And records the version and immutable image identity that were actually installed
-```
-
-## BOX-6A91C3E7 — Let Pi author its next managed image
-
-```text
-Given Integral owns a dedicated governed Git repository for the deployment's Pi image overlay
-	And Integral's foundational Pi image, runtime user, gateway trust, entrypoint, and security constraints are outside that repository
-	And the image repository has an immutable host-managed `approval-required` write policy
-	When Integral provisions a Pi session
-		Then it gives Pi a writable per-run checkout of the active image-recipe commit at a documented container path
-			And includes a Dockerfile based on the exact host-managed foundational image reference
-			And tells Pi that it runs in an ephemeral managed container
-			And tells Pi that edits affect only a future replacement image after human approval
-			And does not mount the canonical host repository, Docker socket, build credentials, or host Dockerfile into the container
-	When Pi commits an image-recipe change and submits it through `repo_push`
-		Then Integral treats the commit as an image proposal governed by `REPO-7B0E2F4A`
-			And presents the exact Dockerfile and artifact diff, base commit, proposed commit, and tree digest for approval
-			And keeps the active recipe ref and selected image unchanged before approval
-	When the active Dockerfile declares an exact package version or immutable image digest
-		Then Integral uses that exact declaration on every build
-	When the active Dockerfile declares a floating package version, mutable image tag, or unversioned operating-system package
-		Then Integral treats resolution at build time as intentional recipe behavior
-			And does not describe the recipe commit as a reproducible package lock
-			And tells an approving human that repository state may resolve differently at execution time
-	When Pi requests a fresh rebuild of the active image recipe
-		Then Integral creates an approval request bound to the active recipe commit, foundational image reference, and floating-resolution intent
-			And does not build or select an image before approval
-	When a trusted local operator runs `integral image edit`
-		Then Integral validates and commits the Dockerfile change directly through the host boundary
-			And records the operator and exact Git change without creating an approval request
-	When a trusted local operator runs `integral image rebuild`
-		Then Integral treats the command itself as direct human authorization to rebuild the active recipe
-			And records the operator without creating an approval request or inventing a Pi session
-	When host automation or a remote API requests a fresh rebuild without starting Pi
-		Then Integral creates the same governed rebuild request used for Pi
-			And records the external actor instead of inventing a Pi session
-			And requires human approval before building
-	When a human approves the exact image proposal
-		Then Integral builds only the approved commit and complete tree digest
-			And uses a build context containing only validated files from that tree
-			And provides no host source tree, session credentials, Docker socket, or undeclared secret to the build
-			And applies bounded build time, CPU, memory, output size, and network policy
-			And records the foundational image reference, recipe base and proposal commits, tree digest, approval ID, and resulting immutable image digest
-	When Integral executes a fresh rebuild authorized by approval or the trusted local CLI
-		Then Integral pulls mutable base references again
-			And reruns dependency installation without Docker layer-cache reuse
-			And refreshes package indexes within the build as directed by the Dockerfile
-			And resolves `latest`, ranges, mutable tags, and unversioned packages against their configured repositories at build time
-			And never substitutes an older selected package version for a floating Dockerfile declaration
-			And records the recipe commit, prior image digest, resulting image digest, and actual installed package inventory
-			And permits the resulting image digest and installed inventory to differ from an earlier build of the same recipe commit
-	When the approved image build and validation succeed
-		Then Integral compare-and-swap advances the active recipe ref from the approved base to the approved commit
-			And selects the resulting immutable image for replacement sessions
-			And starts or recycles Pi according to the approval continuation lifecycle
-	When the build or image validation fails
-		Then Integral records and broadcasts a failed approval outcome
-			And leaves the active recipe ref and selected image unchanged
-			And keeps the proposal commit available according to bounded audit and recovery policy
-	When Pi proposes a recipe that changes the foundational image boundary or requires an undeclared build input
-		Then Integral rejects it without requesting approval or starting a build
-	When a later Pi session starts from an activated recipe
-		Then its projected image-recipe checkout identifies the exact active commit and host-managed foundational image reference
-			And Pi can propose a rollback or further change through the same approval-gated path
-```
-
-## BOX-62AC107F — Move the image recipe to a new foundational image
-
-```text
-Given Integral owns the deployment's governed Pi image-recipe repository
-	And the running Integral release bundles a foundational image reference that differs from the one the active recipe uses
-	When the active Dockerfile uses a foundational image reference that an earlier Integral release bundled
-		And Integral next uses the image-recipe repository
-		Then Integral commits a change that replaces only that foundational image reference with the current one
-			And records the change as made by Integral with the prior and resulting commits, tree digest, and both foundational image references
-			And does not create an approval request or build an image
-			And keeps the selected image until a later approved or operator rebuild
-			And gives later sessions, proposals, and rebuilds the updated recipe
-	When the active Dockerfile uses a foundational image reference that no Integral release bundled
-		And Integral next uses the image-recipe repository
-		Then Integral leaves the recipe unchanged
-			And continues to reject builds and proposals that do not retain the current foundational image reference
-	When an image proposal or rebuild request is bound to the recipe commit from before the move
-		Then Integral rejects it without building
-			And leaves the active recipe and selected image unchanged
 ```

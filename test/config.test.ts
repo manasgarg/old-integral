@@ -7,7 +7,6 @@ import {
   STARTER_CONFIG,
 } from "../src/stores/config.ts";
 import { fixture } from "./helpers.ts";
-import { DEFAULT_PI_IMAGE } from "../src/platform/constants.ts";
 
 /* @covers CONFIG-8A31F6C2
 Given integral has resolved an `INTEGRAL_HOME`
@@ -29,22 +28,6 @@ Given `[server]` may define `gateway_port`, `coordinator_port`, `runner_port`, a
 			And the four effective ports must be distinct
 			And their built-in defaults are `7310`, `7311`, `7312`, and `7313`
 			And matching `INTEGRAL_*_PORT` variables override file values
-*/
-/* @covers CONFIG-E82C4A19
-Given `[runner]` may define `image` and `pull_policy`
-	When integral resolves those options
-		Then `image` must be a valid OCI image reference
-			And its default is integral's automatically refreshed Pi image
-			And `pull_policy` accepts only `always`, `if-not-present`, or `never`
-			And its default is `if-not-present`
-	When a custom image uses `pull_policy` `never`
-		Then the runner uses an existing local image
-			And refuses to start when the image is absent
-	When a custom image uses `pull_policy` `if-not-present`
-		Then the runner reuses an existing local image
-			And otherwise pulls the configured image
-	When a custom image uses `pull_policy` `always`
-		Then the runner pulls the configured image before resolving its immutable identity
 */
 /* @covers CONFIG-4B97D20E
 Given `[runner]` may define `turn_timeout_seconds` and `idle_timeout_seconds`
@@ -106,7 +89,7 @@ Given `[logging]` may define `level` and `format`
 			And defaults to `text`
 			And `INTEGRAL_LOG_LEVEL` and `INTEGRAL_LOG_FORMAT` override file values
 */
-test("[CONFIG-8A31F6C2] [CONFIG-2D7C49E1] [CONFIG-A16F73C8] [CONFIG-E82C4A19] [CONFIG-4B97D20E] [CONFIG-73E1A6B5] [CONFIG-F2C84D16] [CONFIG-BAD88353] [CONFIG-9E97B8A3] [LOG-0A6F3D92] built-in configuration is complete and side-effect free", async (t) => {
+test("[CONFIG-8A31F6C2] [CONFIG-2D7C49E1] [CONFIG-A16F73C8] [CONFIG-4B97D20E] [CONFIG-73E1A6B5] [CONFIG-F2C84D16] [CONFIG-BAD88353] [CONFIG-9E97B8A3] [LOG-0A6F3D92] built-in configuration is complete and side-effect free", async (t) => {
   const paths = await fixture(t);
   const config = await loadConfig(paths, {});
   assert.deepEqual(config.server, {
@@ -116,8 +99,6 @@ test("[CONFIG-8A31F6C2] [CONFIG-2D7C49E1] [CONFIG-A16F73C8] [CONFIG-E82C4A19] [C
     schedulerPort: 7313,
   });
   assert.deepEqual(config.runner, {
-    image: DEFAULT_PI_IMAGE,
-    pullPolicy: "if-not-present",
     turnTimeoutSeconds: 1800,
     idleTimeoutSeconds: 300,
     memoryMb: 2048,
@@ -331,6 +312,27 @@ test("[CONFIG-6E28D1F9] [CONFIG-0C6A91E4] [CONFIG-E6B40A73] [ENV-7B2D40AC] stric
       /direct_egress/.test(error.message) &&
       /unknown section \[model\]/.test(error.message),
   );
+});
+
+/* @covers BOX-E1F472A1
+Given integral runs Pi in a container
+	When the main configuration sets `image` or `pull_policy` in `[runner]`
+		Then configuration validation rejects the option as unknown
+*/
+test("[BOX-E1F472A1] the main configuration cannot choose another Pi image or pull policy", async (t) => {
+  const paths = await fixture(t);
+  await mkdir(paths.config, { recursive: true });
+
+  for (const option of [
+    'image = "custom/pi:latest"',
+    'pull_policy = "never"',
+  ]) {
+    await writeFile(paths.mainConfig, `[runner]\n${option}\n`);
+    await assert.rejects(
+      loadConfig(paths, {}),
+      /unknown option runner\.(image|pull_policy)/,
+    );
+  }
 });
 
 test("[CONFIG-B93A4E70] [CONFIG-D4A70C31] [CONFIG-5F20A9D3] [CONFIG-17D6C8A4] CLI config commands expose paths, validation, help, values, and sources", async () => {

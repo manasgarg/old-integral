@@ -13,7 +13,6 @@ Given the deployment has never created a Pi profile repository
 		Or the runner first attempts to provision Pi
 		Then integral creates one ordinary governed host repository through the existing repository protocol
 			And names its connection `pi-profile`
-			And gives it the host-managed `direct` write policy
 			And records `/home/pi/.pi` as its immutable mount path
 			And initializes its canonical branch as `main` with an empty commit
 			And performs repository creation and connection registration as one serialized operation
@@ -32,7 +31,7 @@ Given profile initialization completed previously
 Given an earlier development version recorded `pi-profile` at `/home/pi/.pi/agent`
 	When integral initializes the profile boundary after this behavior is installed
 		Then it migrates the existing repository metadata to `/home/pi/.pi`
-			And preserves the canonical repository, commits, lifecycle state, and write policy
+			And preserves the canonical repository, commits, and lifecycle state
 			And does not create a replacement profile repository
 ```
 

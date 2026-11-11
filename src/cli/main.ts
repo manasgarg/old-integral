@@ -57,13 +57,10 @@ import {
 } from "../stores/resource-store.ts";
 import {
   matchModelChoices,
-  sameModel,
   sameSelection,
   type ModelChoice,
   type ModelSelection,
 } from "../domain/model-selection.ts";
-import { imageCommand } from "./image.ts";
-export { imageCommand, type ImageCommandDependencies } from "./image.ts";
 import { queueCommand, runQueueCommand } from "./queue.ts";
 export { queueCommand, type QueueDependencies } from "./queue.ts";
 import { scheduleCommand } from "./schedule.ts";
@@ -73,16 +70,12 @@ export { taskCommand, type TaskDependencies } from "./task.ts";
 import { fetchJson, requestOk } from "./coordinator-client.ts";
 import { verifyDiscordBot } from "../integrations/discord.ts";
 import {
-  approvalCommand,
   healthyCoordinator,
-  renderApproval,
-  runApprovalCommand,
   runStatusCommand,
   statusCommand,
   type ConversationCommandDependencies,
 } from "./conversation.ts";
 export {
-  approvalCommand,
   statusCommand,
   type ConversationCommandDependencies,
 } from "./conversation.ts";
@@ -98,10 +91,8 @@ Commands:
   model        show or change the conversation model (in talk: /model)
   queue        inspect or change queued messages (in talk: /queue)
   task         inspect or cancel task executions (in talk: /tasks)
-  approval     inspect or decide requests (in talk: /approvals, /approve, /deny)
   schedule     manage schedules and inspect task executions
   connection   configure connections (in talk: /connection catalog or ls)
-  image        edit or rebuild the managed Pi image
   config       inspect and validate configuration
   migrate      move this deployment's data to this release's format
   doctor       check that this release can read every store
@@ -131,7 +122,7 @@ All active connections are available automatically. There are no grant or revoke
 
 MCP options:
   --transport <streamable-http|sse|stdio>
-  --command <executable>  stdio executable in the configured runner image
+  --command <executable>  stdio executable in the release's Pi image
   --arg <value>           repeat for each literal stdio argument
   --env <name>=<value>    repeat for non-secret stdio environment values
   --secret-env <name>     repeat for protected stdio environment values
@@ -168,12 +159,9 @@ const TALK_HELP = `/help                         show this help
 /tasks [ls]                   list task executions (integral task ls)
 /tasks show <id>              show a task (integral task show <id>)
 /tasks cancel <id>            cancel a task (integral task cancel <id>)
-/approvals                    list requests (integral approval ls)
-/approve <id>                 approve (integral approval approve <id>)
-/deny <id>                    deny (integral approval deny <id>)
 /exit                         detach this terminal
 
-Host administration remains in the shell: integral server, talk, schedule, image, config, migrate, doctor, version, and connection add (including credential rotation) or rm. Structured --json output is CLI-only.
+Host administration remains in the shell: integral server, talk, schedule, config, migrate, doctor, version, and connection add (including credential rotation) or rm. Structured --json output is CLI-only.
 `;
 
 const TALK_USER_STYLE = "\u001b[48;5;238m\u001b[97m";
@@ -208,9 +196,7 @@ const COMMAND_GROUPS = new Set([
   "connection",
   "queue",
   "task",
-  "approval",
   "schedule",
-  "image",
 ]);
 
 const COMMANDS = new Set([
@@ -282,8 +268,6 @@ function renderEffectiveConfig(
     [
       "runner",
       [
-        ["image", config.runner.image, "runner.image"],
-        ["pull_policy", config.runner.pullPolicy, "runner.pull_policy"],
         [
           "turn_timeout_seconds",
           config.runner.turnTimeoutSeconds,
@@ -392,13 +376,11 @@ export async function main(args: string[]): Promise<number> {
     if (command === "doctor") return await doctorCommand(rest);
     if (command === "config") return await configCommand(rest);
     if (command === "connection") return await connectionCommand(rest);
-    if (command === "image") return await imageCommand(rest);
     if (command === "server") return await serverCommand(rest);
     if (command === "status") return await statusCommand(rest);
     if (command === "model") return await modelCommand(rest);
     if (command === "queue") return await queueCommand(rest);
     if (command === "task") return await taskCommand(rest);
-    if (command === "approval") return await approvalCommand(rest);
     if (command === "schedule") return await scheduleCommand(rest);
     if (command === "talk") return await talkCommand(rest);
     throw new IntegralError(`unknown command: ${command}`);
@@ -1638,24 +1620,6 @@ export async function talkCommand(
           continue;
         }
 
-        if (text === "/approvals") {
-          await runApprovalCommand(["ls"], endpoint, dependencies, {
-            attachmentId,
-          });
-          continue;
-        }
-
-        const approvalDecision = text.match(/^\/(approve|deny)\s+(\S+)$/);
-        if (approvalDecision) {
-          await runApprovalCommand(
-            [approvalDecision[1]!, approvalDecision[2]!],
-            endpoint,
-            dependencies,
-            { attachmentId },
-          );
-          continue;
-        }
-
         if (text.startsWith("/")) {
           dependencies.writeError("Unknown local command. Enter /help.\n");
           continue;
@@ -1709,7 +1673,7 @@ async function chooseConversationModel(
     );
 
   const current = menu.choices.find((choice) =>
-    sameModel(menu.current ?? undefined, choice),
+    sameSelection(menu.current ?? undefined, choice),
   );
 
   if (menu.current && !current)
@@ -1967,7 +1931,6 @@ async function consumeEvents(
         const snapshot = value as {
           conversation: { type: string; text?: string; sequence?: number }[];
           queue?: { status: string }[];
-          approvals?: Array<Record<string, unknown>>;
         };
 
         const latestSession = snapshot.conversation
@@ -2002,10 +1965,6 @@ async function consumeEvents(
         }
 
         state.sawSnapshot = true;
-        if (firstSnapshot)
-          for (const approval of snapshot.approvals ?? [])
-            if (approval.status === "pending")
-              writeOutput(`${renderApproval(approval)}\n`);
       } else if (event === "conversation.user") {
         const item = value as {
           type: string;
@@ -2065,12 +2024,6 @@ async function consumeEvents(
         writeOutput(
           `model: ${item.connection} (${item.provider}) / ${item.model}\n`,
         );
-      } else if (
-        event === "approval.requested" ||
-        event === "approval.decided" ||
-        event === "approval.resolved"
-      ) {
-        writeOutput(`${renderApproval(value)}\n`);
       }
     }
   }

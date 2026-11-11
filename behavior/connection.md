@@ -318,13 +318,13 @@ Given the user has the URL of a remote MCP server
 ## CONNECTION-0EF2CF89 — Add a stdio MCP connection
 
 ```text
-Given the user has an MCP server executable available in the configured runner image
+Given the user has an MCP server executable available in the release's Pi image
 	When the user runs `integral connection add mcp --transport stdio --name <name> --command <executable>`
 		And supplies zero or more `--arg <argument>` values
 		Then integral records the executable and each argument without shell parsing or expansion
 			And treats the argument following `--command` as the exact executable name or absolute image path
 			And uses the arguments in their supplied order
-			And runs setup verification in a short-lived isolated sidecar using the configured runner image
+			And runs setup verification in a short-lived isolated sidecar using the release's Pi image
 			And negotiates a supported MCP protocol over standard input and standard output
 			And discovers every available tool before committing the connection
 			And stores the connection only after discovery succeeds

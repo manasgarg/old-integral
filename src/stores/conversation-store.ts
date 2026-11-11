@@ -11,7 +11,6 @@ export interface ConversationEvent {
   text?: string;
   sessionId?: string;
   parentSessionId?: string;
-  approvalId?: string;
   timestamp: string;
   origin?: MessageOrigin;
 }
@@ -118,16 +117,10 @@ export class ModelSelectionStore {
       typeof parsed.connection !== "string" ||
       typeof parsed.provider !== "string" ||
       typeof parsed.model !== "string" ||
-      typeof parsed.piVersion !== "string" ||
-      typeof parsed.piImage !== "string" ||
       !parsed.connection ||
       !parsed.provider ||
-      !parsed.model ||
-      !parsed.piVersion ||
-      !parsed.piImage
+      !parsed.model
     ) {
-      // Selections written before runtime identities were introduced are safely
-      // retired and selected again through the current runtime catalog.
       this.selection = undefined;
       return;
     }
@@ -136,8 +129,6 @@ export class ModelSelectionStore {
       connection: parsed.connection,
       provider: parsed.provider,
       model: parsed.model,
-      piVersion: parsed.piVersion,
-      piImage: parsed.piImage,
     };
   }
 
@@ -146,7 +137,11 @@ export class ModelSelectionStore {
   }
 
   async set(selection: ModelSelection): Promise<void> {
-    await atomicWrite(this.file, `${JSON.stringify(selection)}\n`);
-    this.selection = { ...selection };
+    const { connection, provider, model } = selection;
+    await atomicWrite(
+      this.file,
+      `${JSON.stringify({ connection, provider, model })}\n`,
+    );
+    this.selection = { connection, provider, model };
   }
 }

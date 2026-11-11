@@ -6,21 +6,11 @@ import {
 import type { ModelSelection } from "../domain/model-selection.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { resolvePaths } from "../platform/deployment-paths.ts";
-import { fetchJson, requestJson } from "./coordinator-client.ts";
+import { fetchJson } from "./coordinator-client.ts";
 
 const STATUS_HELP = `Usage: integral status [--json]
 
 Show the shared conversation and component status. In integral talk, use /status.
-`;
-
-const APPROVAL_HELP = `Usage: integral approval <command>
-
-Commands:
-  ls [--json]             list governed requests awaiting a human
-  approve <id> [--json]   approve one governed request
-  deny <id> [--json]      deny one governed request
-
-In integral talk, use /approvals, /approve <id>, or /deny <id>.
 `;
 
 export interface ConversationCommandDependencies {
@@ -129,104 +119,5 @@ export async function statusCommand(
     args,
     await healthyCoordinator(dependencies),
     dependencies,
-  );
-}
-
-export function renderApproval(value: Record<string, unknown>): string {
-  const id = typeof value.id === "string" ? value.id : "unknown",
-    status = typeof value.status === "string" ? value.status : "unknown",
-    summary = typeof value.summary === "string" ? value.summary : "request",
-    details =
-      value.details && typeof value.details === "object"
-        ? (value.details as Record<string, unknown>)
-        : undefined,
-    diff = typeof details?.diff === "string" ? details.diff.trim() : "";
-
-  const floating = details?.floatingResolution === true,
-    priorImage =
-      typeof details?.priorImage === "string" ? details.priorImage : "unknown";
-
-  return `approval ${id} [${status}] ${summary}${floating ? `\nFloating dependencies will resolve at build time; prior image: ${priorImage}` : ""}${diff ? `\n${diff}` : ""}`;
-}
-
-export async function runApprovalCommand(
-  args: string[],
-  endpoint: string,
-  dependencies: ConversationOperationDependencies,
-  identity: { attachmentId?: string; localOperator?: boolean },
-): Promise<number> {
-  const command = args[0],
-    json = args.includes("--json");
-
-  if (command === "ls") {
-    const approvals = (await fetchJson(
-      new URL("/integral/approvals", endpoint),
-      dependencies.fetch,
-    )) as Array<Record<string, unknown>>;
-
-    if (json)
-      dependencies.writeOutput(`${JSON.stringify(approvals, null, 2)}\n`);
-    else if (!approvals.length)
-      dependencies.writeOutput("No approval requests.\n");
-    else
-      for (const approval of approvals)
-        dependencies.writeOutput(`${renderApproval(approval)}\n`);
-    return 0;
-  }
-
-  if (command === "approve" || command === "deny") {
-    const id = args[1];
-    if (!id)
-      throw new IntegralError(`usage: integral approval ${command} <id>`);
-
-    const result = (await requestJson(
-      new URL(
-        `/integral/approvals/${encodeURIComponent(id)}/${command}`,
-        endpoint,
-      ),
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(
-          identity.localOperator
-            ? { actor: "operator" }
-            : { attachmentId: identity.attachmentId },
-        ),
-      },
-      dependencies.fetch,
-    )) as Record<string, unknown>;
-
-    dependencies.writeOutput(
-      json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : `${renderApproval(result)}\n`,
-    );
-    return 0;
-  }
-
-  throw new IntegralError(`unknown approval command: ${String(command)}`);
-}
-
-export async function approvalCommand(
-  args: string[],
-  overrides: Partial<ConversationCommandDependencies> = {},
-): Promise<number> {
-  const dependencies = { ...productionDependencies, ...overrides };
-
-  if (
-    !args[0] ||
-    args.includes("--help") ||
-    args.includes("-h") ||
-    args[0] === "help"
-  ) {
-    dependencies.writeOutput(APPROVAL_HELP);
-    return 0;
-  }
-
-  return runApprovalCommand(
-    args,
-    await healthyCoordinator(dependencies),
-    dependencies,
-    { localOperator: true },
   );
 }

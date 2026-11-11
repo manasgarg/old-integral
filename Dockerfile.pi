@@ -1,9 +1,12 @@
-FROM node:26.13.0-slim
+# The Pi image every deployment of this release runs. Integral builds it from
+# this file unchanged; deployments cannot edit or replace it. The base image is
+# pinned by digest and PI_VERSION must equal PI_VERSION in
+# src/platform/constants.ts.
+FROM node:26.13.0-slim@sha256:5adad64f9a1fca2d51972caa65983634c8a774eb300d72b20f7f2a0f60368072
 
 ARG PI_VERSION=1.5.2
-ARG SYSTEM_PACKAGES="ca-certificates gh git"
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ${SYSTEM_PACKAGES} \
+    && apt-get install --yes --no-install-recommends ca-certificates gh git \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}" \
     && npm cache clean --force \

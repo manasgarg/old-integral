@@ -5,8 +5,6 @@ import { messageOf } from "../platform/errors.ts";
 import { pathsFor, type IntegralPaths } from "../platform/deployment-paths.ts";
 import { loadConfig } from "../stores/config.ts";
 import { loadConnections } from "../stores/connection-store.ts";
-import { ApprovalStore } from "../stores/approval-store.ts";
-import { loadContainerPackageState } from "../stores/container-package-store.ts";
 import {
   ConversationStore,
   ModelSelectionStore,
@@ -15,7 +13,6 @@ import {
   CURRENT_DEPLOYMENT_FORMAT,
   readDeploymentFormat,
 } from "../stores/deployment-format.ts";
-import { imageRecipeHead } from "../stores/image-recipe-store.ts";
 import { MessageQueue } from "../stores/message-queue.ts";
 import { OccurrenceStore } from "../stores/occurrence-store.ts";
 import { listResourceRecords } from "../stores/resource-store.ts";
@@ -155,25 +152,14 @@ export async function deploymentStoreChecks(
       check: async (p) => new MessageQueue(p.queue).load(),
     },
     { store: "task queue", check: async (p) => new TaskQueue(p).load() },
-    { store: "approvals", check: async (p) => new ApprovalStore(p).load() },
     { store: "schedules", check: async (p) => new ScheduleStore(p).load() },
     {
       store: "schedule occurrences",
       check: async (p) => new OccurrenceStore(p).load(),
     },
     {
-      store: "container packages",
-      check: async (p) => void (await loadContainerPackageState(p)),
-    },
-    {
       store: "resources",
       check: async (p) => void (await listResourceRecords(p)),
-    },
-    {
-      store: "image recipe",
-      check: async (p) => {
-        if (await exists(p.imageRecipe)) await imageRecipeHead(p);
-      },
     },
     ...(await channelChecks(paths)),
   ];

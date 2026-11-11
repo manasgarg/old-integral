@@ -116,25 +116,6 @@ Given `[server]` may define `gateway_port`, `coordinator_port`, `runner_port`, a
 			And matching `INTEGRAL_*_PORT` variables override file values
 ```
 
-## CONFIG-E82C4A19 — Configure the Pi container image
-
-```text
-Given `[runner]` may define `image` and `pull_policy`
-	When integral resolves those options
-		Then `image` must be a valid OCI image reference
-			And its default is integral's automatically refreshed Pi image
-			And `pull_policy` accepts only `always`, `if-not-present`, or `never`
-			And its default is `if-not-present`
-	When a custom image uses `pull_policy` `never`
-		Then the runner uses an existing local image
-			And refuses to start when the image is absent
-	When a custom image uses `pull_policy` `if-not-present`
-		Then the runner reuses an existing local image
-			And otherwise pulls the configured image
-	When a custom image uses `pull_policy` `always`
-		Then the runner pulls the configured image before resolving its immutable identity
-```
-
 ## CONFIG-4B97D20E — Configure runner timeouts
 
 ```text

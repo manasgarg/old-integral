@@ -142,7 +142,6 @@ Given the deployment has never created a Pi profile repository
 		Or the runner first attempts to provision Pi
 		Then integral creates one ordinary governed host repository through the existing repository protocol
 			And names its connection `pi-profile`
-			And gives it the host-managed `direct` write policy
 			And records `/home/pi/.pi` as its immutable mount path
 			And initializes its canonical branch as `main` with an empty commit
 			And performs repository creation and connection registration as one serialized operation
@@ -159,7 +158,7 @@ Given profile initialization completed previously
 Given an earlier development version recorded `pi-profile` at `/home/pi/.pi/agent`
 	When integral initializes the profile boundary after this behavior is installed
 		Then it migrates the existing repository metadata to `/home/pi/.pi`
-			And preserves the canonical repository, commits, lifecycle state, and write policy
+			And preserves the canonical repository, commits, and lifecycle state
 			And does not create a replacement profile repository
 */
 test("[PROFILE-6A93810F] the host initializes the opaque Pi profile repository exactly once", async (t) => {
@@ -174,7 +173,6 @@ test("[PROFILE-6A93810F] the host initializes the opaque Pi profile repository e
   assert.equal(first.kind, "host-repo");
   assert.equal(first.mount, PI_PROFILE_MOUNT);
   assert.equal(first.branch, "main");
-  assert.equal(first.writePolicy, "direct");
   assert.equal(first.state, "active");
   assert.equal(
     (await run("git", ["--git-dir", first.path, "ls-tree", "main"])).stdout,
@@ -600,7 +598,6 @@ Given one or more governed repository connections are active and have mount path
 */
 /* @covers REPO-CDA4609A
 Given Pi has committed work on a current-run governed repository branch
-	And that repository's host-managed write policy is `direct`
 	When Pi calls `repo_push` for that repository
 		Then the container sends a Git bundle and proposed full commit ID through the authenticated gateway control boundary
 			And the host derives the repository and run identity from the authenticated session
@@ -627,7 +624,7 @@ Given a governed repository canonical branch may have advanced since a run began
 			And records a redacted refusal reason in the run history
 			And leaves the checkout available for Pi to correct and retry
 */
-test("[REPO-403F597E] [REPO-A690931F] [REPO-CDA4609A] [REPO-7B0E2F4A] [REPO-37441347] repository work lands only through its host write policy and a validated bundle", async (t) => {
+test("[REPO-403F597E] [REPO-A690931F] [REPO-CDA4609A] [REPO-37441347] repository work lands only through a validated bundle", async (t) => {
   const paths = await fixture(t),
     config = await loadConfig(paths, {}),
     resource = await createResource(
@@ -722,20 +719,6 @@ test("[REPO-403F597E] [REPO-A690931F] [REPO-CDA4609A] [REPO-7B0E2F4A] [REPO-3744
       stale,
     ),
     new RegExp(`current canonical head is ${proposed}`),
-  );
-  await writeFile(
-    join(paths.resources, "source.json"),
-    `${JSON.stringify({ ...resource, writePolicy: "denied" })}\n`,
-  );
-  await assert.rejects(
-    repositoryBundlePush(
-      paths,
-      config,
-      resource.id,
-      await readFile(bundle),
-      proposed,
-    ),
-    /writes are denied by host policy/,
   );
   const gateway = new Gateway(
     paths,

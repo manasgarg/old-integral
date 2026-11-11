@@ -136,7 +136,7 @@ Given multiple MCP connections are configured
 ```text
 Given an active stdio MCP connection is available to a Pi session
 	When the runner provisions that session
-		Then integral starts one dedicated MCP sidecar from the configured runner image
+		Then integral starts one dedicated MCP sidecar from the release's Pi image
 			And runs it as the same non-root numeric user used for Pi
 			And gives it a read-only root filesystem, bounded temporary storage, bounded memory, no Linux capabilities, and no privilege escalation
 			And does not mount the Pi session home, repositories, stores, Docker socket, Integral control-plane files, or host paths into it

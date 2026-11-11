@@ -2,26 +2,20 @@ export interface ModelSelection {
   connection: string;
   provider: string;
   model: string;
-  piVersion: string;
-  piImage: string;
 }
 
 export type ModelChoice = ModelSelection;
 
-export function sameSelection(
-  left: ModelSelection | undefined,
-  right: ModelSelection | undefined,
-): boolean {
-  return (
-    left?.connection === right?.connection &&
-    left?.provider === right?.provider &&
-    left?.model === right?.model &&
-    left?.piVersion === right?.piVersion &&
-    left?.piImage === right?.piImage
-  );
+/**
+ * What a Pi run used: the selected model plus the release's pinned Pi version
+ * and the immutable identity of the release's Pi image.
+ */
+export interface PiRunProfile extends ModelSelection {
+  piVersion: string;
+  piImage: string;
 }
 
-export function sameModel(
+export function sameSelection(
   left: ModelSelection | undefined,
   right: ModelSelection | undefined,
 ): boolean {

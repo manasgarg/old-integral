@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import type { EffectiveConfig } from "../../stores/config.ts";
 import { IntegralError } from "../../platform/errors.ts";
-import {
-  DEFAULT_PI_IMAGE,
-  INTEGRAL_VERSION,
-} from "../../platform/constants.ts";
-import { DEFAULT_CONTAINER_PACKAGES } from "../../stores/container-package-store.ts";
+import { INTEGRAL_VERSION, PI_VERSION } from "../../platform/constants.ts";
 import { packageFile } from "../../platform/package-files.ts";
 
 function inspectImage(image: string): string | undefined {
@@ -22,109 +17,58 @@ function inspectImage(image: string): string | undefined {
     : undefined;
 }
 
-export function managedPiImage(
-  version: string,
-  recipeInputs?: readonly Uint8Array[],
-  systemPackages: readonly string[] = DEFAULT_CONTAINER_PACKAGES,
+/**
+ * The local tag of the Pi image this release runs. It names the Integral
+ * version, a digest of the release's image inputs and the pinned Pi version,
+ * so a different release never reuses another release's image.
+ */
+export function releasePiImageTag(
+  imageInputs: readonly Uint8Array[] = [
+    readFileSync(packageFile("Dockerfile.pi")),
+    readFileSync(packageFile("bin/integral-pi-models.mjs")),
+  ],
 ): string {
-  const dockerfile = packageFile("Dockerfile.pi"),
-    modelBridge = packageFile("bin/integral-pi-models.mjs"),
-    inputs = recipeInputs ?? [
-      readFileSync(dockerfile),
-      readFileSync(modelBridge),
-    ],
-    hash = createHash("sha256");
+  const hash = createHash("sha256");
 
-  for (const input of inputs)
+  for (const input of imageInputs)
     hash.update(String(input.byteLength)).update("\0").update(input);
-  hash.update("packages\0").update(JSON.stringify([...systemPackages].sort()));
 
-  const recipe = hash.digest("hex").slice(0, 12);
-  return `integral-pi:${INTEGRAL_VERSION}-recipe-${recipe}-pi-${version.replace(/[^0-9A-Za-z_.-]/g, "-")}`;
+  const inputs = hash.digest("hex").slice(0, 12);
+  return `integral-pi:${INTEGRAL_VERSION}-${inputs}-pi-${PI_VERSION.replace(/[^0-9A-Za-z_.-]/g, "-")}`;
 }
 
-export function ensureManagedPiImage(
-  config: EffectiveConfig,
-  piVersion: string,
-  options: {
-    systemPackages?: readonly string[];
-    rebuild?: boolean;
-    expectedImage?: string;
-  } = {},
-): string {
-  if (options.expectedImage) {
-    const selected = inspectImage(options.expectedImage);
-    if (selected) return selected;
-  }
+/**
+ * Returns the immutable identity of the release's Pi image, building it from
+ * the release's own `Dockerfile.pi` when it is not present locally.
+ */
+export function ensureReleasePiImage(): string {
+  const tag = releasePiImageTag(),
+    existing = inspectImage(tag);
+  if (existing) return existing;
 
-  const systemPackages = [
-    ...(options.systemPackages ?? DEFAULT_CONTAINER_PACKAGES),
-  ].sort();
-  const requested =
-    config.runner.image === DEFAULT_PI_IMAGE
-      ? managedPiImage(piVersion, undefined, systemPackages)
-      : config.runner.image;
-
-  const existing = inspectImage(requested);
-  if (config.runner.pullPolicy === "never") {
-    if (!existing)
-      throw new IntegralError(
-        `container image is unavailable and pull_policy is never: ${requested}`,
-      );
-    return existing;
-  }
-
-  if (
-    config.runner.pullPolicy === "if-not-present" &&
-    existing &&
-    !options.rebuild
-  )
-    return existing;
-
-  if (config.runner.image === DEFAULT_PI_IMAGE) {
-    const dockerfile = packageFile("Dockerfile.pi");
-    const root = packageFile(".");
-
-    const result = spawnSync(
-      "docker",
-      [
-        "build",
-        "--pull",
-        ...(options.rebuild ? ["--no-cache"] : []),
-        "--build-arg",
-        `PI_VERSION=${piVersion}`,
-        "--build-arg",
-        `SYSTEM_PACKAGES=${systemPackages.join(" ")}`,
-        "--tag",
-        requested,
-        "--file",
-        dockerfile,
-        root,
-      ],
-      { encoding: "utf8" },
-    );
-    if (result.status !== 0)
-      throw new IntegralError(
-        `cannot build Pi ${piVersion} image: ${result.stderr.trim()}`,
-      );
-
-    const identity = inspectImage(requested);
-    if (!identity)
-      throw new IntegralError(`cannot resolve Pi ${piVersion} image identity`);
-    return identity;
-  }
-
-  const result = spawnSync("docker", ["pull", requested], {
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    "docker",
+    [
+      "build",
+      "--pull",
+      "--tag",
+      tag,
+      "--file",
+      packageFile("Dockerfile.pi"),
+      packageFile("."),
+    ],
+    { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+  );
   if (result.status !== 0)
     throw new IntegralError(
-      `cannot pull Pi image ${requested}: ${result.stderr.trim()}`,
+      `cannot build the Pi ${PI_VERSION} image: ${result.stderr.trim()}`,
     );
 
-  const identity = inspectImage(requested);
+  const identity = inspectImage(tag);
   if (!identity)
-    throw new IntegralError(`cannot resolve Pi image identity: ${requested}`);
+    throw new IntegralError(
+      `cannot resolve the Pi ${PI_VERSION} image identity`,
+    );
   return identity;
 }
 

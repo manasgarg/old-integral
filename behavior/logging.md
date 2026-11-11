@@ -106,7 +106,7 @@ Given a server component starts, becomes ready, fails during startup, or stops c
 
 ```text
 Given the coordinator refreshes the model catalog during or after startup
-	When it resolves the Pi runtime, resolves the managed image, or discovers models
+	When it resolves the Pi runtime, resolves the release's Pi image, or discovers models
 		Then it emits an informational progress event naming the active stage
 			And reports catalog readiness with the discovered model count
 	When catalog refresh fails

@@ -16,7 +16,7 @@ above it. `npm run lint` enforces this with `no-restricted-imports` rules in
 | Entry points | `src/cli/`          | The `integral` command and its subcommands                                            |
 | Services     | `src/services/`     | The four long-running components and the launcher that starts and stops them          |
 | Integrations | `src/integrations/` | Adapters to outside systems: Docker, Pi, MCP servers, OAuth providers, Discord, email |
-| Stores       | `src/stores/`       | Durable state on disk: queues, conversations, runs, approvals, schedules, connections |
+| Stores       | `src/stores/`       | Durable state on disk: queues, conversations, runs, schedules, connections |
 | Domain       | `src/domain/`       | Types and pure policy with no I/O                                                     |
 | Platform     | `src/platform/`     | Files, paths, logging, errors, timers and servers, internal HTTP, component identity  |
 
@@ -33,14 +33,14 @@ default suite.
 ### Entry points (`cli/`)
 
 - `main.ts` parses the command line and holds `integral talk`.
-- `conversation.ts`, `queue.ts`, `task.ts`, `schedule.ts` and `image.ts` hold
-  the subcommands.
+- `conversation.ts`, `queue.ts`, `task.ts` and `schedule.ts` hold the
+  subcommands.
 - `coordinator-client.ts` sends the CLI's requests to the coordinator.
 
 ### Services (`services/`)
 
 - `coordinator/` owns the conversation: the message and task queues, model
-  selection, approvals, and the event stream that attached terminals follow.
+  selection, and the event stream that attached terminals follow.
 - `runner/` claims queued work, runs it in a Pi container, and manages MCP
   sidecars for each session.
 - `gateway/` is the only way out of the container network. It checks each
@@ -54,9 +54,8 @@ default suite.
 ### Integrations (`integrations/`)
 
 - `docker/pi-container.ts` runs one Pi session in a container over Pi's RPC
-  mode. `docker/managed-image.ts` builds, pulls and inspects the managed Pi
-  image. `docker/image-build.ts` builds an approved image recipe.
-  `docker/mcp-sidecar.ts` runs a stdio MCP server beside the session.
+  mode. `docker/managed-image.ts` builds the release's Pi image from
+  `Dockerfile.pi` and inspects it. `docker/mcp-sidecar.ts` runs a stdio MCP server beside the session.
 - `pi/host-runtime.ts` installs the pinned Pi version on the host, and
   `pi/model-catalog.ts` discovers which models it offers.
   `pi/session-extensions.ts` writes the extensions each session loads.

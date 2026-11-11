@@ -1,23 +1,15 @@
-import type { EffectiveConfig } from "../../stores/config.ts";
 import {
   discoverPiModels,
-  discoverPiVersion,
-  ensureManagedPiImage,
+  ensureReleasePiImage,
 } from "../docker/managed-image.ts";
-import { DEFAULT_PI_IMAGE } from "../../platform/constants.ts";
 import { listConnections } from "../../stores/connection-store.ts";
 import type { IntegralPaths } from "../../platform/deployment-paths.ts";
 import { ensurePiRuntime, type PiRuntimeResolution } from "./host-runtime.ts";
-import { loadContainerPackageState } from "../../stores/container-package-store.ts";
-import { readText } from "../../platform/files.ts";
-import type { ImageBuildResult } from "../../stores/image-recipe-store.ts";
-import { IntegralError } from "../../platform/errors.ts";
 import type { ModelChoice } from "../../domain/model-selection.ts";
 
 export interface ModelCatalog {
   choices: ModelChoice[];
   piVersion?: string;
-  piImage?: string;
 }
 
 export type ModelCatalogProgress = (
@@ -28,27 +20,17 @@ export type ModelCatalogProgress = (
 
 export interface ModelCatalogDependencies {
   ensureRuntime(paths: IntegralPaths): Promise<PiRuntimeResolution>;
-  ensureImage(
-    config: EffectiveConfig,
-    piVersion: string,
-    options?: {
-      systemPackages?: readonly string[];
-      rebuild?: boolean;
-      expectedImage?: string;
-    },
-  ): string | Promise<string>;
+  ensureImage(): string | Promise<string>;
   discoverModels(
     image: string,
     providers: readonly string[],
   ): Promise<Array<{ provider: string; model: string }>>;
-  discoverVersion(image: string): string | Promise<string>;
 }
 
 const productionDependencies: ModelCatalogDependencies = {
   ensureRuntime: ensurePiRuntime,
-  ensureImage: ensureManagedPiImage,
+  ensureImage: ensureReleasePiImage,
   discoverModels: discoverPiModels,
-  discoverVersion: discoverPiVersion,
 };
 
 export interface ManagedPiRuntime {
@@ -57,13 +39,12 @@ export interface ManagedPiRuntime {
 }
 
 /**
- * The Pi version and image the deployment currently runs: the active managed
- * image when one is recorded, otherwise the image for the pinned Pi version.
- * The model chooser and scheduled attempts both use it.
+ * The Pi version and image this release runs: the pinned Pi version and the
+ * image built from the release's own Dockerfile. Interactive sessions,
+ * scheduled attempts and the model chooser all use it.
  */
 export async function resolveManagedPiRuntime(
   paths: IntegralPaths,
-  config: EffectiveConfig,
   overrides: Partial<ModelCatalogDependencies> = {},
   progress?: ModelCatalogProgress,
 ): Promise<ManagedPiRuntime> {
@@ -76,49 +57,19 @@ export async function resolveManagedPiRuntime(
 
   progress?.(
     "image.resolve",
-    "resolving the managed Pi image; this may build or pull an image",
+    "resolving the release's Pi image; this may build it",
     { pi_version: runtime.version },
   );
-
-  const packageState = await loadContainerPackageState(paths),
-    activeRaw = await readText(paths.activeImage);
-  let active: { recipeCommit: string; result: ImageBuildResult } | undefined;
-  if (activeRaw)
-    try {
-      active = JSON.parse(activeRaw) as {
-        recipeCommit: string;
-        result: ImageBuildResult;
-      };
-    } catch {
-      throw new IntegralError("invalid active managed image state");
-    }
-
-  const image = await dependencies.ensureImage(
-    config,
-    active?.result.piVersion ?? runtime.version,
-    {
-      systemPackages: packageState.packages,
-      ...(active ? { expectedImage: active.result.image } : {}),
-    },
-  );
-  if (active && image !== active.result.image)
-    throw new IntegralError(
-      `active managed image ${active.result.image} is unavailable; run integral image rebuild`,
-    );
-  progress?.("image.ready", "managed Pi image is ready", {
+  const image = await dependencies.ensureImage();
+  progress?.("image.ready", "the release's Pi image is ready", {
     pi_version: runtime.version,
   });
 
-  const piVersion =
-    config.runner.image === DEFAULT_PI_IMAGE
-      ? (active?.result.piVersion ?? runtime.version)
-      : await dependencies.discoverVersion(image);
-  return { piVersion, piImage: image };
+  return { piVersion: runtime.version, piImage: image };
 }
 
 export async function listModelChoices(
   paths: IntegralPaths,
-  config: EffectiveConfig,
   overrides: Partial<ModelCatalogDependencies> = {},
   progress?: ModelCatalogProgress,
 ): Promise<ModelCatalog> {
@@ -133,7 +84,6 @@ export async function listModelChoices(
   const dependencies = { ...productionDependencies, ...overrides },
     { piVersion, piImage: image } = await resolveManagedPiRuntime(
       paths,
-      config,
       dependencies,
       progress,
     ),
@@ -163,14 +113,8 @@ export async function listModelChoices(
         connection: connection.name,
         provider: connection.provider!,
         model,
-        piVersion,
-        piImage: image,
       })),
   );
 
-  return {
-    choices,
-    piVersion,
-    piImage: image,
-  };
+  return { choices, piVersion };
 }

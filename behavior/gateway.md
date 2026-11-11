@@ -5,7 +5,6 @@ access, and the default-deny network boundary.
 
 <!-- Automation note (GATEWAY-A2BBBBE8): Boundary matching, sentinel removal, credential injection, and forwarding construction are automated; a public TLS upstream is not contacted by the offline suite. -->
 <!-- Automation note (GATEWAY-EC79406A): The default suite verifies the internal-network Docker specification; `npm run test:acceptance:docker` also verifies that a live container has no direct external route. -->
-<!-- Automation note (GATEWAY-846B1000): Durable approval mechanics are covered at component boundaries; Discord publication and identity decisions require controlled Discord acceptance fixtures. -->
 
 ## GATEWAY-3F299566 — Verify the expected gateway
 
@@ -89,93 +88,4 @@ Given a chat container is running
 	When software in the container attempts internet access without the gateway
 		Then the connection cannot reach the destination
 			And integral fails container startup when it cannot create the locked network
-```
-
-## GATEWAY-846B1000 — Require human approval for governed mutations
-
-```text
-Given the gateway classifies a control operation as requiring human approval
-	And container package installation and upgrade are approval-required
-	And writes to repositories with host-managed `approval-required` policy are approval-required
-	And fresh image rebuilds requested by Pi, host automation, or a remote API are approval-required
-	And read-only package inventory is not approval-required
-	And read-only repository operations are not approval-required
-	When an authenticated Pi session submits an approval-required request
-		Then Integral validates it without executing it
-			And durably records an unpredictable approval ID, safe summary, canonical request digest, originating actor, conversation and reply route, session and run, model selection, current revision, and deadline
-			And proactively publishes the pending approval only to the originating conversation
-			And includes the non-secret approval state in the shared host-command view
-			And keeps the originating tool call pending while its connection remains active
-			And does not build an image, advance a protected repository ref, or modify package state before approval
-Given authenticated host automation or a remote API submits an approval-required request outside Pi
-	When Integral creates the approval request
-		Then it records the external actor and request origin without inventing a Pi session or run
-			And applies the same validation, decision, execution, audit, expiry, and restart lifecycle
-Given a trusted local operator invokes `integral image edit` or `integral image rebuild`
-	When Integral authorizes the operation
-		Then it treats local CLI authority as the human decision
-			And bypasses approval-request creation without bypassing validation, build isolation, durable audit, or immutable image selection
-Given an approval request is pending
-	When an attached human runs `/approve <approval-id>`
-		Then Integral binds the decision to that terminal attachment
-			And permits deciding any request visible in the shared approval view
-			And revalidates the exact request and expected revision
-			And executes it exactly once using the approval ID as its idempotency key
-			And durably records the result or failure
-			And publishes that outcome only to the originating conversation
-	When an attached human runs `/deny <approval-id>`
-		Then Integral binds the decision to that terminal attachment
-			And permits deciding any request visible in the shared approval view
-			And durably records the denial
-			And publishes that outcome only to the originating conversation
-			And does not execute the request
-	When the bound Discord user invokes `/approvals approve <approval-id>` or `/approvals deny <approval-id>` in the configured DM
-		Then Integral binds the decision to the Discord provider, user, and channel identity
-			And permits deciding any request visible in the shared approval view
-			And applies the same revalidation, exact-once execution, and durable outcome behavior as the corresponding terminal command
-			And publishes that outcome only to the request's originating conversation
-	When a Discord user or channel outside the configured identity attempts a decision
-		Then Integral ignores the attempt as unauthorized
-			And does not resolve or execute the request
-	When another human attempts to decide the resolved approval
-		Then Integral rejects the later decision
-			And does not execute the request again
-	When the request revision is stale at approval time
-		Then Integral records and broadcasts a stale outcome
-			And does not execute the request
-	When the request is a fresh rebuild with floating dependencies
-		Then Integral shows the active recipe commit, prior image digest, mutable inputs, and build-time resolution warning
-			And approval authorizes resolution against the configured repositories at execution time rather than an exact dependency closure
-Given an approval is resolved while its originating Pi tool call remains connected
-	When Integral completes the decision
-		Then it returns the durable outcome to that tool call
-			And does not create a replacement session solely for the outcome
-Given an approval remains unresolved after its originating Pi session ends
-	When the session ends
-		Then Integral keeps the approval open
-			And revokes the ended session's temporary credentials
-			And retains the exact request, originating session and run, and model selection
-	When a human later approves, denies, or lets the request expire
-		Then Integral durably queues an approval-resolution continuation
-			And starts a new Pi session using the resulting current image and model
-			And gives it the approval ID, safe action summary, and outcome
-			And restores the preceding conversation context
-			And records the ended session and run as its parent lineage
-Given Integral restarts with unresolved approvals
-	When the coordinator recovers durable state
-		Then it preserves every unresolved approval in its prior state
-			And does not cancel, deny, approve, or execute it merely because Integral restarted
-			And proactively republishes it only to its originating conversation
-	When it recovers a durably approved operation without a durable execution result
-		Then it resumes execution using the approval ID
-			And prevents duplicate package-state or protected-repository changes
-Given an unresolved approval reaches its ten-minute deadline
-	When Integral expires it
-		Then Integral records and broadcasts an expired outcome without executing the request
-			And never approves it automatically
-			And delivers the outcome through the live tool call or a replacement-session continuation
-When an approval changes state
-	Then Integral writes a durable audit record with its safe summary, request digest, lineage, decision identity, execution state, and timestamps
-		And sends any human-facing notification only to the approval's originating conversation
-		And never records credentials or secret request values
 ```
