@@ -153,6 +153,7 @@ export async function writeResourceExtension(
   const source = `import { execFile } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { request } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { Type } from "typebox";
@@ -179,6 +180,7 @@ export default function (pi) {
   const bin = join(sessionHome, ".local", "bin"),
     helper = join(bin, "integral-lock"),
     lockSource = `#!/usr/bin/env node
+import { spawn } from "node:child_process";
 import { request } from "node:http";
 const stores = ${JSON.stringify(stores)};
 function usage() { console.error("usage: integral-lock <store-id|name|mount> <lock-name> -- <command> [args...]"); process.exit(2); }
