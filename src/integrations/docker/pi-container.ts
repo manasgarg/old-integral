@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import {
+  execFile,
   spawn,
   spawnSync,
   type ChildProcessWithoutNullStreams,
@@ -602,4 +604,27 @@ export function newSessionIdentity(): {
     sessionId: randomUUID(),
     sessionToken: `${randomUUID()}${randomUUID()}`,
   };
+}
+
+/**
+ * Whether the Pi container for `sessionId` is still running. Throws when
+ * Docker cannot answer, so a caller never mistakes an unknown for "ended".
+ */
+export async function piContainerRunning(sessionId: string): Promise<boolean> {
+  try {
+    const { stdout } = await promisify(execFile)("docker", [
+      "container",
+      "inspect",
+      "--format",
+      "{{.State.Running}}",
+      `integral-${sessionId}`,
+    ]);
+    return stdout.trim() === "true";
+  } catch (error) {
+    const stderr = ((error as { stderr?: string }).stderr ?? "").trim();
+    if (/no such (container|object)/i.test(stderr)) return false;
+    throw new IntegralError(
+      `cannot ask Docker whether session ${sessionId} is running: ${stderr || (error as Error).message}`,
+    );
+  }
 }

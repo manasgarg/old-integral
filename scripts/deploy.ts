@@ -17,6 +17,12 @@ import { randomUUID } from "node:crypto";
 import { CURRENT_DEPLOYMENT_FORMAT } from "../src/stores/deployment-format.ts";
 import { RELEASE_STAMP_PATH } from "../src/platform/release-identity.ts";
 import type { ComponentRecord } from "../src/platform/component-identity.ts";
+import { pathsFor } from "../src/platform/deployment-paths.ts";
+import {
+  managedResourceIdentities,
+  recordRestoredIdentities,
+  type ManagedResourceIdentity,
+} from "../src/stores/resource-store.ts";
 import type { DeploymentStatus } from "../src/services/launcher.ts";
 
 export interface CommandResult {
@@ -156,6 +162,11 @@ export interface BackupRecord {
   previousRelease: string | null;
   deploymentFormat: number | null;
   createdAt: string;
+  /**
+   * Managed repositories and stores whose backing directory matched its
+   * recorded identity at backup time. Absent in backups from older releases.
+   */
+  resourceIdentities?: ManagedResourceIdentity[];
 }
 
 export interface DeployLogRecord {
@@ -499,8 +510,15 @@ async function copyDeployment(home: string, target: string): Promise<void> {
   }
 }
 
-/** Replace `config/` and `data/` with `backup`, keeping reinstallable downloads. */
-async function restoreDeployment(home: string, backup: string): Promise<void> {
+/**
+ * Replace `config/` and `data/` with `backup`, keeping reinstallable downloads.
+ * Copying gives every restored directory a new inode, so re-record the managed
+ * resources the backup listed. Returns the names of those resources.
+ */
+async function restoreDeployment(
+  home: string,
+  backup: string,
+): Promise<string[]> {
   await rm(join(home, "config"), { recursive: true, force: true });
   if (await exists(join(backup, "config")))
     await cp(join(backup, "config"), join(home, "config"), {
@@ -522,6 +540,14 @@ async function restoreDeployment(home: string, backup: string): Promise<void> {
         verbatimSymlinks: true,
         preserveTimestamps: true,
       });
+
+  const record = JSON.parse(
+    await readFile(join(backup, "backup.json"), "utf8").catch(() => "{}"),
+  ) as Partial<BackupRecord>;
+  return await recordRestoredIdentities(
+    pathsFor(home),
+    record.resourceIdentities ?? [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -597,12 +623,16 @@ async function takeBackup(
     backupsDirectory(settings),
     `${timestamp(host.now())}-${label}`,
   );
+  const resourceIdentities = await managedResourceIdentities(
+    pathsFor(settings.deploymentHome),
+  );
   await copyDeployment(settings.deploymentHome, backup);
 
   const record: BackupRecord = {
     previousRelease: previous,
     deploymentFormat: await deploymentFormatOf(settings.deploymentHome),
     createdAt: host.now().toISOString(),
+    resourceIdentities,
   };
   await writeFile(
     join(backup, "backup.json"),
@@ -686,7 +716,10 @@ async function restore(
 ): Promise<void> {
   // The service may never have been installed, so a failed stop is not fatal.
   await host.run("systemctl", ["--user", "stop", unitName(settings)]);
-  await restoreDeployment(settings.deploymentHome, backup);
+  for (const name of await restoreDeployment(settings.deploymentHome, backup))
+    host.report(
+      `re-recorded the backing directory of ${name}, which the restore copied\n`,
+    );
   await pointCurrentAt(settings, previous);
   if (previous) await systemctl(host, "rollback", "start", unitName(settings));
 }

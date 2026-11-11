@@ -392,6 +392,88 @@ export async function listResourceRecords(
   return result;
 }
 
+/** A managed resource and the backing identity it had when a backup was taken. */
+export interface ManagedResourceIdentity {
+  name: string;
+  path: string;
+  identity: BackingIdentity;
+}
+
+/**
+ * List the repositories and stores backed inside the deployment's own `data/`
+ * whose backing directory still has its recorded identity. A backup records
+ * these so a restore, which copies `data/` and so changes every inode, can
+ * re-record them. Reads only: a backup must not change the live deployment.
+ */
+export async function managedResourceIdentities(
+  paths: IntegralPaths,
+): Promise<ManagedResourceIdentity[]> {
+  const files = await readdir(paths.resources).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+
+  const result: ManagedResourceIdentity[] = [];
+  for (const file of files.filter((name) => name.endsWith(".json")).sort()) {
+    const record = await readResource(paths, basename(file, ".json")).catch(
+      () => undefined,
+    );
+    if (!record || !inside(paths.data, record.path)) continue;
+
+    const current = await backingIdentity(record.path).catch(() => undefined);
+    if (current && sameIdentity(current, record.identity))
+      result.push({
+        name: record.connection,
+        path: record.path,
+        identity: record.identity,
+      });
+  }
+
+  return result;
+}
+
+/**
+ * After a restore copied `data/` back from a backup, record the restored
+ * backing directories' identities for the resources the backup listed. The
+ * kernel may or may not reuse the old inode, so record it either way. A record
+ * that no longer names the same path and identity is left alone. Returns the
+ * names of the re-recorded resources.
+ */
+export async function recordRestoredIdentities(
+  paths: IntegralPaths,
+  restored: ManagedResourceIdentity[],
+): Promise<string[]> {
+  const result: string[] = [];
+
+  for (const entry of restored) {
+    const record = await readResource(paths, entry.name).catch(() => undefined);
+    if (
+      !record ||
+      record.path !== entry.path ||
+      !inside(paths.data, record.path) ||
+      !sameIdentity(record.identity, entry.identity)
+    )
+      continue;
+
+    const current = await backingIdentity(record.path).catch(() => undefined);
+    if (!current) continue;
+    // Rewrite only the identity, so the restored record keeps the exact
+    // shape the backup's release wrote.
+    const raw = JSON.parse(
+      (await readText(recordFile(paths, entry.name)))!,
+    ) as Record<string, unknown>;
+    await atomicWrite(
+      recordFile(paths, entry.name),
+      `${JSON.stringify({ ...raw, identity: current }, null, 2)}\n`,
+    );
+    result.push(entry.name);
+  }
+
+  return result;
+}
+
 async function assertNoOverlap(
   paths: IntegralPaths,
   source: string,
@@ -679,6 +761,97 @@ export async function refreshResource(
   }
 
   return record;
+}
+
+/** What adopting a replaced backing directory would change. */
+export interface AdoptionPreview {
+  record: ResourceRecord;
+  current: BackingIdentity;
+}
+
+/**
+ * Describe an adoption without changing anything. Only a resource that is
+ * unavailable because a different directory appeared at its path can be
+ * adopted.
+ */
+export async function previewAdoption(
+  paths: IntegralPaths,
+  name: string,
+): Promise<AdoptionPreview> {
+  const record = await readResource(paths, name);
+  if (!record) throw new IntegralError(`resource not found: ${name}`, 404);
+  if (
+    record.state !== "unavailable" ||
+    record.availabilityReason !== "identity_changed"
+  )
+    throw new IntegralError(
+      `${name} is not waiting for adoption: only an unavailable resource whose directory was replaced (identity_changed) can be adopted`,
+      409,
+    );
+
+  const current = await backingIdentity(record.path).catch(() => {
+    throw new IntegralError(`${name}'s backing directory is missing`, 409);
+  });
+  return { record, current };
+}
+
+/**
+ * Adopt the directory now at an `identity_changed` resource's recorded path:
+ * record its identity and return the resource to active. The operator decides
+ * the replacement is trustworthy; integral still requires every other
+ * availability check to pass and no running session to use the resource.
+ * Session leases are left for abandoned-session recovery, which may still need
+ * them to recover unlanded repository work.
+ */
+export async function adoptResourceIdentity(
+  paths: IntegralPaths,
+  name: string,
+  expected: { revision: number; identity: BackingIdentity },
+  sessionRunning: (sessionId: string) => Promise<boolean>,
+): Promise<ResourceRecord> {
+  const resource = await readResource(paths, name);
+  if (!resource) throw new IntegralError(`resource not found: ${name}`, 404);
+
+  return await withResourceLock(paths, resource.id, async () => {
+    const { record, current } = await previewAdoption(paths, name);
+    if (
+      record.revision !== expected.revision ||
+      !sameIdentity(current, expected.identity)
+    )
+      throw new IntegralError(
+        `${name} changed while adoption was pending; run adopt again`,
+        409,
+      );
+
+    const adopted: ResourceRecord = {
+      ...record,
+      identity: current,
+      state: "active",
+      revision: record.revision + 1,
+    };
+    delete adopted.availabilityReason;
+
+    const reason = await availability(adopted);
+    if (reason)
+      throw new IntegralError(
+        `cannot adopt ${name}: its directory is ${reason.replaceAll("_", " ")}`,
+        409,
+      );
+
+    const directory = join(paths.resourceSessions, record.id);
+    for (const file of await readdir(directory).catch(() => [] as string[])) {
+      const sessionId = basename(file, ".json");
+      if (file.endsWith(".json") && (await sessionRunning(sessionId)))
+        throw new IntegralError(
+          `cannot adopt ${name} while session ${sessionId} is still running; adopt it after that session ends`,
+          409,
+        );
+    }
+
+    await writeResource(paths, adopted);
+    await bumpResourceGeneration(paths);
+    return adopted;
+  });
 }
 
 async function bumpResourceGeneration(

@@ -55,6 +55,8 @@ import {
   addHostResource,
   softDeleteResource,
 } from "../stores/resource-store.ts";
+import { adoptConnection } from "./connection-adopt.ts";
+import { piContainerRunning } from "../integrations/docker/pi-container.ts";
 import {
   matchModelChoices,
   sameModel,
@@ -126,6 +128,8 @@ Commands:
   add        guided setup (or: add <entry> --auth <method> [options])
   ls         list configured connections
   rm <name>  deliberately remove a connection
+  adopt <name>
+             trust a host repo or store's replaced backing directory
 
 All active connections are available automatically. There are no grant or revoke commands.
 
@@ -756,6 +760,26 @@ export async function connectionCommand(args: string[]): Promise<number> {
       await removeConnection(paths, name);
       process.stdout.write(`Removed ${name}.\n`);
       return 0;
+    } finally {
+      rl.close();
+    }
+  }
+
+  if (command === "adopt") {
+    const name = args[1];
+    if (!name) throw new IntegralError("connection name is required");
+
+    const rl = createInterface({ input, output });
+    try {
+      return await adoptConnection(
+        paths,
+        name,
+        {
+          write: (text) => process.stdout.write(text),
+          ask: (question) => rl.question(question),
+        },
+        piContainerRunning,
+      );
     } finally {
       rl.close();
     }
