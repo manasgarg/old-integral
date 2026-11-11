@@ -162,7 +162,7 @@ Given `[runner]` may define `memory_mb` and `tmpfs_mb`
 
 ```text
 Given `[conversation]` may define `context_max_messages` and `context_max_chars`
-	When integral falls back to rendered conversation context as described in CHAT-2FC607EA
+	When integral starts a new or replacement Pi session
 		Then both options must be non-negative integers
 			And it considers only persisted user and assistant messages
 			And it includes the newest contiguous suffix that fits both limits
