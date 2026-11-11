@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
 import { X509Certificate } from "node:crypto";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PassThrough, Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { promisify } from "node:util";
 import {
   decideRequest,
   parseProxyAuthorization,
@@ -61,7 +68,11 @@ import { fixture } from "./helpers.ts";
 import {
   cleanupResourceProjection,
   prepareResourceProjection,
+  type RepositoryProjection,
+  type ResourceRecord,
 } from "../src/stores/resource-store.ts";
+
+const execFileAsync = promisify(execFile);
 
 /* @covers ENV-F19A64B2
 Given integral provisions a Pi container
@@ -2361,6 +2372,177 @@ test("[REPO-D1865075] [REPO-9C4A71E2] [STORE-350F3496] every Pi environment rece
   );
   assert.match(lockHelper, /usage: integral-lock/);
   assert.match(lockHelper, /proxy-authorization/);
+});
+
+test("[REPO-9C4A71E2] [STORE-77471EF0] generated repo_push and integral-lock run against the gateway control boundary", async (t) => {
+  const paths = await fixture(t),
+    checkout = join(paths.root, "checkout"),
+    git = (...args: string[]) =>
+      execFileAsync("git", args, { cwd: checkout }).then(({ stdout }) =>
+        stdout.trim(),
+      );
+  await mkdir(checkout, { recursive: true });
+  await git("init", "-q", "-b", "main");
+  await writeFile(join(checkout, "note.md"), "landed\n");
+  await git("add", "note.md");
+  await git(
+    "-c",
+    "user.name=Pi",
+    "-c",
+    "user.email=pi@example.invalid",
+    "commit",
+    "-qm",
+    "note",
+  );
+  const head = await git("rev-parse", "HEAD");
+  const requests: Array<{
+      method: string;
+      url: string;
+      authorization: string | undefined;
+      body: Record<string, unknown> | null;
+    }> = [],
+    server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        requests.push({
+          method: request.method ?? "",
+          url: request.url ?? "",
+          authorization: request.headers["proxy-authorization"],
+          body: text ? (JSON.parse(text) as Record<string, unknown>) : null,
+        });
+        response.setHeader("content-type", "application/json");
+        response.end(
+          JSON.stringify(
+            request.method === "POST" && request.url?.endsWith("/locks/kb")
+              ? { lease: "lease-1" }
+              : { landed: head },
+          ),
+        );
+      });
+    });
+  await new Promise<void>((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve()),
+  );
+  t.after(() => server.close());
+  const { port } = server.address() as AddressInfo,
+    proxy = `http://integral:session-token@127.0.0.1:${port}/`,
+    previousProxy = process.env.HTTP_PROXY;
+  process.env.HTTP_PROXY = proxy;
+  t.after(() => {
+    if (previousProxy === undefined) delete process.env.HTTP_PROXY;
+    else process.env.HTTP_PROXY = previousProxy;
+  });
+
+  await writeResourceExtension(paths.root, {
+    sessionId: "session",
+    repositories: [
+      {
+        resource: { id: "repo-1", connection: "kb", mount: checkout },
+      } as unknown as RepositoryProjection,
+    ],
+    stores: [
+      {
+        id: "store-1",
+        connection: "notes",
+        mount: "/data/notes",
+      } as unknown as ResourceRecord,
+    ],
+    mounts: [],
+    unavailable: [],
+  });
+  const typebox = join(paths.root, "node_modules/typebox");
+  await mkdir(typebox, { recursive: true });
+  await writeFile(
+    join(typebox, "package.json"),
+    JSON.stringify({ type: "module", exports: "./index.js" }),
+  );
+  await writeFile(
+    join(typebox, "index.js"),
+    "export const Type = new Proxy({}, { get: () => (...args) => args });\n",
+  );
+  const modulePath = join(
+    paths.root,
+    ".integral/extensions/integral-resources.mjs",
+  );
+  await writeFile(
+    modulePath,
+    await readFile(
+      join(paths.root, ".integral/extensions/integral-resources.ts"),
+      "utf8",
+    ),
+  );
+  type Tool = {
+    name: string;
+    execute(
+      id: string,
+      params: Record<string, unknown>,
+      signal?: AbortSignal,
+    ): Promise<{ details: unknown }>;
+  };
+  const tools = new Map<string, Tool>(),
+    extension = (await import(
+      `${pathToFileURL(modulePath).href}?test=${Date.now()}`
+    )) as { default(pi: { registerTool(tool: Tool): void }): void };
+  extension.default({
+    registerTool(tool) {
+      tools.set(tool.name, tool);
+    },
+  });
+
+  const pushed = await tools.get("repo_push")!.execute("call", { id: "kb" });
+  assert.deepEqual(pushed.details, { landed: head });
+  const push = requests.shift()!;
+  assert.equal(push.method, "POST");
+  assert.equal(push.url, "/integral/control/resources/repos/repo-1/push");
+  assert.equal(
+    push.authorization,
+    `Basic ${Buffer.from("integral:session-token").toString("base64")}`,
+  );
+  assert.equal(push.body?.proposed, head);
+  const bundle = join(paths.root, "pushed.bundle");
+  await writeFile(bundle, Buffer.from(String(push.body?.bundle), "base64"));
+  assert.match(await git("bundle", "list-heads", bundle), new RegExp(head));
+
+  const lock = await new Promise<{ code: number | null; stderr: string }>(
+    (resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          join(paths.root, ".local/bin/integral-lock"),
+          "notes",
+          "kb",
+          "--",
+          process.execPath,
+          "-e",
+          "process.exit(3)",
+        ],
+        { env: { ...process.env, HTTP_PROXY: proxy } },
+      );
+      let stderr = "";
+      child.stderr.on("data", (chunk: Buffer) => (stderr += String(chunk)));
+      child.on("error", reject);
+      child.on("exit", (code) => resolve({ code, stderr }));
+    },
+  );
+  assert.equal(lock.stderr, "");
+  assert.equal(lock.code, 3);
+  assert.deepEqual(
+    requests.map(({ method, url, body }) => ({ method, url, body })),
+    [
+      {
+        method: "POST",
+        url: "/integral/control/resources/stores/store-1/locks/kb",
+        body: null,
+      },
+      {
+        method: "DELETE",
+        url: "/integral/control/resources/stores/store-1/locks/kb",
+        body: { lease: "lease-1" },
+      },
+    ],
+  );
 });
 
 /* @covers STORE-6148863C
