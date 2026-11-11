@@ -1,0 +1,29 @@
+# integral Phase 1 configuration
+
+[server]
+gateway_port = 7310
+coordinator_port = 7311
+runner_port = 7312
+scheduler_port = 7313
+
+[runner]
+turn_timeout_seconds = 1800
+idle_timeout_seconds = 300
+memory_mb = 2048
+tmpfs_mb = 2048
+
+[conversation]
+context_max_messages = 200
+context_max_chars = 100000
+
+[repositories]
+max_file_bytes = 100000000
+max_repo_bytes = 1000000000
+recovery_retention_days = 14
+
+[stores]
+snapshots = 14
+
+[logging]
+level = "info"
+format = "text"

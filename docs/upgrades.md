@@ -9,7 +9,7 @@ used here.
 ## The problem
 
 Integral keeps durable state on disk: the conversation, queues, run history,
-approvals, schedules, connections, stores and more, about 1.7 GB in a
+schedules, connections, stores and more, about 1.7 GB in a
 long-lived deployment. Code changes often change how that state is written.
 Without a plan, three things go wrong:
 

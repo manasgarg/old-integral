@@ -11,7 +11,7 @@ import {
 } from "./pi-events.ts";
 import { redact, redactText } from "./redaction.ts";
 import { atomicWrite, ensureDir, readText } from "../../platform/files.ts";
-import type { ModelSelection } from "../../domain/model-selection.ts";
+import type { PiRunProfile } from "../../domain/model-selection.ts";
 import type { IntegralPaths } from "../../platform/deployment-paths.ts";
 import { SerialExecutor } from "../../platform/serial-executor.ts";
 
@@ -32,7 +32,7 @@ export interface RunMetadata {
   kind: RunKind;
   status: "running" | "finalized";
   sessionId: string;
-  model: ModelSelection;
+  model: PiRunProfile;
   startedAt: string;
   finishedAt?: string;
   elapsedMs?: number;
@@ -40,7 +40,6 @@ export interface RunMetadata {
   error?: string;
   parentRunId?: string;
   parentSessionId?: string;
-  approvalId?: string;
   priorAttemptRunId?: string;
   scheduleId?: string;
   executionId?: string;
@@ -98,11 +97,10 @@ export interface LearningSignals {
 export interface BeginRunOptions {
   kind: RunKind;
   sessionId: string;
-  model: ModelSelection;
+  model: PiRunProfile;
   config: EffectiveConfig;
   parentRunId?: string;
   parentSessionId?: string;
-  approvalId?: string;
   priorAttemptRunId?: string;
   scheduleId?: string;
   executionId?: string;
@@ -193,7 +191,6 @@ export class RunStore {
         ...(options.parentSessionId
           ? { parentSessionId: options.parentSessionId }
           : {}),
-        ...(options.approvalId ? { approvalId: options.approvalId } : {}),
         ...(options.priorAttemptRunId
           ? { priorAttemptRunId: options.priorAttemptRunId }
           : {}),
@@ -382,7 +379,6 @@ export class RunRecorder {
       | "follow-up"
       | "retry-instruction"
       | "task-outcome-reminder"
-      | "approval-resolution"
       | "steering",
     relationships: Record<string, string> = {},
   ): Promise<void> {

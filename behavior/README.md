@@ -57,3 +57,11 @@ and must not be assigned again. Retired opaque IDs:
 - `LEARN-8073E4CC` — specified a self-improvement loop owned by Pi
 - `DEV-79F36207` — specified software-development behavior owned by Pi
 - `PROFILE-97C5C7BA` — duplicated the ordinary repository lifecycle for Pi's profile
+- `GATEWAY-846B1000` — required human approval for Pi image, package, and protected-repository mutations
+- `REPO-7B0E2F4A` — approval-gated landing for repositories with an `approval-required` or `denied` write policy
+- `BOX-40521095` — let Pi install and upgrade Debian packages in its image through approvals
+- `BOX-6A91C3E7` — let Pi and the operator edit and rebuild a governed Pi image recipe
+- `BOX-62AC107F` — moved an edited Pi image recipe to a new foundational image
+- `CLI-5D8A1C72` — let the local operator edit and rebuild the Pi image with `integral image`
+- `CLI-8066D182` — shared approval decisions between `integral approval` and talk
+- `CONFIG-E82C4A19` — let `[runner]` choose a custom Pi image and pull policy

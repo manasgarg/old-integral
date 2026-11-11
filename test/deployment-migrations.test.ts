@@ -275,3 +275,112 @@ test("[SCHEDULE-E3A1358A] migrating to format 2 removes the pinned model and Pi 
   assert.deepEqual(await directorySnapshot(paths.root), migrated);
   assert.deepEqual((await doctorDeployment(paths)).findings, []);
 });
+
+/** A governed store record as format 2 wrote it, without its write policy. */
+const NOTES_RESOURCE = {
+  id: "resource-1",
+  connection: "notes",
+  kind: "host-store",
+  path: "/srv/notes",
+  mount: "/home/pi/notes",
+  identity: { device: "1", inode: "2" },
+  state: "unavailable",
+  revision: 1,
+  availabilityReason: "missing",
+};
+
+/* @covers BOX-E1F472A1
+Given a deployment written by an earlier release let Pi or the operator edit the Pi image
+	When `integral migrate` moves the deployment to this release's format
+		Then integral removes the image recipe repository, image audit history, package state, and active image record
+			And removes every approval request, approval audit record, and queued approval continuation
+			And removes the Pi version and image from every model selection
+			And removes the write policy from every governed resource record
+			And removes `image` and `pull_policy` from the `[runner]` table of the main configuration
+			And leaves every other configuration line unchanged
+			And keeps the model connection, provider, and model of every selection
+*/
+test("[BOX-E1F472A1] migrating to format 3 removes image editing and pins the release's Pi image", async (t) => {
+  const paths = await sampleDeployment(t, 2),
+    channel = join(paths.channels, "discord-100000000000000001"),
+    removed = [
+      join(paths.data, "image-recipe.git", "HEAD"),
+      join(paths.data, "image-audit.jsonl"),
+      join(paths.data, "image-state.json"),
+      join(paths.data, "active-image.json"),
+      join(paths.data, "repository-recovery", "integral-image-recipe", "a"),
+    ];
+  for (const file of removed) {
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, "{}\n");
+  }
+
+  await mkdir(paths.resources, { recursive: true });
+  await writeFile(
+    join(paths.resources, "notes.json"),
+    `${JSON.stringify({ ...NOTES_RESOURCE, writePolicy: "direct" })}\n`,
+  );
+  const queued = {
+    id: "U6IS891VR41",
+    text: "Approval resolved",
+    order: 2,
+    status: "queued",
+    attempts: 0,
+    createdAt: "2026-11-10T22:21:00.662Z",
+    approvalContinuation: { approvalId: "approval-1" },
+  };
+  const queue = JSON.parse(await readFile(paths.queue, "utf8")) as {
+    items: unknown[];
+  };
+  const kept = queue.items[0];
+  queue.items.push(queued);
+  await writeFile(paths.queue, `${JSON.stringify(queue)}\n`);
+  const config = (await readFile(paths.mainConfig, "utf8")).replace(
+    "[runner]\n",
+    "[runner]\n# keep this comment\n",
+  );
+  await writeFile(paths.mainConfig, config);
+
+  await migrateDeployment(paths, { release: RELEASE, report: () => undefined });
+
+  for (const file of [
+    ...removed,
+    join(paths.data, "container-packages.json"),
+    join(paths.data, "approvals.json"),
+    join(paths.data, "approval-audit.jsonl"),
+  ])
+    await assert.rejects(stat(file), { code: "ENOENT" }, file);
+  await assert.rejects(stat(join(paths.data, "image-recipe.git")), {
+    code: "ENOENT",
+  });
+
+  for (const selection of [paths.modelSelection, join(channel, "model.json")])
+    assert.deepEqual(JSON.parse(await readFile(selection, "utf8")), {
+      connection: "anthropic",
+      provider: "anthropic",
+      model: "claude-sample",
+    });
+  assert.deepEqual(
+    JSON.parse(await readFile(join(paths.resources, "notes.json"), "utf8")),
+    NOTES_RESOURCE,
+  );
+  assert.deepEqual(
+    (JSON.parse(await readFile(paths.queue, "utf8")) as { items: unknown[] })
+      .items,
+    [kept],
+  );
+
+  const migratedConfig = await readFile(paths.mainConfig, "utf8");
+  assert.equal(
+    migratedConfig,
+    config
+      .replace('image = "integral-pi:0.1.0"\n', "")
+      .replace('pull_policy = "if-not-present"\n', ""),
+  );
+  assert.match(migratedConfig, /# keep this comment/);
+
+  const migrated = await directorySnapshot(paths.root);
+  await migrateDeployment(paths, { release: RELEASE, report: () => undefined });
+  assert.deepEqual(await directorySnapshot(paths.root), migrated);
+  assert.deepEqual((await doctorDeployment(paths)).findings, []);
+});

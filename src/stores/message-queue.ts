@@ -12,14 +12,6 @@ export interface MessageOrigin {
   channelId: string;
 }
 
-export interface ApprovalContinuation {
-  approvalId: string;
-  originSessionId: string;
-  originRunId?: string;
-  outcome: "denied" | "expired" | "stale" | "succeeded" | "failed";
-  summary: string;
-}
-
 export interface QueuedMessage {
   id: string;
   text: string;
@@ -27,7 +19,6 @@ export interface QueuedMessage {
   status: QueueStatus;
   attempts: number;
   createdAt: string;
-  approvalContinuation?: ApprovalContinuation;
   origin?: MessageOrigin;
 }
 
@@ -134,11 +125,7 @@ export class MessageQueue {
       .sort((a, b) => a.order - b.order);
   }
 
-  async enqueue(
-    text: string,
-    approvalContinuation?: ApprovalContinuation,
-    origin?: MessageOrigin,
-  ): Promise<QueuedMessage> {
+  async enqueue(text: string, origin?: MessageOrigin): Promise<QueuedMessage> {
     return this.operations.run(async () => {
       if (!text.trim()) throw new IntegralError("message must not be empty");
 
@@ -168,9 +155,6 @@ export class MessageQueue {
         status: "queued",
         attempts: 0,
         createdAt: new Date().toISOString(),
-        ...(approvalContinuation
-          ? { approvalContinuation: structuredClone(approvalContinuation) }
-          : {}),
         ...(origin ? { origin: structuredClone(origin) } : {}),
       };
 

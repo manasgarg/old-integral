@@ -5,7 +5,6 @@ mount in its filesystem, edit through per-run checkouts, land through a
 validated host boundary, and soft-delete without destroying history. Existing
 bare repositories may enter the same lifecycle through a host connection.
 
-<!-- Automation note (REPO-7B0E2F4A): Selective approval-gated repository landing, exact proposal review, stale-ref refusal, denied writes, and direct local image editing are automated. -->
 
 ## REPO-D1865075 — Give Pi authenticated repository lifecycle tools
 
@@ -81,7 +80,6 @@ Given one or more governed repository connections are active and have mount path
 
 ```text
 Given Pi has committed work on a current-run governed repository branch
-	And that repository's host-managed write policy is `direct`
 	When Pi calls `repo_push` for that repository
 		Then the container sends a Git bundle and proposed full commit ID through the authenticated gateway control boundary
 			And the host derives the repository and run identity from the authenticated session
@@ -111,40 +109,6 @@ Given Pi works in a run-scoped governed repository checkout
 	When integral describes governed repository work to Pi
 		Then it explains that a local commit is not durable until `repo_push` succeeds
 			And explains the required land-or-undo disposition before completion
-```
-
-## REPO-7B0E2F4A — Approval-gate selected host-managed repositories
-
-```text
-Given every governed repository has a host-managed write policy of `direct`, `approval-required`, or `denied`
-	And Pi cannot change that policy
-	When Pi calls `repo_push`
-		Then integral derives the repository ID and policy from the authenticated session
-			And never trusts a policy, host path, approval status, or repository identity supplied by Pi
-	When Pi calls `repo_push` for an `approval-required` repository
-		Then integral receives and validates the proposed commit through the ordinary quarantine boundary
-			And stores the valid proposal under an approval-specific ref without advancing the canonical branch
-			And binds the approval to the repository ID, current canonical base commit, proposed commit, complete tree digest, changed paths, originating session and run, and repository lifecycle revision
-			And shows the exact commit diff and safe validation summary to the approving human
-			And does not expose unvalidated Git objects to the canonical repository
-	When a human approves that exact repository proposal
-		Then integral revalidates the quarantined objects, complete proposed tree, repository lifecycle revision, and canonical base commit
-			And invokes the repository's idempotent approved-mutation executor for that exact proposal
-			And refuses any file, commit, tree, ref, or policy change made after approval was requested
-	When the canonical branch or lifecycle revision changed after the proposal was created
-		Then integral records a stale approval outcome without advancing the canonical branch
-			And lets Pi fetch, rebase, and submit a new proposal requiring a new approval
-	When a human denies the proposal or its approval expires
-		Then integral leaves the canonical branch unchanged
-			And retains only the bounded proposal and audit material required by policy
-	When Pi calls `repo_push` for a `denied` repository
-		Then integral rejects the request without accepting a proposal or changing repository state
-	When Pi calls a read-only repository operation
-		Then integral permits it according to ordinary session and repository policy without mutation approval
-	When a trusted local operator edits an `approval-required` image-recipe repository through `integral image edit`
-		Then integral treats the local CLI invocation as direct human authority for that repository
-			And validates and durably commits the exact change without creating an approval request
-			And records the operator, prior commit, landed commit, tree digest, and changed paths in host audit history
 ```
 
 ## REPO-37441347 — Refuse stale or malformed repository landings safely

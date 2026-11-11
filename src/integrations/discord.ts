@@ -290,47 +290,6 @@ export class DiscordJsListener implements DiscordListener {
               ),
           ),
       ),
-      direct(
-        new SlashCommandBuilder()
-          .setName("approvals")
-          .setDescription("Inspect or decide this conversation's approvals")
-          .addSubcommand((command) =>
-            command.setName("ls").setDescription("List pending approvals"),
-          )
-          .addSubcommand((command) =>
-            command
-              .setName("show")
-              .setDescription("Show an approval")
-              .addStringOption((option) =>
-                option
-                  .setName("id")
-                  .setDescription("Approval ID")
-                  .setRequired(true),
-              ),
-          )
-          .addSubcommand((command) =>
-            command
-              .setName("approve")
-              .setDescription("Approve a request")
-              .addStringOption((option) =>
-                option
-                  .setName("id")
-                  .setDescription("Approval ID")
-                  .setRequired(true),
-              ),
-          )
-          .addSubcommand((command) =>
-            command
-              .setName("deny")
-              .setDescription("Deny a request")
-              .addStringOption((option) =>
-                option
-                  .setName("id")
-                  .setDescription("Approval ID")
-                  .setRequired(true),
-              ),
-          ),
-      ),
     ];
 
     await this.client.application?.commands.set(

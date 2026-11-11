@@ -5,7 +5,7 @@ durable Integral conversation. The Discord DM and the default terminal
 conversation keep separate histories, queues, sessions, and
 task routes. In this release the logical Discord conversation maps one-to-one
 to the configured native Discord DM; linking surfaces is out of scope. Discord
-does not grant the agent credentials or weaken governed-operation approvals.
+does not grant the agent credentials.
 
 <!-- Automation note (DISCORD-E4BE44A7): Full verification requires an isolated Discord application and credential fixture. -->
 <!-- Automation note (DISCORD-E043BBDD): Gateway reconnect and shutdown require Discord Gateway fault-injection infrastructure. -->
@@ -77,10 +77,10 @@ Given Integral receives an event from Discord
 			And does not enqueue content, execute a command, or reveal conversation state
 			And does not treat a matching username or display name as authorization
 Given the bound Discord user uses the configured DM
-	When Integral authorizes a message, command, or approval decision
+	When Integral authorizes a message or command
 		Then it revalidates both the immutable Discord user ID and channel ID
 			And records those identities as the human origin
-			And applies the same gateway and approval policy as a local terminal
+			And applies the same gateway policy as a local terminal
 ```
 
 ## DISCORD-A3CB29FC — Submit Discord messages to their own conversation
@@ -241,15 +241,6 @@ Given a task carries a Discord origin route
 	When the Discord delivery fails
 		Then Integral retains the task's original route
 			And reports the delivery failure without falling back to a terminal or another channel
-Given a governed request originates from the Discord conversation
-	When Integral asks the user for approval
-		Then it posts an ordinary bot message in the configured DM
-			And includes the approval ID, safe action summary, and deadline
-			And tells the user to inspect it with `/approvals show`
-			And tells the user to decide it with `/approvals approve` or `/approvals deny`
-	When the approval is approved, denied, stale, expired, or fails during execution
-		Then Integral posts the resulting state only in the configured DM
-			And includes the approval ID and a concise outcome
 ```
 
 ## DISCORD-6640EECF — Report only titled task failures automatically
@@ -275,24 +266,21 @@ Given a task carries a Discord origin route
 ```text
 Given the Discord connection becomes active
 	When Integral registers commands for the configured application
-		Then it registers `/help`, `/status`, `/model`, `/queue`, `/tasks`, and `/approvals` as native Discord application commands
+		Then it registers `/help`, `/status`, `/model`, `/queue`, and `/tasks` as native Discord application commands
 			And limits the registered commands to bot direct messages
 			And gives every command, subcommand, and argument a concise description in Discord's command picker
 			And gives `/model` optional search terms matching the terminal model chooser
 			And provides `/queue ls`, `/queue edit`, and `/queue delete` as subcommands
 			And provides `/tasks ls`, `/tasks show`, and `/tasks cancel` as subcommands
-			And provides `/approvals ls`, `/approvals show`, `/approvals approve`, and `/approvals deny` as subcommands
 			And does not register `/exit` because leaving a DM does not detach or end the conversation
 Given the bound Discord user invokes a supported slash command in the configured DM
 	When Integral handles the interaction
 		Then it acknowledges the interaction immediately with Discord's private deferred-response state
 			And executes the equivalent deployment-wide host command
-			And `/status`, `/model`, `/queue`, `/tasks`, and `/approvals` present the same durable host state from every authorized human channel
+			And `/status`, `/model`, `/queue`, and `/tasks` present the same durable host state from every authorized human channel
 			And `/model` reads or changes the deployment's shared model selection
 			And `/queue` identifies each queued conversation message by its conversation and stable queue ID
 			And `/tasks` identifies each durable task by its execution ID and can cancel an active task
-			And `/approvals` lists unresolved governed requests without secret values regardless of their notification route
-			And `/approvals approve` and `/approvals deny` may decide any listed request under the same human-approval policy
 			And it replaces the deferred response with the command result
 			And it keeps the command result private to the bound user
 			And it splits a result longer than 2,000 characters into ordered private follow-up messages
@@ -307,7 +295,7 @@ Given the bound Discord user invokes a supported slash command in the configured
 			And selects the model when the terms resolve to exactly one choice
 			And otherwise privately lists the matching choices and tells the user how to narrow the search
 			And leaves the deployment's selection unchanged when the search is ambiguous or has no match
-	When the user omits a required argument or names an unknown message or approval
+	When the user omits a required argument or names an unknown message or task
 		Then Integral returns concise usage or not-found guidance in the private command response
 			And does not reveal secret request values
 	When command execution fails after Integral deferred the interaction

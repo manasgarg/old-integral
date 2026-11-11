@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import { atomicWrite, readText } from "../platform/files.ts";
 import { ScheduleStore } from "./schedule-store.ts";
@@ -44,6 +45,69 @@ async function removeRecordProfiles(file: string, key: string): Promise<void> {
   if (changed) await atomicWrite(file, `${JSON.stringify(data)}\n`);
 }
 
+/** Rewrites the JSON object in `file` with `edit`, when it exists and changes. */
+async function editJsonFile(
+  file: string,
+  edit: (value: Record<string, unknown>) => boolean,
+): Promise<void> {
+  const raw = await readText(file);
+  if (!raw) return;
+
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  if (edit(value)) await atomicWrite(file, `${JSON.stringify(value)}\n`);
+}
+
+/** Deletes `keys` from `value`, reporting whether any were present. */
+function deleteKeys(value: Record<string, unknown>, keys: string[]): boolean {
+  let changed = false;
+  for (const key of keys)
+    if (key in value) {
+      delete value[key];
+      changed = true;
+    }
+  return changed;
+}
+
+/** Drops queued messages that continued a resolved approval. */
+function dropApprovalContinuations(queue: Record<string, unknown>): boolean {
+  if (!Array.isArray(queue.items)) return false;
+
+  const items = queue.items as Array<Record<string, unknown>>,
+    kept = items.filter((item) => !("approvalContinuation" in item));
+  queue.items = kept;
+  return kept.length !== items.length;
+}
+
+/**
+ * Removes the `image` and `pull_policy` keys from the `[runner]` table of the
+ * main configuration, leaving every other line as the operator wrote it.
+ */
+export function removeRunnerImageKeys(source: string): string {
+  let table = "";
+  return source
+    .split("\n")
+    .filter((line) => {
+      const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
+      if (header) table = header[1]!.trim();
+      return !(
+        table === "runner" && /^\s*(?:image|pull_policy)\s*=/.test(line)
+      );
+    })
+    .join("\n");
+}
+
+/** Files and directories that only Pi image editing and approvals used. */
+const IMAGE_EDITING_DATA = [
+  "image-recipe.git",
+  "image-audit.jsonl",
+  "image-state.json",
+  "active-image.json",
+  "container-packages.json",
+  "approvals.json",
+  "approval-audit.jsonl",
+  join("repository-recovery", "integral-image-recipe"),
+];
+
 export const DEPLOYMENT_MIGRATIONS: readonly DeploymentMigration[] = [
   {
     // Format 0 is every deployment created before deployment formats
@@ -67,6 +131,50 @@ export const DEPLOYMENT_MIGRATIONS: readonly DeploymentMigration[] = [
       }
       await removeRecordProfiles(paths.occurrences, "occurrences");
       await removeRecordProfiles(paths.taskQueue, "tasks");
+    },
+  },
+  {
+    // Format 2 let Pi and the operator edit and rebuild the Pi image, gated
+    // by approvals, and recorded the Pi version and image in each model
+    // selection. Format 3 always runs the image pinned by the release.
+    from: 2,
+    name: "pin-release-pi-image",
+    async apply(paths) {
+      const mainConfig = await readText(paths.mainConfig);
+      if (mainConfig !== undefined) {
+        const pinned = removeRunnerImageKeys(mainConfig);
+        if (pinned !== mainConfig) await atomicWrite(paths.mainConfig, pinned);
+      }
+
+      const channels = (
+        await readdir(paths.channels, { withFileTypes: true }).catch(() => [])
+      )
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(paths.channels, entry.name));
+
+      for (const selection of [
+        paths.modelSelection,
+        ...channels.map((channel) => join(channel, "model.json")),
+      ])
+        await editJsonFile(selection, (value) =>
+          deleteKeys(value, ["piVersion", "piImage"]),
+        );
+
+      for (const queue of [
+        paths.queue,
+        ...channels.map((channel) => join(channel, "queue.json")),
+      ])
+        await editJsonFile(queue, dropApprovalContinuations);
+
+      for (const entry of await readdir(paths.resources).catch(() => []))
+        if (entry.endsWith(".json"))
+          await editJsonFile(join(paths.resources, entry), (value) =>
+            deleteKeys(value, ["writePolicy"]),
+          );
+
+      for (const entry of IMAGE_EDITING_DATA)
+        await rm(join(paths.data, entry), { recursive: true, force: true });
+      await rm(join(paths.state, "image-recipe-init.lock"), { force: true });
     },
   },
 ];

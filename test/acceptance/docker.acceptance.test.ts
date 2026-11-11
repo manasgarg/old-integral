@@ -12,14 +12,13 @@ import {
   newSessionIdentity,
 } from "../../src/integrations/docker/pi-container.ts";
 import { writeWebExtension } from "../../src/integrations/pi/session-extensions.ts";
-import { ensureManagedPiImage } from "../../src/integrations/docker/managed-image.ts";
+import { ensureReleasePiImage } from "../../src/integrations/docker/managed-image.ts";
 import { loadConfig } from "../../src/stores/config.ts";
 import { validateConnection } from "../../src/stores/connection-store.ts";
 import { deploymentId } from "../../src/platform/component-identity.ts";
 import { fixture } from "../helpers.ts";
 import { ensurePiRuntime } from "../../src/integrations/pi/host-runtime.ts";
-import { ensureImageRecipeRepository } from "../../src/stores/image-recipe-store.ts";
-import { buildImageRecipe } from "../../src/integrations/docker/image-build.ts";
+import { PI_VERSION } from "../../src/platform/constants.ts";
 
 /* @covers WEB-65AA5DDC
 Given an authenticated Pi session uses `web_search` or `fetch_pages`
@@ -51,7 +50,7 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] [WEB-2ED07
   await writeFile(join(currentRun, "run.json"), '{"status":"running"}\n');
   await writeFile(caCert, "acceptance CA fixture\n");
   await writeFile(caBundle, "acceptance CA fixture\n");
-  const image = ensureManagedPiImage(config, "0.80.3");
+  const image = ensureReleasePiImage();
   await createLockedNetwork(network);
   const identity = newSessionIdentity(),
     spec = buildContainerSpec({
@@ -246,14 +245,12 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] [WEB-2ED07
   );
 });
 
-test("[BOX-E1F472A1] managed Pi image exposes its model catalog through integral's JSON bridge", async (t) => {
+test("[BOX-E1F472A1] managed Pi image exposes its model catalog through integral's JSON bridge", async () => {
   assert.doesNotThrow(
     () => execFileSync("docker", ["info"], { stdio: "ignore" }),
     "Docker acceptance requires a reachable Docker daemon",
   );
-  const paths = await fixture(t),
-    config = await loadConfig(paths, {}),
-    image = ensureManagedPiImage(config, "0.80.3"),
+  const image = ensureReleasePiImage(),
     output = execFileSync(
       "docker",
       [
@@ -281,14 +278,12 @@ test("[BOX-E1F472A1] managed Pi image exposes its model catalog through integral
   );
 });
 
-test("[CONNECTION-12C87631] managed Pi image includes Git and GitHub clients", async (t) => {
+test("[CONNECTION-12C87631] managed Pi image includes Git and GitHub clients", async () => {
   assert.doesNotThrow(
     () => execFileSync("docker", ["info"], { stdio: "ignore" }),
     "Docker acceptance requires a reachable Docker daemon",
   );
-  const paths = await fixture(t),
-    config = await loadConfig(paths, {}),
-    image = ensureManagedPiImage(config, "0.80.3");
+  const image = ensureReleasePiImage();
   for (const command of [
     ["git", "--version"],
     ["gh", "--version"],
@@ -304,17 +299,20 @@ test("[CONNECTION-12C87631] managed Pi image includes Git and GitHub clients", a
     );
 });
 
-test("[BOX-40521095] managed image contains the exact Pi release and governed Debian packages", async (t) => {
+/* @covers BOX-E1F472A1
+Given the integral release ships the Dockerfile for its Pi image
+	When integral needs the Pi image
+		Then it uses the image built from the release's Dockerfile
+			And builds that image only when it is not present locally
+*/
+test("[BOX-E1F472A1] the release's Pi image contains exactly the pinned Pi release", async (t) => {
   assert.doesNotThrow(
     () => execFileSync("docker", ["info"], { stdio: "ignore" }),
     "Docker acceptance requires a reachable Docker daemon",
   );
   const paths = await fixture(t),
-    config = await loadConfig(paths, {}),
     runtime = await ensurePiRuntime(paths),
-    image = ensureManagedPiImage(config, runtime.version, {
-      systemPackages: ["ca-certificates", "gh", "git", "jq"],
-    }),
+    image = ensureReleasePiImage(),
     piVersion = execFileSync(
       "docker",
       [
@@ -330,33 +328,6 @@ test("[BOX-40521095] managed image contains the exact Pi release and governed De
       { encoding: "utf8" },
     );
   assert.equal(piVersion, runtime.version);
-  assert.doesNotThrow(() =>
-    execFileSync(
-      "docker",
-      ["run", "--rm", "--network", "none", image, "jq", "--version"],
-      { stdio: "ignore" },
-    ),
-  );
-});
-
-test("[BOX-6A91C3E7] [CLI-5D8A1C72] a fresh recipe build resolves floating Pi and records its installed inventory", async (t) => {
-  assert.doesNotThrow(
-    () => execFileSync("docker", ["info"], { stdio: "ignore" }),
-    "Docker acceptance requires a reachable Docker daemon",
-  );
-  const paths = await fixture(t),
-    config = await loadConfig(paths, {}),
-    commit = await ensureImageRecipeRepository(paths),
-    result = await buildImageRecipe(paths, config, commit, "acceptance-user");
-  assert.equal(result.recipeCommit, commit);
-  assert.match(result.image, /^sha256:/);
-  assert.match(result.piVersion, /^\d+\.\d+\.\d+/);
-  assert.ok(result.packages.some((entry) => entry.startsWith("git=")));
-  assert.doesNotThrow(() =>
-    execFileSync(
-      "docker",
-      ["run", "--rm", "--network", "none", result.image, "pi", "--version"],
-      { stdio: "ignore" },
-    ),
-  );
+  assert.equal(piVersion, PI_VERSION);
+  assert.equal(ensureReleasePiImage(), image);
 });

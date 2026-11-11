@@ -1,23 +1,16 @@
 import { createHash } from "node:crypto";
 import { parse } from "smol-toml";
 import { atomicWrite, readText } from "../platform/files.ts";
-import {
-  DEFAULT_PI_IMAGE,
-  DEFAULT_PORTS,
-  type Component,
-} from "../platform/constants.ts";
+import { DEFAULT_PORTS, type Component } from "../platform/constants.ts";
 import { IntegralError } from "../platform/errors.ts";
 import type { IntegralPaths } from "../platform/deployment-paths.ts";
 import type { LogFormat, LogLevel } from "../platform/logging.ts";
 
-export type PullPolicy = "always" | "if-not-present" | "never";
 export type ValueSource = "built-in" | "file" | "environment";
 
 export interface EffectiveConfig {
   server: Record<`${Component}Port`, number>;
   runner: {
-    image: string;
-    pullPolicy: PullPolicy;
     turnTimeoutSeconds: number;
     idleTimeoutSeconds: number;
     memoryMb: number;
@@ -40,8 +33,6 @@ const defaults = {
   "server.coordinator_port": DEFAULT_PORTS.coordinator,
   "server.runner_port": DEFAULT_PORTS.runner,
   "server.scheduler_port": DEFAULT_PORTS.scheduler,
-  "runner.image": DEFAULT_PI_IMAGE,
-  "runner.pull_policy": "if-not-present",
   "runner.turn_timeout_seconds": 1800,
   "runner.idle_timeout_seconds": 300,
   "runner.memory_mb": 2048,
@@ -59,8 +50,6 @@ const defaults = {
 const allowed: Record<string, readonly string[]> = {
   server: ["gateway_port", "coordinator_port", "runner_port", "scheduler_port"],
   runner: [
-    "image",
-    "pull_policy",
     "turn_timeout_seconds",
     "idle_timeout_seconds",
     "memory_mb",
@@ -106,12 +95,6 @@ function stringChoice<T extends string>(
     throw new IntegralError(`${key} must be one of: ${choices.join(", ")}`);
   }
   return value as T;
-}
-
-function stringValue(value: unknown, key: string): string {
-  if (typeof value !== "string" || !value.trim())
-    throw new IntegralError(`${key} must be a non-empty string`);
-  return value;
 }
 
 export function validateMain(
@@ -259,12 +242,6 @@ export async function loadConfig(
   };
 
   const runner = {
-    image: stringValue(val("runner", "image"), "runner.image"),
-    pullPolicy: stringChoice(
-      val("runner", "pull_policy"),
-      "runner.pull_policy",
-      ["always", "if-not-present", "never"],
-    ),
     turnTimeoutSeconds: int(
       val("runner", "turn_timeout_seconds"),
       "runner.turn_timeout_seconds",
@@ -276,8 +253,6 @@ export async function loadConfig(
     memoryMb: int(val("runner", "memory_mb"), "runner.memory_mb"),
     tmpfsMb: int(val("runner", "tmpfs_mb"), "runner.tmpfs_mb"),
   };
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(runner.image))
-    throw new IntegralError("runner.image must be a valid OCI image reference");
 
   const conversation = {
     contextMaxMessages: int(
@@ -362,7 +337,7 @@ export async function loadConfig(
   };
 }
 
-export const STARTER_CONFIG = `# integral Phase 1 configuration\n\n[server]\ngateway_port = 7310\ncoordinator_port = 7311\nrunner_port = 7312\nscheduler_port = 7313\n\n[runner]\nimage = "${DEFAULT_PI_IMAGE}"\npull_policy = "if-not-present"\nturn_timeout_seconds = 1800\nidle_timeout_seconds = 300\nmemory_mb = 2048\ntmpfs_mb = 2048\n\n[conversation]\ncontext_max_messages = 200\ncontext_max_chars = 100000\n\n[repositories]\nmax_file_bytes = 100000000\nmax_repo_bytes = 1000000000\nrecovery_retention_days = 14\n\n[stores]\nsnapshots = 14\n\n[logging]\nlevel = "info"\nformat = "text"\n`;
+export const STARTER_CONFIG = `# integral Phase 1 configuration\n\n[server]\ngateway_port = 7310\ncoordinator_port = 7311\nrunner_port = 7312\nscheduler_port = 7313\n\n[runner]\nturn_timeout_seconds = 1800\nidle_timeout_seconds = 300\nmemory_mb = 2048\ntmpfs_mb = 2048\n\n[conversation]\ncontext_max_messages = 200\ncontext_max_chars = 100000\n\n[repositories]\nmax_file_bytes = 100000000\nmax_repo_bytes = 1000000000\nrecovery_retention_days = 14\n\n[stores]\nsnapshots = 14\n\n[logging]\nlevel = "info"\nformat = "text"\n`;
 
 export async function initConfig(paths: IntegralPaths): Promise<void> {
   if ((await readText(paths.mainConfig)) !== undefined)

@@ -9,14 +9,17 @@ deliberate change that goes through this runbook.
 
 Keep these two values identical. A test fails if they differ.
 
-- `PI_VERSION` in `src/constants.ts` is the version integral installs on the
-  host (for OAuth and the model catalog) and passes to default image builds.
-- `ARG PI_VERSION` in `Dockerfile.pi` is the default for the managed Pi image
-  recipe. A new deployment's image recipe starts from this file.
+- `PI_VERSION` in `src/platform/constants.ts` is the version integral installs
+  on the host for OAuth and the model catalog.
+- `ARG PI_VERSION` in `Dockerfile.pi` is the version built into the release's
+  Pi image.
 
-An operator can still set a different version in their deployment's own image
-recipe (`integral image edit`). That is their choice and is not affected by the
-pin.
+Every deployment runs the image built from the release's `Dockerfile.pi`.
+Deployments cannot edit, rebuild or replace it, so a release is the only way to
+change Pi, the base image or the image's packages. The base image is pinned by
+digest. To move to a newer base image, look up its digest with
+`docker buildx imagetools inspect <image>:<tag>` and update the `FROM` line in
+the same kind of pull request.
 
 ## What integral depends on in Pi
 
@@ -99,11 +102,13 @@ not affect integral, but these do:
 ## What changes for running deployments
 
 When a deployment picks up the new pin, integral installs the new version
-under its runtime state (`pi-runtime/versions/<version>`) and builds a new
-managed image the next time the model chooser or OAuth needs Pi. Each
-conversation records the Pi version and image it selected; integral treats a
-change of Pi runtime as a change of model selection. Older installed versions
-stay on disk until removed.
+under its runtime state (`pi-runtime/versions/<version>`) and builds the new
+release's image the first time a Pi session, the model chooser or a scheduled
+attempt needs it. The image tag names the integral version, a digest of
+`Dockerfile.pi` and the model bridge, and the Pi version, so a release never
+reuses another release's image. Model selections record only the connection,
+provider and model, and every run record names the Pi version and image it
+used. Older installed versions and images stay on disk until removed.
 
 ## Roll back
 
@@ -111,7 +116,6 @@ stay on disk until removed.
    previous version) and release.
 2. The previous version is usually still installed under
    `pi-runtime/versions/`, and its image may still be present, so integral can
-   use it again without downloading. If not, integral installs it again.
-3. If an operator edited their image recipe for the new version, they revert
-   that change with `integral image edit` as well.
-4. Open an issue that records what broke, so the next upgrade checks for it.
+   use it again without downloading. If not, integral installs and builds it
+   again.
+3. Open an issue that records what broke, so the next upgrade checks for it.

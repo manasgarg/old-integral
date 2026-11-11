@@ -43,7 +43,6 @@ test("[UPGRADE-D1B8C002] doctor reads every store without changing the deploymen
     "conversation",
     "message queue",
     "task queue",
-    "approvals",
     "schedules",
     "channel discord-100000000000000001 queue",
   ])

@@ -111,8 +111,8 @@ test("Discord ingress checkpoints and queue origins survive restart without dupl
     };
   await ingress.load();
   await queue.load();
-  const first = await queue.enqueue("hello", undefined, origin),
-    duplicate = await queue.enqueue("hello", undefined, origin);
+  const first = await queue.enqueue("hello", origin),
+    duplicate = await queue.enqueue("hello", origin);
   await ingress.record(origin.externalId);
   assert.equal(first.id, duplicate.id);
   assert.equal(queue.snapshot().length, 1);

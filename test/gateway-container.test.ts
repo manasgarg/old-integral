@@ -40,9 +40,10 @@ import {
   writeWebExtension,
 } from "../src/integrations/pi/session-extensions.ts";
 import {
-  managedPiImage,
+  releasePiImageTag,
   parsePiModelList,
 } from "../src/integrations/docker/managed-image.ts";
+import { PI_VERSION } from "../src/platform/constants.ts";
 import { loadConfig } from "../src/stores/config.ts";
 import {
   listConnections,
@@ -124,12 +125,26 @@ test("[ENV-F19A64B2] gateway renews expired and expiring cached host certificate
   assert.equal(expiringReplacementParsed.verify(caCertificate.publicKey), true);
 });
 
-test("[BOX-E1F472A1] managed Pi image identity changes with its build recipe", () => {
-  const first = managedPiImage("1.2.3", [Buffer.from("first recipe")]),
-    second = managedPiImage("1.2.3", [Buffer.from("second recipe")]);
+/* @covers BOX-E1F472A1
+Given the integral release ships the Dockerfile for its Pi image
+	When integral needs the Pi image
+		Then it uses the image built from the release's Dockerfile
+			And tags the image with the integral version, a digest of the release's image inputs, and the pinned Pi version
+			And gives releases with different image inputs different tags
+*/
+test("[BOX-E1F472A1] the release's Pi image tag changes with the release's image inputs", () => {
+  const first = releasePiImageTag([Buffer.from("first Dockerfile")]),
+    second = releasePiImageTag([Buffer.from("second Dockerfile")]);
 
   assert.notEqual(first, second);
-  assert.match(first, /^integral-pi:0\.1\.0-recipe-[a-f0-9]{12}-pi-1\.2\.3$/);
+  assert.equal(first, releasePiImageTag([Buffer.from("first Dockerfile")]));
+  assert.match(
+    first,
+    new RegExp(
+      `^integral-pi:0\\.1\\.0-[a-f0-9]{12}-pi-${PI_VERSION.replaceAll(".", "\\.")}$`,
+    ),
+  );
+  assert.match(releasePiImageTag(), /^integral-pi:0\.1\.0-[a-f0-9]{12}-pi-/);
 });
 
 test("[WEB-2ED07A71] every session receives a self-contained web extension", async (t) => {
@@ -193,15 +208,6 @@ test("[DISCORD-41A4A8BD] only sessions with an active Discord connection receive
   await rm(extensionPath);
   await writeDiscordExtension(paths.root, []);
   await assert.rejects(stat(extensionPath), { code: "ENOENT" });
-});
-
-test("[BOX-40521095] managed Pi image identity includes the governed package set", () => {
-  const recipe = [Buffer.from("same recipe")],
-    base = managedPiImage("1.2.3", recipe, ["git"]),
-    customized = managedPiImage("1.2.3", recipe, ["git", "jq"]),
-    reordered = managedPiImage("1.2.3", recipe, ["jq", "git"]);
-  assert.notEqual(base, customized);
-  assert.equal(customized, reordered);
 });
 
 /* @covers GATEWAY-3F299566
@@ -761,7 +767,7 @@ test("[MCP-2F0F5CB5] authenticated Pi MCP calls use the named remote connection 
 /* @covers MCP-0A804DA4
 Given an active stdio MCP connection is available to a Pi session
 	When the runner provisions that session
-		Then integral starts one dedicated MCP sidecar from the configured runner image
+		Then integral starts one dedicated MCP sidecar from the release's Pi image
 			And runs it as the same non-root numeric user used for Pi
 			And gives it a read-only root filesystem, bounded temporary storage, bounded memory, no Linux capabilities, and no privilege escalation
 			And does not mount the Pi session home, repositories, stores, Docker socket, Integral control-plane files, or host paths into it
@@ -1164,154 +1170,6 @@ test("[SCHEDULE-55BD779F] authenticated origin-form schedule requests reach the 
   assert.equal(status, 200);
   assert.equal(responseBody, "[]");
   assert.deepEqual(forwarded, ["/integral/schedules"]);
-});
-
-test("[BOX-40521095] authenticated package controls bind session and run lineage at the gateway", async (t) => {
-  const paths = await fixture(t),
-    config = await loadConfig(paths, {});
-  let forwarded:
-    { target: string; path: string; body: Record<string, unknown> } | undefined;
-  const gateway = new Gateway(
-      paths,
-      config,
-      new Logger({
-        component: "gateway",
-        deploymentId: deploymentId(paths),
-        level: "error",
-        format: "json",
-        sink: () => undefined,
-      }),
-      {
-        async internalFetch(_paths, _caller, target, path, init) {
-          const serialized = init?.body;
-          if (typeof serialized !== "string")
-            throw new Error("expected serialized package request");
-          forwarded = {
-            target,
-            path,
-            body: JSON.parse(serialized) as Record<string, unknown>,
-          };
-          return Response.json({ revision: 1, packages: ["git", "jq"] });
-        },
-      },
-    ),
-    request = Readable.from([
-      Buffer.from(
-        JSON.stringify({
-          operation: "install",
-          packages: ["jq"],
-          expectedRevision: 0,
-          actor: "forged",
-        }),
-      ),
-    ]) as unknown as IncomingMessage;
-  let status = 0;
-  const response = {
-    once() {
-      return response;
-    },
-    writeHead(value: number) {
-      status = value;
-      return response;
-    },
-    end() {
-      return response;
-    },
-  } as unknown as ServerResponse;
-  request.url = "/integral/control/container-packages";
-  request.method = "POST";
-  request.headers = {
-    "proxy-authorization": `Basic ${Buffer.from("integral:package-token").toString("base64")}`,
-  };
-  gateway.sessions.set("package-token", "session-42");
-  gateway.sessionRunIds.set("session-42", "run-42");
-  await (
-    gateway as unknown as {
-      route(req: IncomingMessage, res: ServerResponse): Promise<void>;
-    }
-  ).route(request, response);
-  assert.equal(status, 200);
-  assert.deepEqual(forwarded, {
-    target: "coordinator",
-    path: "/integral/internal/container-packages",
-    body: {
-      operation: "install",
-      packages: ["jq"],
-      expectedRevision: 0,
-      originSessionId: "session-42",
-      originRunId: "run-42",
-    },
-  });
-});
-
-test("[BOX-6A91C3E7] [REPO-7B0E2F4A] image recipe pushes cross into approval with authenticated lineage", async (t) => {
-  const paths = await fixture(t),
-    config = await loadConfig(paths, {});
-  let forwarded: Record<string, unknown> | undefined;
-  const gateway = new Gateway(
-      paths,
-      config,
-      new Logger({
-        component: "gateway",
-        deploymentId: deploymentId(paths),
-        level: "error",
-        format: "json",
-        sink: () => undefined,
-      }),
-      {
-        async internalFetch(_paths, _caller, target, path, init) {
-          assert.equal(target, "coordinator");
-          assert.equal(path, "/integral/internal/image-recipe");
-          const serialized = init?.body;
-          if (typeof serialized !== "string")
-            throw new Error("expected serialized image proposal");
-          forwarded = JSON.parse(serialized) as Record<string, unknown>;
-          return Response.json({ id: "approval-image", status: "pending" });
-        },
-      },
-    ),
-    request = Readable.from([
-      Buffer.from(
-        JSON.stringify({
-          proposed: "b".repeat(40),
-          bundle: "encoded-bundle",
-          originSessionId: "forged",
-        }),
-      ),
-    ]) as unknown as IncomingMessage;
-  let status = 0;
-  const response = {
-    once() {
-      return response;
-    },
-    writeHead(value: number) {
-      status = value;
-      return response;
-    },
-    end() {
-      return response;
-    },
-  } as unknown as ServerResponse;
-  request.url = "/integral/control/resources/repos/integral-image-recipe/push";
-  request.method = "POST";
-  request.headers = {
-    "proxy-authorization": `Basic ${Buffer.from("integral:image-token").toString("base64")}`,
-  };
-  gateway.sessions.set("image-token", "session-image");
-  gateway.sessionRunIds.set("session-image", "run-image");
-  await (
-    gateway as unknown as {
-      route(req: IncomingMessage, res: ServerResponse): Promise<void>;
-    }
-  ).route(request, response);
-  assert.equal(status, 200);
-  assert.deepEqual(forwarded, {
-    operation: "proposal",
-    proposed: "b".repeat(40),
-    bundle: "encoded-bundle",
-    originSessionId: "session-image",
-    originRunId: "run-image",
-  });
 });
 
 /* @covers SCHEDULE-930581F7
@@ -1874,6 +1732,7 @@ test("[ENV-D20B7A48] [ENV-3E85C1F9] [ENV-F19A64B2] [ENV-6C3F91E5] [WEB-2ED07A71]
     }),
     identity = newSessionIdentity();
   const spec = buildContainerSpec({
+    image: "sha256:test-pi",
     config,
     selectedModel: "claude-sonnet-4-6",
     gatewayUrl: "http://host.integral.internal:7310",
@@ -1948,6 +1807,7 @@ test("[CONNECTION-0FB2F92A] [CONNECTION-D20F6A85] real credentials are absent fr
       auth: "key",
     });
   const spec = buildContainerSpec({
+    image: "sha256:test-pi",
     config,
     selectedModel: "claude-sonnet-4-6",
     gatewayUrl: "http://host.integral.internal:7310",
@@ -1980,6 +1840,7 @@ test("[CONNECTION-12C87631] an active GitHub connection exposes only GH_TOKEN's 
       hosts: ["api.github.com", "github.com"],
     }),
     spec = buildContainerSpec({
+      image: "sha256:test-pi",
       config,
       selectedModel: "claude-sonnet-4-6",
       gatewayUrl: "http://host.integral.internal:7310",
@@ -2064,6 +1925,7 @@ test("[BOX-601613D4] [GATEWAY-EC79406A] [RUN-01CA16F2] [RUN-79BACB0C] Docker spe
       auth: "key",
     }),
     spec = buildContainerSpec({
+      image: "sha256:test-pi",
       config,
       selectedModel: "claude-sonnet-4-6",
       gatewayUrl: "http://host.integral.internal:7310",
@@ -2128,7 +1990,7 @@ Given the coordinator, runner, and gateway are healthy
 	When the runner claims the next queued message from the coordinator
 		Then integral creates a fresh temporary session home
 			And starts one non-root Docker container for Pi on the locked network
-			And runs the immutable Pi image recorded with the conversation selection in RPC mode with session persistence and approval prompts disabled
+			And runs the release's Pi image in RPC mode with session persistence and approval prompts disabled
 			And runs Pi offline so Pi does not perform its own startup network operations
 			And keeps container standard input attached for the lifetime of the RPC session
 			And supplies the conversation's selected model connection and model
@@ -2157,6 +2019,7 @@ test("[BOX-AB639757] [BOX-B45DEA9B] one RPC container specification carries the 
     }),
     identity = newSessionIdentity(),
     spec = buildContainerSpec({
+      image: "sha256:test-pi",
       config,
       selectedModel: "claude-sonnet-4-6",
       gatewayUrl: "http://host.integral.internal:7310",
@@ -2167,7 +2030,7 @@ test("[BOX-AB639757] [BOX-B45DEA9B] one RPC container specification carries the 
       model,
       mcp: [],
     });
-  assert.equal(spec.image, "integral-pi:0.1.0");
+  assert.equal(spec.image, "sha256:test-pi");
   assert.deepEqual(spec.args.slice(0, 5), [
     "--mode",
     "rpc",
@@ -2222,7 +2085,12 @@ Given Pi has an authenticated Integral session in an interactive conversation or
 		Then the authenticated gateway performs the operation without exposing component credentials or host paths
 			And applies the same validation, optimistic revision checks, persistence, and audit attribution regardless of invocation kind or conversation origin
 */
-test("[CONNECTION-4B8D73F1] [SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] [BOX-40521095] temporary Pi extensions expose remote MCP and authenticated control tools", async (t) => {
+/* @covers BOX-E1F472A1
+Given integral runs Pi in a container
+	When integral gives Pi its tools and instructions
+		Then no tool lets Pi change, rebuild, or replace its image or the image's packages
+*/
+test("[CONNECTION-4B8D73F1] [SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] [BOX-E1F472A1] temporary Pi extensions expose remote MCP and authenticated control tools", async (t) => {
   const paths = await fixture(t),
     mcp = validateConnection({
       name: "work-docs",
@@ -2265,9 +2133,7 @@ test("[CONNECTION-4B8D73F1] [SCHEDULE-55BD779F] [SCHEDULE-F13C33A0] [BOX-4052109
   assert.match(source, /task_list/);
   assert.match(source, /task_show/);
   assert.match(source, /task_cancel/);
-  assert.match(source, /container_package_list/);
-  assert.match(source, /container_package_" \+ operation/);
-  assert.match(source, /\["install", "upgrade"\]/);
+  assert.doesNotMatch(source, /container_package|container_image/);
   assert.match(source, /proxy-authorization/);
   assert.match(source, /request\(target\.url, \{ agent: false/);
   assert.doesNotMatch(source, /fetch\("http:\/\/integral\.control/);
@@ -2358,7 +2224,6 @@ test("[REPO-D1865075] [REPO-9C4A71E2] [STORE-350F3496] every Pi environment rece
     "store_restore",
     "repo_push",
     "repo_recovery_discard",
-    "container_image_rebuild",
     "store_snapshot_list",
     "store_snapshot_restore",
   ]);
@@ -2786,6 +2651,7 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
       auth: "oauth",
     }),
     spec = buildContainerSpec({
+      image: "sha256:test-pi",
       config,
       selectedModel: "gpt-5.6-luna",
       gatewayUrl: "http://host.integral.internal:7310",
@@ -2831,6 +2697,7 @@ test("[BOX-AB639757] OAuth model connections receive only a temporary sentinel O
     },
   );
   const anthropicSpec = buildContainerSpec({
+    image: "sha256:test-pi",
     config,
     selectedModel: "claude-haiku-4-5",
     gatewayUrl: "http://host.integral.internal:7310",

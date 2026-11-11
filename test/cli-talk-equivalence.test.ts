@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { main, modelCommand, talkCommand } from "../src/cli/main.ts";
 import type { TalkTerminal } from "../src/cli/main.ts";
@@ -14,7 +14,6 @@ import {
   Coordinator,
   type ClientEvent,
 } from "../src/services/coordinator/coordinator.ts";
-import { ApprovalStore } from "../src/stores/approval-store.ts";
 import {
   pathsFor,
   type IntegralPaths,
@@ -33,23 +32,19 @@ import { TaskQueue } from "../src/stores/task-queue.ts";
 import { fixture } from "./helpers.ts";
 
 // These tests drive both command surfaces against one real in-process
-// coordinator over its HTTP API. Model discovery and image builds are the only
-// injected fakes; no PTY, Docker, Pi, or model provider is involved.
+// coordinator over its HTTP API. Model discovery is the only injected fake; no
+// PTY, Docker, Pi, or model provider is involved.
 
 const MODEL_CHOICES = [
   {
     connection: "work",
     provider: "openai-codex",
     model: "gpt-5.5",
-    piVersion: "1.2.3",
-    piImage: "sha256:base",
   },
   {
     connection: "personal",
     provider: "anthropic",
     model: "claude-sonnet-4-6",
-    piVersion: "1.2.3",
-    piImage: "sha256:base",
   },
 ];
 
@@ -63,7 +58,6 @@ interface Harness {
   paths: IntegralPaths;
   coordinator: Coordinator;
   endpoint: string;
-  imageBuilds: string[][];
   attachedEvents(): number;
   shell(args: string[]): Promise<ShellResult>;
   shellModel(args: string[], answers?: string[]): Promise<ScriptedModelRun>;
@@ -79,7 +73,6 @@ async function startHarness(t: test.TestContext): Promise<Harness> {
   const temporary = await fixture(t),
     paths = pathsFor(await realpath(temporary.root)),
     config = await loadConfig(paths, {}),
-    imageBuilds: string[][] = [],
     events: ClientEvent[] = [];
   const coordinator = new Coordinator(paths, config, {
     servers: {
@@ -96,10 +89,6 @@ async function startHarness(t: test.TestContext): Promise<Harness> {
     cancelDeferred() {},
     async listModelChoices() {
       return { choices: structuredClone(MODEL_CHOICES), piVersion: "1.2.3" };
-    },
-    ensureImage(_config, _version, options) {
-      imageBuilds.push([...options.systemPackages]);
-      return "sha256:approved-image";
     },
   });
   const server = await coordinator.start();
@@ -120,7 +109,6 @@ async function startHarness(t: test.TestContext): Promise<Harness> {
     paths,
     coordinator,
     endpoint,
-    imageBuilds,
     attachedEvents: () =>
       events.filter((event) => event.type === "chat.attached").length,
     shell: (args) => shell(args, paths),
@@ -276,19 +264,6 @@ async function postJson(
     status: response.status,
     body: (await response.json()) as Record<string, unknown>,
   };
-}
-
-async function attachedTerminals(endpoint: string): Promise<number> {
-  const response = await fetch(new URL("/integral/status", endpoint));
-  return ((await response.json()) as { attached: number }).attached;
-}
-
-async function until(check: () => Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (await check()) return;
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("condition was not reached");
 }
 
 async function durableSelection(paths: IntegralPaths) {
@@ -732,205 +707,6 @@ test("[CLI-FCE41B12] [CLI-D1B5816E] queue and task operations change the same du
   assertNoSlashCommandsReachedPi(h);
 });
 
-/* @covers CLI-8066D182
-Given the integral coordinator is healthy
-	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
-	When the user invokes `integral approval ls` or enters `/approvals` in `integral talk`
-		Then integral lists the same durable approval requests from either surface
-	When the user invokes `integral approval approve <id>` or `integral approval deny <id>`
-		And the user could instead enter the corresponding `/approve <id>` or `/deny <id>` command in `integral talk`
-		Then integral decides the same durable approval request from either surface
-			And applies the same validation, revalidation, authorization, persistence, and redaction rules
-			And attributes the shell form to the trusted local operator
-			And attributes the slash form to the attached human terminal
-*/
-test("[CLI-8066D182] [CLI-D1B5816E] approval decisions share durable rules and attribute the shell to the operator and talk to its terminal", async (t) => {
-  const h = await startHarness(t);
-  assert.equal((await h.shellModel(["work"])).code, 0);
-  const selection = h.coordinator.modelSelection.get()!,
-    approvals: string[] = [];
-  for (const name of ["jq", "curl", "git", "make", "zip"])
-    approvals.push(
-      (
-        await h.coordinator.approvals.create({
-          request: {
-            kind: "container-packages",
-            operation: "install",
-            packages: [name],
-            expectedRevision: 0,
-          },
-          sessionId: "session-equivalence",
-          selection,
-        })
-      ).id,
-    );
-  const [a1, a2, a3, a4, a5] = approvals as [
-    string,
-    string,
-    string,
-    string,
-    string,
-  ];
-
-  const shellResults: Record<string, ShellResult> = {};
-  let forged: { status: number; body: Record<string, unknown> } | undefined;
-  const run = await runTalk(h, [
-    async () => {
-      shellResults.ls = await h.shell(["approval", "ls"]);
-      shellResults.json = await h.shell(["approval", "ls", "--json"]);
-      return "/approvals";
-    },
-    `/approve ${a1}`,
-    async () => {
-      shellResults.approve = await h.shell(["approval", "approve", a2]);
-      return `/deny ${a3}`;
-    },
-    async () => {
-      shellResults.deny = await h.shell(["approval", "deny", a4]);
-      shellResults.lsAfter = await h.shell(["approval", "ls"]);
-      return "/approvals";
-    },
-    async () => {
-      shellResults.repeat = await h.shell(["approval", "deny", a3]);
-      return `/deny ${a3}`;
-    },
-    async () => {
-      shellResults.missing = await h.shell(["approval", "approve", "missing"]);
-      return "/approve missing";
-    },
-    async () => {
-      forged = await postJson(
-        `${h.endpoint}/integral/approvals/${a5}/approve`,
-        { attachmentId: "forged-terminal" },
-      );
-      return "/approvals";
-    },
-    "/exit",
-  ]);
-
-  assert.equal(run.code, 0);
-  assert.ok(run.attachmentId);
-  assert.notEqual(run.attachmentId, "operator");
-
-  assert.equal(shellResults.ls!.code, 0);
-  assert.equal(run.output("/approvals").stdout, shellResults.ls!.stdout);
-  for (const [id, name] of [
-    [a1, "jq"],
-    [a5, "zip"],
-  ])
-    assert.match(
-      shellResults.ls!.stdout,
-      new RegExp(
-        `^approval ${id} \\[pending\\] install Debian packages: ${name}$`,
-        "m",
-      ),
-    );
-  const listed = JSON.parse(shellResults.json!.stdout) as Array<
-    Record<string, unknown>
-  >;
-  assert.equal(listed.length, 5);
-  for (const approval of listed) {
-    assert.equal("origin" in approval, false);
-    assert.equal("request" in approval, false);
-  }
-
-  assert.match(
-    run.output(`/approve ${a1}`).stdout,
-    new RegExp(`^approval ${a1} \\[succeeded\\]`),
-  );
-  assert.match(
-    shellResults.approve!.stdout,
-    new RegExp(`^approval ${a2} \\[stale\\]`),
-  );
-  assert.match(
-    run.output(`/deny ${a3}`).stdout,
-    new RegExp(`^approval ${a3} \\[denied\\]`),
-  );
-  assert.match(
-    shellResults.deny!.stdout,
-    new RegExp(`^approval ${a4} \\[denied\\]`),
-  );
-  assert.equal(
-    run.output("/approvals", 1).stdout,
-    shellResults.lsAfter!.stdout,
-  );
-
-  assert.notEqual(shellResults.repeat!.code, 0);
-  assert.equal(
-    shellResults.repeat!.stderr,
-    `integral: approval ${a3} is already denied\n`,
-  );
-  assert.equal(
-    run.output(`/deny ${a3}`, 1).stderr,
-    shellResults.repeat!.stderr,
-  );
-  assert.notEqual(shellResults.missing!.code, 0);
-  assert.equal(
-    shellResults.missing!.stderr,
-    "integral: approval missing was not found\n",
-  );
-  assert.equal(
-    run.output("/approve missing").stderr,
-    shellResults.missing!.stderr,
-  );
-  assert.equal(forged?.status, 403);
-  assert.deepEqual(forged?.body, {
-    error: "approval requires an attached human terminal",
-  });
-  assert.match(
-    run.output("/approvals", 2).stdout,
-    new RegExp(`^approval ${a5} \\[pending\\]`, "m"),
-  );
-
-  await until(async () => (await attachedTerminals(h.endpoint)) === 0);
-  const detached = await postJson(
-    `${h.endpoint}/integral/approvals/${a5}/approve`,
-    { attachmentId: run.attachmentId },
-  );
-  assert.equal(detached.status, 403);
-  const operator = await h.shell(["approval", "deny", a5]);
-  assert.equal(operator.code, 0);
-  assert.match(operator.stdout, new RegExp(`^approval ${a5} \\[denied\\]`));
-
-  const restored = new ApprovalStore(h.paths);
-  await restored.load();
-  const decisions = Object.fromEntries(
-    approvals.map((id) => {
-      const record = restored.get(id);
-      return [id, [record.status, record.decision?.terminalId]];
-    }),
-  );
-  assert.deepEqual(decisions, {
-    [a1]: ["succeeded", run.attachmentId],
-    [a2]: ["stale", "operator"],
-    [a3]: ["denied", run.attachmentId],
-    [a4]: ["denied", "operator"],
-    [a5]: ["denied", "operator"],
-  });
-  assert.match(restored.get(a2).execution?.error ?? "", /stale/);
-  const audit = (await readFile(h.paths.approvalAudit, "utf8"))
-    .trim()
-    .split("\n")
-    .map(
-      (line) =>
-        JSON.parse(line) as {
-          approvalId: string;
-          decision?: { terminalId: string };
-        },
-    );
-  for (const id of approvals)
-    assert.equal(
-      audit.filter((entry) => entry.approvalId === id).at(-1)?.decision
-        ?.terminalId,
-      decisions[id]![1],
-    );
-  assert.equal(h.imageBuilds.length, 1);
-  assert.ok(h.imageBuilds[0]!.includes("jq"));
-  assert.equal(h.imageBuilds[0]!.includes("curl"), false);
-  assert.equal(h.attachedEvents(), 1);
-  assertNoSlashCommandsReachedPi(h);
-});
-
 /* @covers CLI-6453A00A
 Given the integral coordinator is healthy
 	And an operation concerns the default terminal conversation rather than host administration or terminal lifecycle
@@ -938,7 +714,7 @@ Given the integral coordinator is healthy
 		Then it identifies the equivalent spelling for every shared operation on the other surface
 Given an operation is specific to host administration, scripting, or an attached terminal
 	When integral shows top-level CLI help or local talk help
-		Then `server`, `talk`, `schedule`, `image`, `config`, `migrate`, `doctor`, and `version` remain CLI-only
+		Then `server`, `talk`, `schedule`, `config`, `migrate`, `doctor`, and `version` remain CLI-only
 			And connection setup, credential rotation, and removal remain CLI-only
 			And structured-output flags remain CLI-only
 			And `/exit` remains talk-only
@@ -960,7 +736,6 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
       "/server status",
       "/talk",
       "/schedule ls",
-      "/image edit",
       "/config show",
       "/migrate",
       "/doctor",
@@ -968,7 +743,6 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
       "/connection add docs --auth none",
       "/connection rm docs",
       "/status --json",
-      "/approvals --json",
       "/connection ls --json",
       "/queue",
     ],
@@ -997,7 +771,6 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
     ["model", "/model"],
     ["queue", "/queue"],
     ["task", "/tasks"],
-    ["approval", "/approvals, /approve, /deny"],
     ["connection", "/connection catalog or ls"],
   ])
     assert.match(
@@ -1015,9 +788,6 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
     ["/tasks [ls]", "(integral task ls)"],
     ["/tasks show <id>", "(integral task show <id>)"],
     ["/tasks cancel <id>", "(integral task cancel <id>)"],
-    ["/approvals", "(integral approval ls)"],
-    ["/approve <id>", "(integral approval approve <id>)"],
-    ["/deny <id>", "(integral approval deny <id>)"],
   ])
     assert.ok(
       talkLine(talkCommandText!).endsWith(shellSpelling!),
@@ -1028,7 +798,6 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
     "server",
     "talk",
     "schedule",
-    "image",
     "config",
     "migrate",
     "doctor",
@@ -1039,7 +808,7 @@ test("[CLI-6453A00A] [CLI-D1B5816E] help names equivalent spellings and talk rej
   }
   assert.match(
     help,
-    /Host administration remains in the shell: integral server, talk, schedule, image, config, migrate, doctor, version, and connection add \(including credential rotation\) or rm\./,
+    /Host administration remains in the shell: integral server, talk, schedule, config, migrate, doctor, version, and connection add \(including credential rotation\) or rm\./,
   );
   assert.match(help, /Structured --json output is CLI-only\./);
   assert.match(talkLine("/exit"), /detach this terminal/);
