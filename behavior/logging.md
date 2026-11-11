@@ -210,7 +210,7 @@ Given the coordinator accepts, claims, completes, or releases conversation work
 	When it emits diagnostics for that transition
 		Then it includes the conversation and message IDs without conversation text
 Given the runner claims a conversation message that requires a new Pi session
-	When it prepares resources, records the run, registers the gateway session, starts sidecars, starts Pi, and begins the prompt
+	When it prepares resources, records the run, registers the gateway session, runs extension preparation steps, starts Pi, and begins the prompt
 		Then it emits stable start, completion, slow-stage, and failure events at the appropriate log levels
 			And includes the applicable message, conversation, session, and run IDs
 			And includes elapsed time and a non-secret stage name

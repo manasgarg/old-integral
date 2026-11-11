@@ -1,12 +1,24 @@
 # Connection behaviors
 
 These behaviors preserve the source project's connection CLI ergonomics for a
-single user. Connections may describe model providers, email accounts, generic
-HTTP endpoints, remote or stdio MCP servers, governed host Git repositories, durable
-writable host stores, or the deployment's Discord DM. Service and host-resource
-connections are available to Pi; the Discord connection is a trusted host-side
-conversation surface and is never exposed to Pi. Integral has no grant or revoke
-concept.
+single user. A connection is host-side state that gives core something to
+enforce or mount, and it falls into one of four roles:
+
+- **Service** connections (model providers, GitHub, Gmail, Mailgun, generic
+  HTTP, and MCP) contribute gateway rules and the credentials those rules
+  inject.
+- **Repository** connections (`host-repo`) contribute a governed repository
+  served through the repository extension's Git endpoint.
+- **Store** connections (`host-store`) contribute a writable volume.
+- **Channel** connections (`discord`) contribute a channel. A channel
+  connection may also enable an extension, but its own credential is never
+  exposed to Pi.
+
+Core defines the model-provider, generic HTTP, GitHub, and Discord connection
+kinds. Bundled extensions contribute the MCP, email, repository, and store
+kinds and their setup. An extension's box half reads connection descriptions
+and never holds real credentials.
+Integral has no grant or revoke concept.
 
 <!-- Automation note (CONNECTION-03C4E791): Guided setup validation and its explicit equivalent are automated; keystroke-level interactive selection is not driven by the non-interactive default suite. -->
 <!-- Automation note (CONNECTION-1D691391): Commit-after-verification behavior is automated with a controlled failing endpoint; no real provider is contacted. -->
@@ -314,36 +326,36 @@ Given the user has the URL of a remote MCP server
 			And still verifies the resulting MCP connection before committing it
 ```
 
-
 ## CONNECTION-0EF2CF89 — Add a stdio MCP connection
 
 ```text
-Given the user has an MCP server executable available in the configured runner image
+Given the user has an MCP server executable available in the selected Pi image
 	When the user runs `integral connection add mcp --transport stdio --name <name> --command <executable>`
 		And supplies zero or more `--arg <argument>` values
 		Then integral records the executable and each argument without shell parsing or expansion
 			And treats the argument following `--command` as the exact executable name or absolute image path
 			And uses the arguments in their supplied order
-			And runs setup verification in a short-lived isolated sidecar using the configured runner image
+			And runs setup verification in a short-lived box from the selected Pi image with the same restrictions as a Pi session
 			And negotiates a supported MCP protocol over standard input and standard output
 			And discovers every available tool before committing the connection
 			And stores the connection only after discovery succeeds
 			And reports the server name, stdio transport, protocol, and tool count
 	When the user supplies `--env <name>=<value>`
-		Then integral stores and supplies the value as non-secret sidecar configuration
+		Then integral stores and supplies the value as non-secret server configuration
 	When the user supplies `--secret-env <name>`
 		Then integral reads the named value without echoing it
 			And stores it only in the host credential area
-			And supplies it only to that MCP sidecar process
-			And never exposes it to Pi, tool declarations, logs, or connection listings
+			And supplies the server only that secret's credential sentinel
+			And the gateway substitutes the real value only within the connection's allowed URLs
+			And never exposes the real value to Pi, tool declarations, logs, or connection listings
 	When the user supplies one or more `--allow-url <url>` values
-		Then integral gives the sidecar outbound access only within those normalized URL boundaries
-			And does not inject another connection's credential into those requests
+		Then the connection contributes gateway rules only within those normalized URL boundaries
+			And the gateway does not inject another connection's credential into those requests
 	When no `--allow-url` is supplied
-		Then the sidecar has no external network access
+		Then the connection contributes no gateway rule
 	When the executable cannot start, emits invalid protocol data, exits during verification, or does not expose a valid tool catalog
 		Then integral exits non-zero
-			And removes the verification sidecar
+			And removes the verification box
 			And does not store a partial connection or secret
 ```
 

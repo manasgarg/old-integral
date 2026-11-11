@@ -1,11 +1,15 @@
 # Discord DM behaviors
 
-These behaviors cover one trusted Discord direct-message channel as its own
-durable Integral conversation. The Discord DM and the default terminal
-conversation keep separate histories, queues, sessions, and
-task routes. In this release the logical Discord conversation maps one-to-one
-to the configured native Discord DM; linking surfaces is out of scope. Discord
-does not grant the agent credentials or weaken governed-operation approvals.
+These behaviors cover the Discord channel, which is part of core: one trusted
+Discord direct-message channel as its own durable Integral conversation,
+following the channel contract in [`channel.md`](channel.md). The Discord DM
+and the default terminal conversation keep separate histories, queues,
+sessions, and task routes. In this release the logical Discord conversation
+maps one-to-one to the configured native Discord DM; linking surfaces is out
+of scope. A Discord connection also activates the bundled Discord-send
+extension, whose host half contributes the Discord gateway rule and the
+single-DM rule plugin. Discord does not grant the agent credentials or weaken
+governed-operation approvals.
 
 <!-- Automation note (DISCORD-E4BE44A7): Full verification requires an isolated Discord application and credential fixture. -->
 <!-- Automation note (DISCORD-E043BBDD): Gateway reconnect and shutdown require Discord Gateway fault-injection infrastructure. -->
@@ -128,16 +132,21 @@ Given a Discord message contains both non-empty text and an unsupported attachme
 ```text
 Given an active Discord connection is configured for the deployment
 	When Integral provisions an interactive conversation or isolated scheduled-task attempt
-		Then it registers `discord_send` for Pi
+		Then it enables the Discord-send extension
+			And the extension registers `discord_send`
 			And describes that the tool sends text to the one configured Discord DM
 			And does not expose the bot token or accept Discord identity parameters
-	When Pi calls `discord_send` with non-empty text
-		Then the authenticated gateway resolves the active Discord connection
-			And asks the coordinator to send the text only to that connection's configured DM
-			And records successful delivery in the Discord conversation's history
+	When a session sends a create-message request to the Discord API through the gateway
+		Then the Discord rule plugin allows it only for the configured DM channel
+			And the gateway injects the bot token
+			And the plugin reports successful delivery to the coordinator
+			And the coordinator records the delivery in the Discord conversation's history
+	When a session sends any other Discord API request
+		Then the Discord rule plugin refuses it without contacting Discord
 Given no active Discord connection is configured for the deployment
 	When Integral provisions an interactive conversation or isolated scheduled-task attempt
-		Then it does not register `discord_send`
+		Then it does not enable the Discord-send extension
+			And the gateway has no Discord rule
 Given a provisioned session has `discord_send`
 	And its Discord connection becomes unavailable before a call
 	When Pi calls `discord_send`

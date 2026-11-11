@@ -1,24 +1,25 @@
 # Durable store behaviors
 
-These behaviors cover host-backed directories that remain writable and durable
-across Pi runs. Stores use direct filesystem writes rather than the governed
-Git landing protocol; Integral provides mounting, isolation, coordination,
-configured snapshots, and soft deletion without interpreting
-their content.
+These behaviors cover the bundled store extension. Stores are host-backed
+directories that remain writable and durable across Pi runs. The store
+extension's host half contributes each active store as a volume, the store
+lifecycle control operations, the snapshot service, and the `host-store`
+connection kind; core mounts the volumes into the box. Stores use direct
+filesystem writes rather than Git landing, and Integral does not interpret
+store content. The extension's box half gives Pi the lifecycle tools.
 
-
-## STORE-350F3496 — Give Pi authenticated store lifecycle tools
+## STORE-350F3496 — Give Pi store lifecycle tools through the store extension
 
 ```text
 Given integral provisions any interactive or isolated scheduled Pi session
-	When it prepares Pi's extensions
-		Then it registers `store_list`, `store_create`, `store_delete`, `store_restore`, `store_snapshot_list`, and `store_snapshot_restore`
-			And describes direct-write durability, advisory locking, snapshots, and soft deletion to Pi
+	When it enables the store extension
+		Then the extension registers `store_list`, `store_create`, `store_delete`, `store_restore`, `store_snapshot_list`, and `store_snapshot_restore`
+			And supplies guidance on direct-write durability, advisory locking, snapshots, and soft deletion
 			And explains that creation, restoration, and snapshot restoration replace affected sessions while deletion changes mounted resources only for later sessions
-			And sends every lifecycle operation through the authenticated gateway control boundary
-			And derives store authority from the session instead of accepting a host path from Pi
+			And sends every lifecycle operation to the Integral control API through the gateway
+			And the control API derives store authority from the session instead of accepting a host path from the box
 			And keeps the tools available when no store connection exists yet
-	When a store tool is called with an expired, revoked, or mismatched session identity
+	When a store operation carries an expired, revoked, or mismatched session identity
 		Then integral rejects it without reading or changing store state
 ```
 

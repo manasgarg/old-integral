@@ -3,27 +3,60 @@
 This directory contains the normative, test-case-oriented behavior
 specifications for Phase 1.
 
-- [`cli.md`](cli.md) — command discovery and version reporting
+## System model
+
+Integral has two parts. Each behavior file belongs to one of them.
+
+- **Core** runs Pi in a disposable box and owns the mechanisms everything else
+  plugs into. Its concepts are the box, the session, the conversation and its
+  queue, the channel, the gateway rule, the approval, the volume, the run
+  record, and the extension host. Channels — the terminal, the configured
+  Discord DM, and the scheduler — are part of core.
+- **Extensions** are what Pi can do. An extension is a bundle that may
+  contribute a Pi package, default gateway rules, rule plugins, Integral
+  control operations, volumes, host services, and connection kinds. The box
+  half of an extension runs beside software Pi can change, so it enforces
+  nothing. The host half is trusted code and enforces only through the hooks
+  core provides. Adding a bundled extension does not change core.
+
+A connection contributes something core or an extension can enforce or mount:
+gateway rules and their credentials, a governed repository, a store volume, or
+a channel. Where a limit depends on what a request means rather than where it
+goes, the matching gateway rule names a rule plugin from an extension's host
+half.
+
+### Core
+
+- [`server.md`](server.md) — combined and separate component lifecycle
+- [`container.md`](container.md) — the box: provisioning, restrictions, RPC, and session lifecycle
+- [`gateway.md`](gateway.md) — gateway rules, sentinels, rule plugins, the control API, and approvals
+- [`extension.md`](extension.md) — the extension host and the contract every extension follows
+- [`channel.md`](channel.md) — the contract every channel follows
+- [`chat.md`](chat.md) — the terminal channel
+- [`discord.md`](discord.md) — the Discord DM channel and the Discord-send extension
+- [`schedule.md`](schedule.md) — the scheduler channel and isolated task execution
+- [`queue.md`](queue.md) — durable message ordering, editing, and deletion
+- [`run.md`](run.md) — durable run records and agent-visible execution history
+- [`connection.md`](connection.md) — connection setup, credentials, and roles
 - [`environment.md`](environment.md) — deployment selection and container environment
 - [`config.md`](config.md) — configuration files, validation, and options
 - [`logging.md`](logging.md) — component diagnostics, structure, and redaction
-- [`connection.md`](connection.md) — provider, service, and host-resource setup
-- [`mcp.md`](mcp.md) — generalized remote and stdio MCP discovery, isolation, and tools
-- [`web.md`](web.md) — governed public web search and readable page retrieval
-- [`repository.md`](repository.md) — agent-visible governed Git repositories
-- [`store.md`](store.md) — durable writable host stores
-- [`email.md`](email.md) — Gmail and Mailgun account capabilities and policy
-- [`discord.md`](discord.md) — single-user Discord DM setup and conversation access
-- [`server.md`](server.md) — combined and separate component lifecycle
-- [`gateway.md`](gateway.md) — health, session identity, and governed egress
-- [`container.md`](container.md) — Pi provisioning, isolation, and RPC lifecycle
-- [`profile.md`](profile.md) — opaque repository mounted at Pi's native profile directory
-- [`chat.md`](chat.md) — terminal interaction and conversation lifecycle
-- [`queue.md`](queue.md) — durable message ordering, editing, and deletion
-- [`schedule.md`](schedule.md) — schedule management and isolated task execution
-- [`run.md`](run.md) — durable run records and agent-visible execution history
 - [`failure.md`](failure.md) — cross-cutting failure handling and cleanup
 - [`upgrade.md`](upgrade.md) — deployment format, migrations, releases, and upgrades
+- [`cli.md`](cli.md) — command discovery and version reporting
+- [`development.md`](development.md) — local verification commands
+
+### Bundled extensions
+
+- [`web.md`](web.md) — web search and page retrieval, and the public web rule
+- [`mcp.md`](mcp.md) — remote and stdio MCP servers
+- [`email.md`](email.md) — Gmail and Mailgun accounts and the email rule plugin
+- [`repository.md`](repository.md) — governed Git repositories, the Git endpoint, and landing
+- [`profile.md`](profile.md) — the Pi profile repository, served by the repository extension
+- [`store.md`](store.md) — durable store volumes, lifecycle, and snapshots
+
+The Discord-send extension is specified in `discord.md`, and the task
+extension in `schedule.md`.
 
 Behavior formatting and ID rules are defined in [`AGENTS.md`](../AGENTS.md).
 
@@ -57,3 +90,4 @@ and must not be assigned again. Retired opaque IDs:
 - `LEARN-8073E4CC` — specified a self-improvement loop owned by Pi
 - `DEV-79F36207` — specified software-development behavior owned by Pi
 - `PROFILE-97C5C7BA` — duplicated the ordinary repository lifecycle for Pi's profile
+- `MCP-0A804DA4` — ran stdio MCP servers in a separate sidecar container instead of inside the box
