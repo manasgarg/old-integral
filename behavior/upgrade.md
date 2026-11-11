@@ -282,3 +282,20 @@ Given a deploy succeeded and its backup is retained
 			And warns that changes made since that deploy are not in the restored deployment
 			And records the rollback in `<release-root>/deploy-log.jsonl`
 ```
+
+## UPGRADE-D773FC7C — Keep managed repositories and stores usable across a restore
+
+```text
+Given the deployment has governed repositories or stores whose backing directories Integral created under the deployment's `data/`
+	When deploy backs up the deployment
+		Then it records with the backup each such resource whose backing directory still has the filesystem identity recorded for it
+	When deploy restores that backup, after a failed upgrade or on request
+		Then it records the restored backing directory's filesystem identity for each resource recorded with the backup
+			And reports each resource it re-recorded
+			And leaves every other resource record as the backup holds it
+	When a resource's backing directory already had a different identity when the backup was taken
+		Then the restore does not re-record it
+			And Integral keeps reporting it as `identity_changed`
+	When the backup was taken by a release that recorded no resources
+		Then the restore re-records nothing
+```

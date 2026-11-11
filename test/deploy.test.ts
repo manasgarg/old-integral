@@ -3,6 +3,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   readlink,
@@ -1023,4 +1024,140 @@ test("[UPGRADE-25417B4B] rollback restores the backup and release from before th
   assert.equal(rollback?.result, "rolled-back");
 
   await assert.rejects(rollbackDeploy(settings, host), /no retained backup/);
+});
+
+/* @covers UPGRADE-D773FC7C
+Given the deployment has governed repositories or stores whose backing directories Integral created under the deployment's `data/`
+	When deploy backs up the deployment
+		Then it records with the backup each such resource whose backing directory still has the filesystem identity recorded for it
+	When deploy restores that backup, after a failed upgrade or on request
+		Then it records the restored backing directory's filesystem identity for each resource recorded with the backup
+			And reports each resource it re-recorded
+			And leaves every other resource record as the backup holds it
+	When a resource's backing directory already had a different identity when the backup was taken
+		Then the restore does not re-record it
+			And Integral keeps reporting it as `identity_changed`
+	When the backup was taken by a release that recorded no resources
+		Then the restore re-records nothing
+*/
+async function identityOf(path: string) {
+  const value = await stat(path, { bigint: true });
+  return { device: String(value.dev), inode: String(value.ino) };
+}
+
+/** Give the deployment a matching managed repo, a mismatched one, and an outside store. */
+async function withManagedResources(home: string, outside: string) {
+  const data = join(home, "data"),
+    records: Record<string, Record<string, unknown>> = {};
+  for (const [name, path] of [
+    ["kb", join(data, "repositories", "kb-id")],
+    ["drifted", join(data, "repositories", "drifted-id")],
+    ["notes", outside],
+  ] as const) {
+    await mkdir(join(path, "refs"), { recursive: true });
+    await writeFile(join(path, "HEAD"), "ref: refs/heads/main\n");
+    records[name] = {
+      id: `${name}-id`,
+      connection: name,
+      kind: name === "notes" ? "host-store" : "host-repo",
+      path,
+      mount: `/home/pi/${name}`,
+      identity:
+        name === "drifted"
+          ? { device: "1", inode: "1" }
+          : await identityOf(path),
+      state: name === "drifted" ? "unavailable" : "active",
+      revision: 2,
+      ...(name === "drifted" ? { availabilityReason: "identity_changed" } : {}),
+    };
+  }
+  await mkdir(join(data, "resources"), { recursive: true });
+  for (const [name, record] of Object.entries(records))
+    await writeFile(
+      join(data, "resources", `${name}.json`),
+      `${JSON.stringify(record, null, 2)}\n`,
+    );
+  return records;
+}
+
+const recordOf = async (home: string, name: string) =>
+  JSON.parse(
+    await readFile(join(home, "data", "resources", `${name}.json`), "utf8"),
+  ) as Record<string, unknown>;
+
+test("[UPGRADE-D773FC7C] a restore re-records the managed resources that matched at backup time", async (t) => {
+  for (const how of ["failed upgrade", "on request"] as const) {
+    const { settings, host } = await scenario(t),
+      home = settings.deploymentHome,
+      outside = await mkdtemp(join(tmpdir(), "integral-outside-store-"));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    await withPreviousRelease(settings, host);
+    const before = await withManagedResources(home, outside),
+      kbPath = join(home, "data", "repositories", "kb-id"),
+      // An open handle keeps the original inode allocated, so the restored
+      // copy is guaranteed a different one, as it was in production.
+      original = await open(kbPath);
+    t.after(() => original.close());
+
+    if (how === "failed upgrade") {
+      host.healthy = false;
+      assert.equal(await deploy(settings, host), 1, how);
+    } else {
+      assert.equal(await deploy(settings, host), 0, how);
+      assert.equal(await rollbackDeploy(settings, host), 0, how);
+    }
+
+    const backups = await readdir(join(settings.releaseRoot, "backups")),
+      backup = JSON.parse(
+        await readFile(
+          join(settings.releaseRoot, "backups", backups[0]!, "backup.json"),
+          "utf8",
+        ),
+      ) as { resourceIdentities: Array<{ name: string }> };
+    assert.deepEqual(
+      backup.resourceIdentities.map(({ name }) => name),
+      ["kb"],
+      how,
+    );
+
+    const restoredKb = await recordOf(home, "kb");
+    assert.notDeepEqual(await identityOf(kbPath), before.kb!.identity, how);
+    assert.deepEqual(
+      restoredKb,
+      { ...before.kb, identity: await identityOf(kbPath) },
+      how,
+    );
+    assert.deepEqual(await recordOf(home, "drifted"), before.drifted, how);
+    assert.deepEqual(await recordOf(home, "notes"), before.notes, how);
+    assert.ok(
+      host.reports.some((line) =>
+        line.includes("re-recorded the backing directory of kb"),
+      ),
+      how,
+    );
+    assert.ok(!host.reports.some((line) => line.includes("of drifted")), how);
+  }
+});
+
+test("[UPGRADE-D773FC7C] a backup that recorded no resources re-records nothing", async (t) => {
+  const { settings, host } = await scenario(t),
+    home = settings.deploymentHome,
+    outside = await mkdtemp(join(tmpdir(), "integral-outside-store-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await withPreviousRelease(settings, host);
+  const before = await withManagedResources(home, outside);
+  assert.equal(await deploy(settings, host), 0);
+
+  const [name] = await readdir(join(settings.releaseRoot, "backups")),
+    file = join(settings.releaseRoot, "backups", name!, "backup.json"),
+    record = JSON.parse(await readFile(file, "utf8")) as Record<
+      string,
+      unknown
+    >;
+  delete record.resourceIdentities;
+  await writeFile(file, JSON.stringify(record));
+
+  assert.equal(await rollbackDeploy(settings, host), 0);
+  assert.deepEqual(await recordOf(home, "kb"), before.kb);
+  assert.ok(!host.reports.some((line) => line.includes("re-recorded")));
 });
