@@ -392,6 +392,88 @@ export async function listResourceRecords(
   return result;
 }
 
+/** A managed resource and the backing identity it had when a backup was taken. */
+export interface ManagedResourceIdentity {
+  name: string;
+  path: string;
+  identity: BackingIdentity;
+}
+
+/**
+ * List the repositories and stores backed inside the deployment's own `data/`
+ * whose backing directory still has its recorded identity. A backup records
+ * these so a restore, which copies `data/` and so changes every inode, can
+ * re-record them. Reads only: a backup must not change the live deployment.
+ */
+export async function managedResourceIdentities(
+  paths: IntegralPaths,
+): Promise<ManagedResourceIdentity[]> {
+  const files = await readdir(paths.resources).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+
+  const result: ManagedResourceIdentity[] = [];
+  for (const file of files.filter((name) => name.endsWith(".json")).sort()) {
+    const record = await readResource(paths, basename(file, ".json")).catch(
+      () => undefined,
+    );
+    if (!record || !inside(paths.data, record.path)) continue;
+
+    const current = await backingIdentity(record.path).catch(() => undefined);
+    if (current && sameIdentity(current, record.identity))
+      result.push({
+        name: record.connection,
+        path: record.path,
+        identity: record.identity,
+      });
+  }
+
+  return result;
+}
+
+/**
+ * After a restore copied `data/` back from a backup, record the restored
+ * backing directories' identities for the resources the backup listed. The
+ * kernel may or may not reuse the old inode, so record it either way. A record
+ * that no longer names the same path and identity is left alone. Returns the
+ * names of the re-recorded resources.
+ */
+export async function recordRestoredIdentities(
+  paths: IntegralPaths,
+  restored: ManagedResourceIdentity[],
+): Promise<string[]> {
+  const result: string[] = [];
+
+  for (const entry of restored) {
+    const record = await readResource(paths, entry.name).catch(() => undefined);
+    if (
+      !record ||
+      record.path !== entry.path ||
+      !inside(paths.data, record.path) ||
+      !sameIdentity(record.identity, entry.identity)
+    )
+      continue;
+
+    const current = await backingIdentity(record.path).catch(() => undefined);
+    if (!current) continue;
+    // Rewrite only the identity, so the restored record keeps the exact
+    // shape the backup's release wrote.
+    const raw = JSON.parse(
+      (await readText(recordFile(paths, entry.name)))!,
+    ) as Record<string, unknown>;
+    await atomicWrite(
+      recordFile(paths, entry.name),
+      `${JSON.stringify({ ...raw, identity: current }, null, 2)}\n`,
+    );
+    result.push(entry.name);
+  }
+
+  return result;
+}
+
 async function assertNoOverlap(
   paths: IntegralPaths,
   source: string,

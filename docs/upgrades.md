@@ -135,6 +135,13 @@ together:
 Because a release refuses to run on a newer format, old code can never be
 started on migrated data by mistake.
 
+A restore copies `data/` back, which gives every directory in it a new inode.
+Integral marks a governed repository or store unavailable (`identity_changed`)
+when its backing directory's inode changes, so each backup lists the managed
+repositories and stores under `data/` that matched at backup time, and the
+restore re-records just those. One that had already drifted before the backup
+stays unavailable.
+
 ## Pi upgrades
 
 A Pi pin bump is an ordinary release. Follow
